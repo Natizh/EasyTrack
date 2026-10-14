@@ -17,14 +17,19 @@
 		725EF60B29211DEBF3F2DD7F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0929DFA64B2D17F75F079643 /* Foundation.framework */; };
 		7636361A00ADD880A96E4D27 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE8E4F1FD7BCBFD928729DD8 /* RootView.swift */; };
 		C1D2E3F40516273849A5B6C7 /* AutomationBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F30415263748A9B5C6D7 /* AutomationBuilder.swift */; };
+		A5B6C7D8E9F0123A4B5C6D7E /* FinanceManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C6D7E8F9012A3B4C5D6E7F /* FinanceManagementViews.swift */; };
+		A6B7C8D9E0F1234A5B6C7D8E /* RecurringViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C7D8E9F0123A4B5C6D7E8F /* RecurringViews.swift */; };
 		7A80DE1DB7692C8D8D9F7CCC /* EasyTrackApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 897736F4E2C9255993032DC1 /* EasyTrackApp.swift */; };
 		9ADC2A7193059F92875DA6EC /* SeedMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B801ABAC1EDE6A456443944 /* SeedMapper.swift */; };
 		B32C870AED59B3CBC1BD155F /* FolderProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2334F00EBB10C86D9FD0B158 /* FolderProbe.swift */; };
 		B6E8ED92FB2C4C4C38C1FBC3 /* SQLiteDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73DEACB48A2F3A61EF2789DA /* SQLiteDatabase.swift */; };
+		A4B5C6D7E8F9012A3B4C5D6E /* SQLiteDatabase+Daily.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */; };
 		C67F480188BCCBB544FD3118 /* SystemDocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B213F8546319D3AE8F801F /* SystemDocumentPicker.swift */; };
 		D740139540BF108F7F9EDCA7 /* Icon-60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = 3D24BCD975ADF170B117F140 /* Icon-60@3x.png */; };
 		D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A18BE776B20AE51FF239E7 /* Models.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* NotificationParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */; };
+		A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */; };
+		A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,14 +51,19 @@
 		3D24BCD975ADF170B117F140 /* Icon-60@3x.png */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.png; path = "Icon-60@3x.png"; sourceTree = "<group>"; };
 		6B97F59D3F2D4FB49B75B6B6 /* EasyTrackUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EasyTrackUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		73DEACB48A2F3A61EF2789DA /* SQLiteDatabase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SQLiteDatabase.swift; sourceTree = "<group>"; };
+		B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SQLiteDatabase+Daily.swift"; sourceTree = "<group>"; };
 		76B767246820AD0774018D33 /* EasyTrackUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EasyTrackUITests.swift; sourceTree = "<group>"; };
 		7C322502569D2F1686527961 /* CaptureNotificationIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureNotificationIntent.swift; sourceTree = "<group>"; };
 		81A18BE776B20AE51FF239E7 /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationParser.swift; sourceTree = "<group>"; };
+		B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DailyModels.swift; sourceTree = "<group>"; };
+		B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecurringSchedule.swift; sourceTree = "<group>"; };
 		897736F4E2C9255993032DC1 /* EasyTrackApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EasyTrackApp.swift; sourceTree = "<group>"; };
 		9E059E5133108C94975B5E0E /* SeedImportCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SeedImportCoordinator.swift; sourceTree = "<group>"; };
 		BE8E4F1FD7BCBFD928729DD8 /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		D1E2F30415263748A9B5C6D7 /* AutomationBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AutomationBuilder.swift; sourceTree = "<group>"; };
+		B5C6D7E8F9012A3B4C5D6E7F /* FinanceManagementViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FinanceManagementViews.swift; sourceTree = "<group>"; };
+		B6C7D8E9F0123A4B5C6D7E8F /* RecurringViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecurringViews.swift; sourceTree = "<group>"; };
 		C784201ED5514D2C84B7BEBF /* HistoricalImportSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HistoricalImportSection.swift; sourceTree = "<group>"; };
 		DF2B12A9D4543CDC906ECF61 /* FinanceStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FinanceStore.swift; sourceTree = "<group>"; };
 		FBA6D32A6D00A6F48087EF56 /* EasyTrack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = EasyTrack.app; path = EasyTrack.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -94,6 +104,8 @@
 				C784201ED5514D2C84B7BEBF /* HistoricalImportSection.swift */,
 				BE8E4F1FD7BCBFD928729DD8 /* RootView.swift */,
 				D1E2F30415263748A9B5C6D7 /* AutomationBuilder.swift */,
+				B5C6D7E8F9012A3B4C5D6E7F /* FinanceManagementViews.swift */,
+				B6C7D8E9F0123A4B5C6D7E8F /* RecurringViews.swift */,
 				15B213F8546319D3AE8F801F /* SystemDocumentPicker.swift */,
 			);
 			name = UI;
@@ -105,6 +117,7 @@
 			children = (
 				DF2B12A9D4543CDC906ECF61 /* FinanceStore.swift */,
 				73DEACB48A2F3A61EF2789DA /* SQLiteDatabase.swift */,
+				B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */,
 			);
 			name = Persistence;
 			path = Persistence;
@@ -179,6 +192,8 @@
 			children = (
 				81A18BE776B20AE51FF239E7 /* Models.swift */,
 				B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */,
+				B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */,
+				B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */,
 			);
 			name = Shared;
 			path = Shared;
@@ -325,11 +340,16 @@
 				1353CBE7B1BD9C5E2455FE9F /* CaptureNotificationIntent.swift in Sources */,
 				56C2FA802360149DC48B50F9 /* FinanceStore.swift in Sources */,
 				B6E8ED92FB2C4C4C38C1FBC3 /* SQLiteDatabase.swift in Sources */,
+				A4B5C6D7E8F9012A3B4C5D6E /* SQLiteDatabase+Daily.swift in Sources */,
 				D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* NotificationParser.swift in Sources */,
+				A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */,
+				A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */,
 				3D0A0EE3BDEDE8678AC3D94D /* HistoricalImportSection.swift in Sources */,
 				7636361A00ADD880A96E4D27 /* RootView.swift in Sources */,
 				C1D2E3F40516273849A5B6C7 /* AutomationBuilder.swift in Sources */,
+				A5B6C7D8E9F0123A4B5C6D7E /* FinanceManagementViews.swift in Sources */,
+				A6B7C8D9E0F1234A5B6C7D8E /* RecurringViews.swift in Sources */,
 				C67F480188BCCBB544FD3118 /* SystemDocumentPicker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

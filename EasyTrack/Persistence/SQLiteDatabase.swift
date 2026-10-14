@@ -11,7 +11,7 @@ enum DatabaseError: LocalizedError {
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 final class SQLiteDatabase {
-    private var handle: OpaquePointer?
+    var handle: OpaquePointer?
 
     static func open() throws -> SQLiteDatabase {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -34,7 +34,7 @@ final class SQLiteDatabase {
             }
             let existingVersion = sqlite3_column_int(versionStatement, 0)
             sqlite3_finalize(versionStatement)
-            guard existingVersion <= 4 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
+            guard existingVersion <= 5 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
             try execute("""
                 CREATE TABLE IF NOT EXISTS transactions (
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL, amount_minor INTEGER NOT NULL,
@@ -200,6 +200,7 @@ final class SQLiteDatabase {
                 }
             }
             if existingVersion < 4 { try migrateToSchemaFour() }
+            if existingVersion < 5 { try migrateToSchemaFive() }
             try backfillSourceAccountsFromLegacyRules()
             try backfillLegacyNotificationEvents()
         } catch {
@@ -211,15 +212,15 @@ final class SQLiteDatabase {
 
     deinit { sqlite3_close(handle) }
 
-    private func error() -> DatabaseError {
+    func error() -> DatabaseError {
         DatabaseError.sqlite(String(cString: sqlite3_errmsg(handle)))
     }
 
-    private func execute(_ sql: String) throws {
+    func execute(_ sql: String) throws {
         guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else { throw error() }
     }
 
-    private func ensureColumn(_ name: String, type: String, in table: String) throws {
+    func ensureColumn(_ name: String, type: String, in table: String) throws {
         let columns = try statement("PRAGMA table_info(\(table))")
         var present = false
         while sqlite3_step(columns) == SQLITE_ROW {
@@ -293,36 +294,36 @@ final class SQLiteDatabase {
         }
     }
 
-    private func statement(_ sql: String) throws -> OpaquePointer {
+    func statement(_ sql: String) throws -> OpaquePointer {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement else { throw error() }
         return statement
     }
 
-    private func bind(_ text: String, at index: Int32, to statement: OpaquePointer) {
+    func bind(_ text: String, at index: Int32, to statement: OpaquePointer) {
         sqlite3_bind_text(statement, index, text, -1, sqliteTransient)
     }
 
-    private func bindOptional(_ value: String?, at index: Int32, to statement: OpaquePointer) {
+    func bindOptional(_ value: String?, at index: Int32, to statement: OpaquePointer) {
         if let value { bind(value, at: index, to: statement) }
         else { sqlite3_bind_null(statement, index) }
     }
 
-    private func bindOptional(_ value: Int64?, at index: Int32, to statement: OpaquePointer) {
+    func bindOptional(_ value: Int64?, at index: Int32, to statement: OpaquePointer) {
         if let value { sqlite3_bind_int64(statement, index, value) }
         else { sqlite3_bind_null(statement, index) }
     }
 
-    private func string(_ statement: OpaquePointer, _ index: Int32) -> String {
+    func string(_ statement: OpaquePointer, _ index: Int32) -> String {
         guard let pointer = sqlite3_column_text(statement, index) else { return "" }
         return String(cString: pointer)
     }
 
-    private func optionalString(_ statement: OpaquePointer, _ index: Int32) -> String? {
+    func optionalString(_ statement: OpaquePointer, _ index: Int32) -> String? {
         sqlite3_column_type(statement, index) == SQLITE_NULL ? nil : string(statement, index)
     }
 
-    private func optionalInt(_ statement: OpaquePointer, _ index: Int32) -> Int64? {
+    func optionalInt(_ statement: OpaquePointer, _ index: Int32) -> Int64? {
         sqlite3_column_type(statement, index) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, index)
     }
 
@@ -367,8 +368,9 @@ final class SQLiteDatabase {
                     occurred_at, updated_at, deleted_at, is_demo, revision, source_event_id,
                     subcategory, eur_minor, exchange_rate_eur, personal_expense_eur_minor,
                     recoverable_eur_minor, trip_id, paid_by, affects_my_accounts,
-                    source_movement_id, source_sheet, source_row, source_occurred_at, source_kind)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_movement_id, source_sheet, source_row, source_occurred_at, source_kind,
+                    account_id, category_id, recurring_occurrence_id)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, amount_minor=excluded.amount_minor,
                     currency=excluded.currency, merchant=excluded.merchant, account=excluded.account,
                     category=excluded.category, note=excluded.note, occurred_at=excluded.occurred_at,
@@ -381,7 +383,9 @@ final class SQLiteDatabase {
                     paid_by=excluded.paid_by, affects_my_accounts=excluded.affects_my_accounts,
                     source_movement_id=excluded.source_movement_id, source_sheet=excluded.source_sheet,
                     source_row=excluded.source_row, source_occurred_at=excluded.source_occurred_at,
-                    source_kind=excluded.source_kind
+                    source_kind=excluded.source_kind, account_id=excluded.account_id,
+                    category_id=excluded.category_id,
+                    recurring_occurrence_id=excluded.recurring_occurrence_id
                 """)
             bind(item.id.uuidString, at: 1, to: save)
             bind(item.kind.rawValue, at: 2, to: save)
@@ -413,6 +417,9 @@ final class SQLiteDatabase {
             bindOptional(item.sourceRow.map(Int64.init), at: 25, to: save)
             bindOptional(item.sourceOccurredAt, at: 26, to: save)
             bindOptional(item.sourceKind, at: 27, to: save)
+            bindOptional(item.accountID?.uuidString, at: 28, to: save)
+            bindOptional(item.categoryID?.uuidString, at: 29, to: save)
+            bindOptional(item.recurringOccurrenceID, at: 30, to: save)
             let saveResult = sqlite3_step(save)
             sqlite3_finalize(save)
             guard saveResult == SQLITE_DONE else { throw error() }
@@ -466,6 +473,9 @@ final class SQLiteDatabase {
             item.sourceRow = optionalInt(statement, 24).map(Int.init)
             item.sourceOccurredAt = optionalString(statement, 25)
             item.sourceKind = optionalString(statement, 26)
+            item.accountID = UUID(uuidString: string(statement, 27))
+            item.categoryID = UUID(uuidString: string(statement, 28))
+            item.recurringOccurrenceID = optionalString(statement, 29)
             items.append(item)
         }
         return items
@@ -633,6 +643,7 @@ final class SQLiteDatabase {
                        values: [.text("historical_import_digest"), .text(seed.digest)])
             try insert(into: "metadata", columns: ["key", "value"],
                        values: [.text("historical_import_format_version"), .text("1")])
+            try seedHistoricalAccountsAsManaged()
             try execute("COMMIT")
             return preview
         } catch {
@@ -760,41 +771,66 @@ extension SQLiteDatabase {
     private func localAccount(named name: String) throws -> LocalAccount {
         let normalized = NotificationParser.normalize(name)
         guard !normalized.isEmpty else { throw ParserValidationError.invalidRule("Choose an account name.") }
-        let query = try statement("SELECT id,name,created_at FROM local_accounts WHERE normalized_name=?")
+        let query = try statement("""
+            SELECT id,name,created_at,updated_at,symbol_name,color_name,archived_at,revision
+            FROM local_accounts WHERE normalized_name=?
+            """)
         bind(normalized, at: 1, to: query)
         if sqlite3_step(query) == SQLITE_ROW, let id = UUID(uuidString: string(query, 0)) {
-            let found = LocalAccount(id: id, name: string(query, 1),
+            var found = LocalAccount(id: id, name: string(query, 1),
                                      createdAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 2)))
+            found.updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(query, 3))
+            found.symbolName = string(query, 4)
+            found.colorName = string(query, 5)
+            found.archivedAt = sqlite3_column_type(query, 6) == SQLITE_NULL ? nil :
+                Date(timeIntervalSince1970: sqlite3_column_double(query, 6))
+            found.revision = sqlite3_column_int64(query, 7)
             sqlite3_finalize(query)
             return found
         }
         sqlite3_finalize(query)
         let account = LocalAccount(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                                    createdAt: .now)
-        let insert = try statement("INSERT INTO local_accounts(id,name,normalized_name,created_at) VALUES(?,?,?,?)")
+        let insert = try statement("""
+            INSERT INTO local_accounts(id,name,normalized_name,created_at,updated_at,revision)
+            VALUES(?,?,?,?,?,1)
+            """)
         defer { sqlite3_finalize(insert) }
         bind(account.id.uuidString, at: 1, to: insert)
         bind(account.name, at: 2, to: insert)
         bind(normalized, at: 3, to: insert)
         sqlite3_bind_double(insert, 4, account.createdAt.timeIntervalSince1970)
+        sqlite3_bind_double(insert, 5, account.createdAt.timeIntervalSince1970)
         guard sqlite3_step(insert) == SQLITE_DONE else { throw error() }
         return account
     }
 
     func localAccounts() throws -> [LocalAccount] {
-        let query = try statement("SELECT id,name,created_at FROM local_accounts ORDER BY name COLLATE NOCASE")
+        let query = try statement("""
+            SELECT id,name,created_at,updated_at,symbol_name,color_name,archived_at,revision
+            FROM local_accounts ORDER BY archived_at IS NOT NULL,name COLLATE NOCASE
+            """)
         defer { sqlite3_finalize(query) }
         var accounts: [LocalAccount] = []
         while sqlite3_step(query) == SQLITE_ROW {
             guard let id = UUID(uuidString: string(query, 0)) else { continue }
-            accounts.append(LocalAccount(id: id, name: string(query, 1),
-                                         createdAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 2))))
+            var account = LocalAccount(id: id, name: string(query, 1),
+                                       createdAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 2)))
+            account.updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(query, 3))
+            account.symbolName = string(query, 4)
+            account.colorName = string(query, 5)
+            account.archivedAt = sqlite3_column_type(query, 6) == SQLITE_NULL ? nil :
+                Date(timeIntervalSince1970: sqlite3_column_double(query, 6))
+            account.revision = sqlite3_column_int64(query, 7)
+            accounts.append(account)
         }
         return accounts
     }
 
     private func matchingExistingAccountName(for sourceName: String) throws -> String? {
         let normalized = NotificationParser.normalize(sourceName)
+        let archived = Set(try localAccounts().filter { $0.archivedAt != nil }
+            .map { NotificationParser.normalize($0.name) })
         let query = try statement("""
             SELECT name FROM local_accounts UNION SELECT source_name FROM historical_accounts
             UNION SELECT DISTINCT account FROM transactions WHERE account != ''
@@ -802,13 +838,17 @@ extension SQLiteDatabase {
         defer { sqlite3_finalize(query) }
         while sqlite3_step(query) == SQLITE_ROW {
             let candidate = string(query, 0)
-            if NotificationParser.normalize(candidate) == normalized { return candidate }
+            if NotificationParser.normalize(candidate) == normalized && !archived.contains(normalized) {
+                return candidate
+            }
         }
         return nil
     }
 
     private func setSourceAccount(_ sourceID: UUID, name: String) throws {
         let account = try localAccount(named: name)
+        let current = try parserSources().first(where: { $0.id == sourceID })?.accountID
+        if account.archivedAt != nil && current != account.id { throw DailyValidationError.archivedAccount }
         let update = try statement("UPDATE parser_sources SET account_id=? WHERE id=?")
         defer { sqlite3_finalize(update) }
         bind(account.id.uuidString, at: 1, to: update)
@@ -933,11 +973,18 @@ extension SQLiteDatabase {
     private func mappedAccountName(for sourceID: UUID) throws -> String? {
         let query = try statement("""
             SELECT a.name FROM parser_sources s JOIN local_accounts a ON a.id=s.account_id
-            WHERE s.id=?
+            WHERE s.id=? AND a.archived_at IS NULL
             """)
         defer { sqlite3_finalize(query) }
         bind(sourceID.uuidString, at: 1, to: query)
         return sqlite3_step(query) == SQLITE_ROW ? string(query, 0) : nil
+    }
+
+    private func mappedAccountID(for sourceID: UUID) throws -> UUID? {
+        let query = try statement("SELECT account_id FROM parser_sources WHERE id=?")
+        defer { sqlite3_finalize(query) }
+        bind(sourceID.uuidString, at: 1, to: query)
+        return sqlite3_step(query) == SQLITE_ROW ? UUID(uuidString: string(query, 0)) : nil
     }
 
     func parserRules(sourceID: UUID? = nil, includeDeleted: Bool = false) throws -> [ParserRule] {
@@ -1272,6 +1319,7 @@ extension SQLiteDatabase {
             transaction.eurMinor = amount.cents
             transaction.personalExpenseEURMinor = values.personal
             transaction.recoverableEURMinor = values.recoverable
+            transaction.accountID = try mappedAccountID(for: attempt.sourceID)
 #if DEBUG
             if preferredRuleID != nil,
                let token = ProcessInfo.processInfo.environment["EASYTRACK_TEST_FAIL_PARSER_ONCE"] {

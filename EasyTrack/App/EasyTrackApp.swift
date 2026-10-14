@@ -10,7 +10,7 @@ struct EasyTrackApp: App {
             RootView()
                 .environmentObject(store)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { store.reload() }
+                    if phase == .active { store.refreshOnForeground() }
                 }
         }
     }

@@ -7,7 +7,10 @@ let package = Package(
     products: [.library(name: "EasyTrackCore", targets: ["EasyTrackCore"])],
     targets: [
         .target(name: "EasyTrackCore", path: "EasyTrack", exclude: ["App", "UI", "Intake", "Exchange", "Assets.xcassets", "Resources", "Info.plist"],
-                sources: ["Shared/Models.swift", "Shared/NotificationParser.swift", "Persistence/SQLiteDatabase.swift", "Import/SeedMapper.swift", "Import/SeedImportCoordinator.swift"]),
+                sources: ["Shared/Models.swift", "Shared/NotificationParser.swift", "Shared/DailyModels.swift",
+                          "Shared/RecurringSchedule.swift", "Persistence/SQLiteDatabase.swift",
+                          "Persistence/SQLiteDatabase+Daily.swift",
+                          "Import/SeedMapper.swift", "Import/SeedImportCoordinator.swift"]),
         .testTarget(name: "EasyTrackCoreTests", dependencies: ["EasyTrackCore"], path: "Tests/EasyTrackCoreTests")
     ]
 )

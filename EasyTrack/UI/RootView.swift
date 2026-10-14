@@ -44,10 +44,16 @@ private struct DemoBanner: View {
 }
 
 private struct TransactionRow: View {
+    @EnvironmentObject private var store: FinanceStore
     let item: Transaction
 
     private var displayedEURMinor: Int64? {
         item.eurMinor ?? (item.currency == "EUR" ? item.amountMinor : nil)
+    }
+    private var categoryName: String {
+        if let id = item.categoryID,
+           let managed = store.ledgerCategories.first(where: { $0.id == id }) { return managed.name }
+        return item.category.isEmpty ? "Uncategorized" : item.category
     }
 
     var body: some View {
@@ -59,7 +65,7 @@ private struct TransactionRow: View {
                 .background(item.kind.isOutflow ? Palette.canvas : Palette.mint, in: RoundedRectangle(cornerRadius: 13))
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.merchant).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink).lineLimit(1)
-                Text("\(item.kind.title) · \(item.category.isEmpty ? "Uncategorized" : item.category) · \(item.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                Text("\(item.kind.title) · \(categoryName)")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
@@ -67,9 +73,11 @@ private struct TransactionRow: View {
                 Text(displayedEURMinor.map { "\(item.kind.isOutflow ? "−" : "+")\(Money.format($0))" } ?? "EUR amount unavailable")
                     .font(.subheadline.weight(.semibold)).monospacedDigit()
                     .foregroundStyle(item.kind.isOutflow ? Palette.ink : Palette.teal)
+                Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated)))
+                    .font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 4)
     }
 }
 
@@ -81,6 +89,7 @@ private struct HomeView: View {
     private var uncategorized: [Transaction] {
         store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
+    private var upcoming: [UpcomingRecurringItem] { store.upcomingRecurring() }
 
     var body: some View {
         ScrollView {
@@ -104,6 +113,28 @@ private struct HomeView: View {
                 .background(LinearGradient(colors: [Palette.ink, Palette.teal], startPoint: .topLeading, endPoint: .bottomTrailing),
                             in: RoundedRectangle(cornerRadius: 26))
 
+                VStack(alignment: .leading, spacing: 11) {
+                    HStack {
+                        Label("Upcoming", systemImage: "calendar")
+                            .font(.title3.bold()).foregroundStyle(Palette.ink)
+                        Spacer()
+                        NavigationLink("Manage") { RecurringListView() }
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                    }
+                    if upcoming.isEmpty {
+                        Text("No repeating payments expected in the next 30 days.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(upcoming.prefix(3)) { item in
+                            UpcomingRecurringRow(item: item)
+                            if item.id != upcoming.prefix(3).last?.id { Divider().padding(.leading, 54) }
+                        }
+                    }
+                }
+                .padding(17)
+                .background(.white, in: RoundedRectangle(cornerRadius: 20))
+                .accessibilityIdentifier("homeUpcomingSection")
+
                 if !uncategorized.isEmpty {
                     VStack(alignment: .leading, spacing: 11) {
                         HStack {
@@ -117,12 +148,12 @@ private struct HomeView: View {
                         }
                         Text("Complete transactions waiting for an optional category.")
                             .font(.caption).foregroundStyle(.secondary)
-                        ForEach(uncategorized.prefix(3)) { item in
+                        ForEach(uncategorized.prefix(2)) { item in
                             NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
                                 .buttonStyle(.plain)
-                            if item.id != uncategorized.prefix(3).last?.id { Divider().padding(.leading, 55) }
+                            if item.id != uncategorized.prefix(2).last?.id { Divider().padding(.leading, 55) }
                         }
-                        if uncategorized.count > 3 {
+                        if uncategorized.count > 2 {
                             NavigationLink("See all") { UncategorizedTransactionsView() }
                                 .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
                                 .padding(.top, 3)
@@ -136,14 +167,14 @@ private struct HomeView: View {
                 HStack {
                     Text("Recent activity").font(.title3.bold()).foregroundStyle(Palette.ink)
                     Spacer()
-                    Button { showingNew = true } label: { Label("Add", systemImage: "plus") }
-                        .buttonStyle(.borderedProminent).tint(Palette.teal)
+                    NavigationLink("See all") { TransactionsView() }
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
                 }
                 VStack(spacing: 0) {
-                    ForEach(store.transactions.prefix(4)) { item in
+                    ForEach(store.transactions.prefix(3)) { item in
                         NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
                             .buttonStyle(.plain)
-                        if item.id != store.transactions.prefix(4).last?.id { Divider().padding(.leading, 55) }
+                        if item.id != store.transactions.prefix(3).last?.id { Divider().padding(.leading, 55) }
                     }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 6)
@@ -154,6 +185,11 @@ private struct HomeView: View {
         }
         .background(Palette.canvas)
         .navigationTitle("EasyTrack")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) {
+            Button { showingNew = true } label: { Image(systemName: "plus") }
+                .accessibilityLabel("Add transaction")
+                .accessibilityIdentifier("homeAddTransactionButton")
+        } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
     }
 
@@ -295,7 +331,9 @@ struct TransactionEditor: View {
     @State private var amount: String
     @State private var merchant: String
     @State private var account: String
+    @State private var accountID: UUID?
     @State private var category: String
+    @State private var categoryID: UUID?
     @State private var subcategory: String
     @State private var tripID: String
     @State private var paidBy: String
@@ -305,6 +343,8 @@ struct TransactionEditor: View {
     @State private var showDelete = false
     @State private var isSaving = false
     @State private var validation: String?
+    @State private var showingAccounts = false
+    @State private var showingCategories = false
 
     init(item: Transaction? = nil, prefillEvent: NotificationEvent? = nil) {
         original = item
@@ -314,7 +354,9 @@ struct TransactionEditor: View {
         _amount = State(initialValue: editableEUR.map { Money.editString($0) } ?? "")
         _merchant = State(initialValue: item?.merchant ?? "")
         _account = State(initialValue: item?.account ?? "")
+        _accountID = State(initialValue: item?.accountID)
         _category = State(initialValue: item?.category ?? "")
+        _categoryID = State(initialValue: item?.categoryID)
         _subcategory = State(initialValue: item?.subcategory ?? "")
         _tripID = State(initialValue: item?.tripID ?? "")
         _paidBy = State(initialValue: item?.paidBy ?? "")
@@ -338,9 +380,10 @@ struct TransactionEditor: View {
                         .multilineTextAlignment(.trailing)
                         .accessibilityIdentifier("transactionAmountField")
                 }
-                LabeledContent("Description") {
-                    TextField("Required", text: $merchant)
-                        .multilineTextAlignment(.trailing)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Description").font(.subheadline)
+                    TextField("Merchant or description", text: $merchant, axis: .vertical)
+                        .lineLimit(1...3)
                         .accessibilityIdentifier("transactionDescriptionField")
                 }
                 DatePicker("Date", selection: $occurredAt, displayedComponents: [.date, .hourAndMinute])
@@ -358,19 +401,36 @@ struct TransactionEditor: View {
             }
             Section("Details") {
                 LabeledContent("Account") {
-                    TextField("Account", text: $account).multilineTextAlignment(.trailing)
+                    Menu {
+                        ForEach(store.localAccounts.filter { $0.archivedAt == nil || $0.id == accountID }) { option in
+                            Button(option.name) {
+                                accountID = option.id
+                                account = option.name
+                            }
+                        }
+                        Button("Manage accounts") { showingAccounts = true }
+                    } label: {
+                        HStack {
+                            Text(store.localAccounts.first(where: { $0.id == accountID })?.name ??
+                                 (account.isEmpty ? "Choose account" : account))
+                                .lineLimit(1).foregroundStyle(Palette.teal)
+                            Image(systemName: "chevron.up.chevron.down").font(.caption)
+                        }
+                    }
+                    .accessibilityIdentifier("transactionAccountPicker")
                 }
                 LabeledContent("Category") {
                     HStack {
                         TextField("Uncategorized", text: $category).multilineTextAlignment(.trailing)
                             .accessibilityIdentifier("transactionCategoryField")
-                        let categories = Array(Set(store.transactions.map(\.category).filter { !$0.isEmpty })).sorted()
-                        if !categories.isEmpty {
-                            Menu {
-                                ForEach(categories, id: \.self) { value in Button(value) { category = value } }
-                            } label: { Image(systemName: "chevron.down.circle").foregroundStyle(Palette.teal) }
-                                .accessibilityLabel("Choose existing category")
-                        }
+                        Menu {
+                            Button("Uncategorized") { category = ""; categoryID = nil }
+                            ForEach(store.ledgerCategories.filter { $0.archivedAt == nil || $0.id == categoryID }) { option in
+                                Button(option.name) { category = option.name; categoryID = option.id }
+                            }
+                            Button("Manage categories") { showingCategories = true }
+                        } label: { Image(systemName: "chevron.down.circle").foregroundStyle(Palette.teal) }
+                            .accessibilityLabel("Choose category")
                     }
                 }
                 LabeledContent("Subcategory") {
@@ -405,6 +465,14 @@ struct TransactionEditor: View {
             Button("Delete", role: .destructive, action: delete)
         }
         .onChange(of: amount) { _, _ in validation = nil }
+        .onChange(of: category) { _, value in
+            categoryID = store.ledgerCategories.first {
+                ($0.archivedAt == nil || $0.id == categoryID) &&
+                    NotificationParser.normalize($0.name) == NotificationParser.normalize(value)
+            }?.id
+        }
+        .sheet(isPresented: $showingAccounts) { NavigationStack { AccountsView() } }
+        .sheet(isPresented: $showingCategories) { NavigationStack { CategoriesView() } }
     }
 
     private func save() {
@@ -418,8 +486,13 @@ struct TransactionEditor: View {
         guard !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             validation = "Enter a description."; return
         }
-        if original == nil && account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            validation = "Enter an account for a new transaction."; return
+        if accountID == nil && (original == nil || account != original?.account) {
+            validation = "Choose an account or add one in Accounts."; return
+        }
+        let normalizedCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedCategory.isEmpty && categoryID == nil &&
+            (original == nil || normalizedCategory != original?.category) {
+            validation = "Choose an existing category or leave it uncategorized."; return
         }
         let values = TransactionEditPolicy.values(original: original, kind: kind, newEURMinor: cents)
         var item = original ?? Transaction(id: UUID(), kind: kind, amountMinor: cents, currency: "EUR",
@@ -433,8 +506,11 @@ struct TransactionEditor: View {
         item.personalExpenseEURMinor = values.personal
         item.recoverableEURMinor = values.recoverable
         item.merchant = merchant.trimmingCharacters(in: .whitespacesAndNewlines)
-        item.account = account.trimmingCharacters(in: .whitespacesAndNewlines)
-        item.category = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.accountID = accountID
+        item.account = store.localAccounts.first(where: { $0.id == accountID })?.name ??
+            account.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.categoryID = categoryID
+        item.category = store.ledgerCategories.first(where: { $0.id == categoryID })?.name ?? normalizedCategory
         item.subcategory = subcategory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : subcategory.trimmingCharacters(in: .whitespacesAndNewlines)
         item.tripID = tripID.isEmpty ? nil : tripID
         item.paidBy = paidBy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : paidBy.trimmingCharacters(in: .whitespacesAndNewlines)

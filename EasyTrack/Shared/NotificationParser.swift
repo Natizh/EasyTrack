@@ -65,8 +65,13 @@ struct ParserRuleConfig: Codable, Equatable {
 
 struct LocalAccount: Identifiable, Codable, Equatable {
     let id: UUID
-    let name: String
+    var name: String
     let createdAt: Date
+    var updatedAt: Date = .now
+    var symbolName: String = "creditcard.fill"
+    var colorName: String = "teal"
+    var archivedAt: Date? = nil
+    var revision: Int64 = 0
 }
 
 struct ParserSource: Identifiable, Codable, Equatable {

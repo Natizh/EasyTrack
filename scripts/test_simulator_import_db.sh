@@ -9,7 +9,9 @@ cd "$(dirname "$0")/.."
 mkdir -p .cache/modulecache DerivedData/SimulatorSmoke
 CLANG_MODULE_CACHE_PATH="$PWD/.cache/modulecache" SWIFT_MODULECACHE_PATH="$PWD/.cache/modulecache" \
   xcrun swiftc -module-cache-path "$PWD/.cache/modulecache" \
-  EasyTrack/Shared/Models.swift EasyTrack/Shared/NotificationParser.swift EasyTrack/Import/SeedMapper.swift \
-  EasyTrack/Persistence/SQLiteDatabase.swift Tests/SimulatorImportSmoke/main.swift \
+  EasyTrack/Shared/Models.swift EasyTrack/Shared/NotificationParser.swift \
+  EasyTrack/Shared/DailyModels.swift EasyTrack/Shared/RecurringSchedule.swift EasyTrack/Import/SeedMapper.swift \
+  EasyTrack/Persistence/SQLiteDatabase.swift EasyTrack/Persistence/SQLiteDatabase+Daily.swift \
+  Tests/SimulatorImportSmoke/main.swift \
   -lsqlite3 -o DerivedData/SimulatorSmoke/simulator-import-smoke
 DerivedData/SimulatorSmoke/simulator-import-smoke "$database_path"

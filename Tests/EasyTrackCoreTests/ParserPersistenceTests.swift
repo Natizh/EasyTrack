@@ -337,7 +337,7 @@ final class ParserPersistenceTests: XCTestCase {
                 PRAGMA user_version=2;
                 """, at: url)
             let upgraded = try SQLiteDatabase(url: url)
-            XCTAssertEqual(try scalar("PRAGMA user_version", at: url), 4)
+            XCTAssertEqual(try scalar("PRAGMA user_version", at: url), 5)
             XCTAssertEqual(try upgraded.notificationEvents().count, 1)
             XCTAssertEqual(try upgraded.parserSources().count, 1)
             XCTAssertEqual(try upgraded.parserAttempts().first?.status, .setupRequired)

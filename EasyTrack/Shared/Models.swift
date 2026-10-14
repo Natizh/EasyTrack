@@ -51,6 +51,9 @@ struct Transaction: Identifiable, Codable, Equatable {
     var sourceRow: Int? = nil
     var sourceOccurredAt: String? = nil
     var sourceKind: String? = nil
+    var accountID: UUID? = nil
+    var categoryID: UUID? = nil
+    var recurringOccurrenceID: String? = nil
 }
 
 enum Money {
@@ -365,6 +368,9 @@ struct BackupEnvelope: Codable {
     let parserSources: [ParserSource]
     let parserRules: [ParserRule]
     let localAccounts: [LocalAccount]
+    let ledgerCategories: [LedgerCategory]
+    let recurringRules: [RecurringRule]
+    let recurringOccurrences: [RecurringOccurrence]
     let parserRuleVersions: [ParserRuleRevision]
     let parserAttempts: [ParserAttempt]
 }

@@ -6,6 +6,9 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var events: [NotificationEvent] = []
     @Published private(set) var parserSources: [ParserSource] = []
     @Published private(set) var localAccounts: [LocalAccount] = []
+    @Published private(set) var ledgerCategories: [LedgerCategory] = []
+    @Published private(set) var recurringRules: [RecurringRule] = []
+    @Published private(set) var recurringOccurrences: [RecurringOccurrence] = []
     @Published private(set) var parserRules: [ParserRule] = []
     @Published private(set) var parserAttempts: [ParserAttempt] = []
     @Published private(set) var historicalCounts: [String: Int] = [:]
@@ -15,7 +18,17 @@ final class FinanceStore: ObservableObject {
     @Published var errorMessage: String?
 
     init() {
-        do { try SQLiteDatabase.open().seedDemoIfNeeded() }
+        do {
+            let database = try SQLiteDatabase.open()
+            try database.seedDemoIfNeeded()
+            _ = try database.materializeDueRecurring()
+        }
+        catch { errorMessage = error.localizedDescription }
+        reload()
+    }
+
+    func refreshOnForeground() {
+        do { _ = try SQLiteDatabase.open().materializeDueRecurring() }
         catch { errorMessage = error.localizedDescription }
         reload()
     }
@@ -27,6 +40,9 @@ final class FinanceStore: ObservableObject {
             events = try database.notificationEvents()
             parserSources = try database.parserSources()
             localAccounts = try database.localAccounts()
+            ledgerCategories = try database.ledgerCategories()
+            recurringRules = try database.recurringRules()
+            recurringOccurrences = try database.recurringOccurrences()
             parserRules = try database.parserRules()
             parserAttempts = try database.parserAttempts()
             historicalCounts = try database.historicalCounts()
@@ -48,6 +64,45 @@ final class FinanceStore: ObservableObject {
         var deleted = item
         deleted.deletedAt = .now
         try save(deleted)
+    }
+
+    @discardableResult func saveAccount(_ account: LocalAccount) throws -> LocalAccount {
+        let saved = try SQLiteDatabase.open().saveLocalAccount(account)
+        reload()
+        return saved
+    }
+
+    @discardableResult func saveCategory(_ category: LedgerCategory) throws -> LedgerCategory {
+        let saved = try SQLiteDatabase.open().saveLedgerCategory(category)
+        reload()
+        return saved
+    }
+
+    func swapCategoryOrder(_ first: LedgerCategory, _ second: LedgerCategory) throws {
+        try SQLiteDatabase.open().swapCategoryOrder(first, second)
+        reload()
+    }
+
+    @discardableResult func saveRecurringRule(_ rule: RecurringRule) throws -> RecurringRule {
+        let saved = try SQLiteDatabase.open().saveRecurringRule(rule)
+        refreshOnForeground()
+        return saved
+    }
+
+    func skipNextRecurring(_ id: UUID) throws {
+        try SQLiteDatabase.open().skipNextRecurring(id)
+        reload()
+    }
+
+    @discardableResult func createNextRecurringNow(_ id: UUID) throws -> Transaction {
+        let saved = try SQLiteDatabase.open().createNextRecurringNow(id)
+        reload()
+        return saved
+    }
+
+    func upcomingRecurring(days: Int = 30, now: Date = .now) -> [UpcomingRecurringItem] {
+        recurringRules.flatMap { (try? RecurringSchedule.upcoming(for: $0, now: now, days: days)) ?? [] }
+            .sorted { $0.day < $1.day }
     }
 
 #if DEBUG
@@ -98,8 +153,12 @@ final class FinanceStore: ObservableObject {
     }
 
     var availableAccountNames: [String] {
-        Array(Set(localAccounts.map(\.name) + historicalAccounts.map(\.sourceName) +
-                  transactions.map(\.account).filter { !$0.isEmpty })).sorted()
+        let archived = Set(localAccounts.filter { $0.archivedAt != nil }
+            .map { NotificationParser.normalize($0.name) })
+        return Array(Set(activeAccounts.map(\.name) + historicalAccounts.map(\.sourceName) +
+                         transactions.map(\.account).filter { !$0.isEmpty }))
+            .filter { !archived.contains(NotificationParser.normalize($0)) }
+            .sorted()
     }
 
     func proposedAccountName(for source: ParserSource) -> String {
@@ -127,15 +186,21 @@ final class FinanceStore: ObservableObject {
     func backup() throws -> BackupEnvelope {
         let database = try SQLiteDatabase.open()
         let rules = try database.parserRules(includeDeleted: true)
-        return BackupEnvelope(schemaVersion: 4, exportID: UUID(), exportedAt: .now,
+        return BackupEnvelope(schemaVersion: 5, exportID: UUID(), exportedAt: .now,
                               transactions: try database.transactions(includeDeleted: true),
                               notificationEvents: try database.notificationEvents(),
                               operations: try database.operations(), historical: try database.historicalBackup(),
                               parserSources: try database.parserSources(), parserRules: rules,
                               localAccounts: try database.localAccounts(),
+                              ledgerCategories: try database.ledgerCategories(),
+                              recurringRules: try database.recurringRules(includeArchived: true),
+                              recurringOccurrences: try database.recurringOccurrences(),
                               parserRuleVersions: try rules.flatMap { try database.parserRuleHistory($0.id) },
                               parserAttempts: try database.parserAttempts())
     }
 
     var hasHistoricalImport: Bool { (historicalCounts["historical_imported_movements"] ?? 0) > 0 }
+
+    var activeAccounts: [LocalAccount] { localAccounts.filter { $0.archivedAt == nil } }
+    var activeCategories: [LedgerCategory] { ledgerCategories.filter { $0.archivedAt == nil } }
 }
