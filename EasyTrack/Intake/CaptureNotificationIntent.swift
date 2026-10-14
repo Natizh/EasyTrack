@@ -3,7 +3,7 @@ import Foundation
 
 struct CaptureNotificationIntent: AppIntent {
     static var title: LocalizedStringResource = "Capture Payment Notification"
-    static var description = IntentDescription("Keep notification text on this iPhone for later rule setup. No transaction is created.")
+    static var description = IntentDescription("Save notification text on this iPhone, then apply an active local automation when one matches.")
     static var openAppWhenRun: Bool = false
 
     @Parameter(title: "Source app") var sourceApp: String
@@ -27,7 +27,7 @@ struct CaptureNotificationIntent: AppIntent {
                                                   receivedAt: notificationDate) else {
             throw IntakeError.invalidPayload
         }
-        try SQLiteDatabase.open().insertEvent(event)
+        _ = try SQLiteDatabase.open().captureNotification(event)
         return .result()
     }
 }

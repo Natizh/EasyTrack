@@ -1,9 +1,31 @@
-# Future notification parser builder
+# Local notification parser
 
-The parser setup should feel like a Shortcuts workflow: a small, rearrangeable block pipeline with immediate feedback:
+## Capture and first setup
 
-**Notification input → amount extraction → merchant extraction → account mapping → category rule → duplicate detection → transaction creation**
+An iOS Shortcuts personal automation can pass source app, title, subtitle, message, and optional notification date to **Capture Payment Notification**. The App Intent commits the raw event and a diagnostic attempt before parsing. Captures with no usable format rule remain on their source page with **Set up notification format** or **Add notification format**. The app never creates a transaction with guessed amount, description, or account.
 
-After the first notification from a source, open a source-specific builder with the raw event visible. Highlight the proposed amount, currency, merchant, date, account, and transaction type in the text. Tapping a highlight edits its rule or mapping. A live preview shows the resulting transaction and explains which block supplied each field. Additional sample notifications can test alternative formats before a rule is enabled. Multiple rules can coexist for one source.
+The source page starts a builder from the first captured sample. Its tappable cards form this pipeline:
 
-Keep the original event and parser version for diagnostics and retries. Duplicate detection needs a source-specific stable fingerprint and must stay separate from historical import identity. Create a transaction only when required fields are known; otherwise keep the event on its source page with a retry or prefilled-create action. Every created transaction remains editable from its detail screen. There is no general review inbox. Parsing runs on-device without paid AI or a server. This note describes a future milestone; the current App Intent only saves diagnostic events.
+**Notification input → Source/account → Direction/type → Amount → Merchant/description → Duplicate protection → Create transaction**
+
+The source application and EasyTrack account are separate concepts. An exact source-name match to an existing account is proposed automatically. Otherwise first setup offers the source name as a new account or lets the user choose an existing one. That mapping is stored once on the source and used by all its formats. Changing it affects future transactions, never prior ones. A source can have several named formats, each with its own direction and movement type. Merchant or counterparty and amount are captured independently for every event; the first sample's merchant is never a literal condition.
+
+The cards show live values. The user chooses a notification field (title, subtitle, message, or combined text), stable matching words and amount anchors, description selection, direction and movement type, and duplicate window. **Test automation** animates the steps and displays the exact proposed transaction, including the mapped account, timestamp, and **Uncategorized** state. Activation offers **Create first transaction** or **Activate without adding sample**. If the first sample is created, replaying it creates no second transaction. The Debug build has fictional Northstar Pay and Harbor Wallet samples for local testing; Release has no sample controls.
+
+## Deterministic extraction
+
+EUR amount detection handles `€` or `EUR` before or after the number, comma or period decimals, and clear grouped thousands. Ambiguous or malformed amounts fail. Description selection supports text before or after the amount, the whole selected line, or text between user-provided anchors. Conditions support contains, begins with, and ends with. The optional advanced regular-expression mode rejects groups, alternation, backreferences, counted repetitions, long patterns, and more than one repetition operator; it scans at most 512 characters. Rules are data, never executable code. Multiple enabled rules for a source run in priority order; the first complete matching preview wins. An incomplete higher rule can fall through to another matching format.
+
+The notification date is used when supplied. Capture time is the fallback and is labeled in the preview. The UI currently creates EUR transactions only. Each rule has a stable UUID and versioned configuration history. Editing, enabling, reordering, or soft deleting a rule creates a new version; prior transaction links retain the rule version used. Deleting a rule leaves its transactions intact. Rules do not assign spending categories. Successfully parsed transactions have a SQL-null category until the user chooses one from Home or transaction detail. Future merchant-based categorization must be a separate feature.
+
+## Duplicate and failure behavior
+
+An exact SHA-256 key normalizes source and payload whitespace/case. With a supplied notification date, that date is part of the key, so exact replays remain duplicates. Without a supplied date, the exact key is checked in a bounded ten-minute window; identical text can represent a later real purchase. A second SHA-256 key combines integer EUR cents, normalized description, and mapped account. Its symmetric time window defaults to **10 minutes** and can be set to 5 or 30 minutes. A different amount does not collide; an otherwise identical payment outside the configured window is allowed. These keys are separate from historical-import identity.
+
+Schema version 3 added `parser_sources`, `parser_rules`, `parser_rule_versions`, `notification_attempts`, `exact_dedup`, and `semantic_dedup`. Schema version 4 adds `local_accounts`, a source-to-account link, and a nullable transaction category. It backfills source mappings from existing schema-3 rules without rewriting their JSON/version history or previously created transactions. Earlier notification events remain as diagnostics. The raw attempt commits first. Transaction creation, transaction provenance, processing status, exact and semantic records, and the ledger operation commit in one SQLite transaction. A failed second phase rolls back those writes and keeps a retryable failed diagnostic with its raw sample. Unmatched and duplicate captures stay inspectable under their source; there is no general review inbox.
+
+The app does not send notification content to a server or AI service. Backups include raw events and rule history, so exported files must be handled as private financial data. The local Files folder probe does not synchronize the live database.
+
+## Verification boundary
+
+Deterministic parsing, migration, rollback, deduplication, and a fictional capture-to-rule-to-transaction UI flow were exercised on the Mac and the iPhone 17 Pro iOS 27.0 simulator. Real bank formats, what fields the physical iOS 27 Shortcuts notification trigger supplies, locked-device execution, SideStore installation, and physical-device update preservation remain untested. Compatibility depends on Shortcuts delivering enough notification text for the user to define a stable rule.

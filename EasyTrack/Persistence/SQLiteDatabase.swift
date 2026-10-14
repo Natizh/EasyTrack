@@ -34,12 +34,12 @@ final class SQLiteDatabase {
             }
             let existingVersion = sqlite3_column_int(versionStatement, 0)
             sqlite3_finalize(versionStatement)
-            guard existingVersion <= 2 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
+            guard existingVersion <= 4 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
             try execute("""
                 CREATE TABLE IF NOT EXISTS transactions (
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL, amount_minor INTEGER NOT NULL,
                     currency TEXT NOT NULL, merchant TEXT NOT NULL, account TEXT NOT NULL,
-                    category TEXT NOT NULL, note TEXT NOT NULL, occurred_at REAL NOT NULL,
+                    category TEXT, note TEXT NOT NULL, occurred_at REAL NOT NULL,
                     updated_at REAL NOT NULL, deleted_at REAL, is_demo INTEGER NOT NULL,
                     revision INTEGER NOT NULL, source_event_id TEXT
                 )
@@ -131,6 +131,77 @@ final class SQLiteDatabase {
                 )
                 """)
             if existingVersion < 2 { try execute("PRAGMA user_version=2") }
+            if existingVersion < 3 {
+                try execute("BEGIN IMMEDIATE")
+                do {
+                    try execute("""
+                        CREATE TABLE parser_sources (
+                            id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                            normalized_name TEXT NOT NULL UNIQUE, created_at REAL NOT NULL
+                        )
+                        """)
+                    try execute("""
+                        CREATE TABLE parser_rules (
+                            id TEXT PRIMARY KEY, source_id TEXT NOT NULL,
+                            name TEXT NOT NULL, enabled INTEGER NOT NULL,
+                            priority INTEGER NOT NULL, version INTEGER NOT NULL,
+                            config_json TEXT NOT NULL, created_at REAL NOT NULL,
+                            updated_at REAL NOT NULL, deleted_at REAL,
+                            FOREIGN KEY(source_id) REFERENCES parser_sources(id)
+                        )
+                        """)
+                    try execute("CREATE INDEX parser_rules_by_source ON parser_rules(source_id, enabled, priority)")
+                    try execute("""
+                        CREATE TABLE parser_rule_versions (
+                            rule_id TEXT NOT NULL, version INTEGER NOT NULL,
+                            config_json TEXT NOT NULL, changed_at REAL NOT NULL,
+                            PRIMARY KEY(rule_id, version),
+                            FOREIGN KEY(rule_id) REFERENCES parser_rules(id)
+                        )
+                        """)
+                    try execute("""
+                        CREATE TABLE notification_attempts (
+                            id TEXT PRIMARY KEY, event_id TEXT NOT NULL,
+                            source_id TEXT NOT NULL, raw_json TEXT NOT NULL,
+                            captured_at REAL NOT NULL, status TEXT NOT NULL,
+                            rule_id TEXT, rule_version INTEGER, transaction_id TEXT,
+                            exact_fingerprint TEXT NOT NULL, semantic_fingerprint TEXT,
+                            detail TEXT,
+                            FOREIGN KEY(event_id) REFERENCES notification_events(id),
+                            FOREIGN KEY(source_id) REFERENCES parser_sources(id),
+                            FOREIGN KEY(transaction_id) REFERENCES transactions(id)
+                        )
+                        """)
+                    try execute("CREATE INDEX attempts_by_source ON notification_attempts(source_id, captured_at DESC)")
+                    try execute("""
+                        CREATE TABLE exact_dedup (
+                            id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
+                            occurred_at REAL NOT NULL, has_payload_date INTEGER NOT NULL,
+                            transaction_id TEXT NOT NULL, created_at REAL NOT NULL,
+                            FOREIGN KEY(transaction_id) REFERENCES transactions(id)
+                        )
+                        """)
+                    try execute("CREATE INDEX exact_dedup_lookup ON exact_dedup(fingerprint, occurred_at)")
+                    try execute("""
+                        CREATE TABLE semantic_dedup (
+                            id TEXT PRIMARY KEY, semantic_key TEXT NOT NULL,
+                            occurred_at REAL NOT NULL, transaction_id TEXT NOT NULL UNIQUE,
+                            rule_id TEXT NOT NULL, created_at REAL NOT NULL,
+                            FOREIGN KEY(transaction_id) REFERENCES transactions(id),
+                            FOREIGN KEY(rule_id) REFERENCES parser_rules(id)
+                        )
+                        """)
+                    try execute("CREATE INDEX semantic_dedup_lookup ON semantic_dedup(semantic_key, occurred_at)")
+                    try execute("PRAGMA user_version=3")
+                    try execute("COMMIT")
+                } catch {
+                    try? execute("ROLLBACK")
+                    throw error
+                }
+            }
+            if existingVersion < 4 { try migrateToSchemaFour() }
+            try backfillSourceAccountsFromLegacyRules()
+            try backfillLegacyNotificationEvents()
         } catch {
             sqlite3_close(handle)
             handle = nil
@@ -156,6 +227,70 @@ final class SQLiteDatabase {
         }
         sqlite3_finalize(columns)
         if !present { try execute("ALTER TABLE \(table) ADD COLUMN \(name) \(type)") }
+    }
+
+    private func migrateToSchemaFour() throws {
+        // A nullable category requires a table rebuild for databases created by schema 2/3.
+        // Foreign keys are checked again before the migration commits.
+        try execute("PRAGMA foreign_keys=OFF")
+        do {
+            try execute("BEGIN IMMEDIATE")
+            try execute("""
+                CREATE TABLE IF NOT EXISTS local_accounts (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                    normalized_name TEXT NOT NULL UNIQUE, created_at REAL NOT NULL
+                )
+                """)
+            try ensureColumn("account_id", type: "TEXT REFERENCES local_accounts(id)", in: "parser_sources")
+            let columns = try statement("PRAGMA table_info(transactions)")
+            var rebuild = false
+            while sqlite3_step(columns) == SQLITE_ROW {
+                if string(columns, 1) == "category" { rebuild = sqlite3_column_int(columns, 3) != 0; break }
+            }
+            sqlite3_finalize(columns)
+            if rebuild {
+                try execute("""
+                    CREATE TABLE transactions_v4 (
+                        id TEXT PRIMARY KEY, kind TEXT NOT NULL, amount_minor INTEGER NOT NULL,
+                        currency TEXT NOT NULL, merchant TEXT NOT NULL, account TEXT NOT NULL,
+                        category TEXT, note TEXT NOT NULL, occurred_at REAL NOT NULL,
+                        updated_at REAL NOT NULL, deleted_at REAL, is_demo INTEGER NOT NULL,
+                        revision INTEGER NOT NULL, source_event_id TEXT, subcategory TEXT,
+                        eur_minor INTEGER, exchange_rate_eur TEXT,
+                        personal_expense_eur_minor INTEGER, recoverable_eur_minor INTEGER,
+                        trip_id TEXT, paid_by TEXT, affects_my_accounts INTEGER,
+                        source_movement_id TEXT, source_sheet TEXT, source_row INTEGER,
+                        source_occurred_at TEXT, source_kind TEXT
+                    )
+                    """)
+                try execute("""
+                    INSERT INTO transactions_v4
+                    SELECT id,kind,amount_minor,currency,merchant,account,
+                        CASE WHEN trim(category)='' THEN NULL ELSE category END,
+                        note,occurred_at,updated_at,deleted_at,is_demo,revision,source_event_id,
+                        subcategory,eur_minor,exchange_rate_eur,personal_expense_eur_minor,
+                        recoverable_eur_minor,trip_id,paid_by,affects_my_accounts,
+                        source_movement_id,source_sheet,source_row,source_occurred_at,source_kind
+                    FROM transactions
+                    """)
+                try execute("DROP TABLE transactions")
+                try execute("ALTER TABLE transactions_v4 RENAME TO transactions")
+                try execute("CREATE INDEX transactions_by_date ON transactions(occurred_at DESC)")
+                try execute("CREATE UNIQUE INDEX unique_active_source_event ON transactions(source_event_id) WHERE deleted_at IS NULL AND source_event_id IS NOT NULL")
+                try execute("CREATE UNIQUE INDEX unique_source_movement ON transactions(source_movement_id) WHERE source_movement_id IS NOT NULL")
+            }
+            let check = try statement("PRAGMA foreign_key_check")
+            let brokenReference = sqlite3_step(check) == SQLITE_ROW
+            sqlite3_finalize(check)
+            guard !brokenReference else { throw DatabaseError.sqlite("schema migration found a broken data link") }
+            try execute("PRAGMA user_version=4")
+            try execute("COMMIT")
+            try execute("PRAGMA foreign_keys=ON")
+        } catch {
+            try? execute("ROLLBACK")
+            try? execute("PRAGMA foreign_keys=ON")
+            throw error
+        }
     }
 
     private func statement(_ sql: String) throws -> OpaquePointer {
@@ -254,7 +389,8 @@ final class SQLiteDatabase {
             bind(item.currency, at: 4, to: save)
             bind(item.merchant, at: 5, to: save)
             bind(item.account, at: 6, to: save)
-            bind(item.category, at: 7, to: save)
+            bindOptional(item.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : item.category,
+                         at: 7, to: save)
             bind(item.note, at: 8, to: save)
             sqlite3_bind_double(save, 9, item.occurredAt.timeIntervalSince1970)
             sqlite3_bind_double(save, 10, item.updatedAt.timeIntervalSince1970)
@@ -617,5 +753,572 @@ final class SQLiteDatabase {
                                       provenance: provenance, accounts: try historicalAccounts(),
                                       trips: try historicalTrips(), recurringRules: try historicalRules(),
                                       exchangeRates: rates, sourceRows: rawRows, importWarnings: warnings)
+    }
+}
+
+extension SQLiteDatabase {
+    private func localAccount(named name: String) throws -> LocalAccount {
+        let normalized = NotificationParser.normalize(name)
+        guard !normalized.isEmpty else { throw ParserValidationError.invalidRule("Choose an account name.") }
+        let query = try statement("SELECT id,name,created_at FROM local_accounts WHERE normalized_name=?")
+        bind(normalized, at: 1, to: query)
+        if sqlite3_step(query) == SQLITE_ROW, let id = UUID(uuidString: string(query, 0)) {
+            let found = LocalAccount(id: id, name: string(query, 1),
+                                     createdAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 2)))
+            sqlite3_finalize(query)
+            return found
+        }
+        sqlite3_finalize(query)
+        let account = LocalAccount(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   createdAt: .now)
+        let insert = try statement("INSERT INTO local_accounts(id,name,normalized_name,created_at) VALUES(?,?,?,?)")
+        defer { sqlite3_finalize(insert) }
+        bind(account.id.uuidString, at: 1, to: insert)
+        bind(account.name, at: 2, to: insert)
+        bind(normalized, at: 3, to: insert)
+        sqlite3_bind_double(insert, 4, account.createdAt.timeIntervalSince1970)
+        guard sqlite3_step(insert) == SQLITE_DONE else { throw error() }
+        return account
+    }
+
+    func localAccounts() throws -> [LocalAccount] {
+        let query = try statement("SELECT id,name,created_at FROM local_accounts ORDER BY name COLLATE NOCASE")
+        defer { sqlite3_finalize(query) }
+        var accounts: [LocalAccount] = []
+        while sqlite3_step(query) == SQLITE_ROW {
+            guard let id = UUID(uuidString: string(query, 0)) else { continue }
+            accounts.append(LocalAccount(id: id, name: string(query, 1),
+                                         createdAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 2))))
+        }
+        return accounts
+    }
+
+    private func matchingExistingAccountName(for sourceName: String) throws -> String? {
+        let normalized = NotificationParser.normalize(sourceName)
+        let query = try statement("""
+            SELECT name FROM local_accounts UNION SELECT source_name FROM historical_accounts
+            UNION SELECT DISTINCT account FROM transactions WHERE account != ''
+            """)
+        defer { sqlite3_finalize(query) }
+        while sqlite3_step(query) == SQLITE_ROW {
+            let candidate = string(query, 0)
+            if NotificationParser.normalize(candidate) == normalized { return candidate }
+        }
+        return nil
+    }
+
+    private func setSourceAccount(_ sourceID: UUID, name: String) throws {
+        let account = try localAccount(named: name)
+        let update = try statement("UPDATE parser_sources SET account_id=? WHERE id=?")
+        defer { sqlite3_finalize(update) }
+        bind(account.id.uuidString, at: 1, to: update)
+        bind(sourceID.uuidString, at: 2, to: update)
+        guard sqlite3_step(update) == SQLITE_DONE else { throw error() }
+        guard sqlite3_changes(handle) == 1 else {
+            throw ParserValidationError.invalidRule("Notification source was not found.")
+        }
+    }
+
+    func mapParserSource(_ sourceID: UUID, to accountName: String) throws -> ParserSource {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try setSourceAccount(sourceID, name: accountName)
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+        guard let source = try parserSources().first(where: { $0.id == sourceID }) else {
+            throw ParserValidationError.invalidRule("Notification source was not found.")
+        }
+        return source
+    }
+
+    private func backfillSourceAccountsFromLegacyRules() throws {
+        let unmapped = try statement("SELECT id,name FROM parser_sources WHERE account_id IS NULL")
+        var sources: [(UUID, String)] = []
+        while sqlite3_step(unmapped) == SQLITE_ROW {
+            if let id = UUID(uuidString: string(unmapped, 0)) {
+                sources.append((id, string(unmapped, 1)))
+            }
+        }
+        sqlite3_finalize(unmapped)
+        guard !sources.isEmpty else { return }
+        var assignments: [(UUID, String)] = []
+        for (id, sourceName) in sources {
+            let rules = try parserRules(sourceID: id, includeDeleted: true)
+            let legacy = rules.first { !NotificationParser.normalize($0.config.account).isEmpty }?.config.account
+            if let name = try legacy ?? matchingExistingAccountName(for: sourceName) {
+                assignments.append((id, name))
+            }
+        }
+        guard !assignments.isEmpty else { return }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for (id, name) in assignments {
+                try setSourceAccount(id, name: name)
+            }
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+    }
+
+    private func parserSource(named name: String) throws -> ParserSource {
+        let normalized = NotificationParser.normalize(name)
+        let query = try statement("""
+            SELECT s.id,s.name,s.created_at,s.account_id,a.name
+            FROM parser_sources s LEFT JOIN local_accounts a ON a.id=s.account_id
+            WHERE s.normalized_name=?
+            """)
+        bind(normalized, at: 1, to: query)
+        if sqlite3_step(query) == SQLITE_ROW,
+           let id = UUID(uuidString: string(query, 0)) {
+            let source = ParserSource(id: id, name: string(query, 1),
+                                      createdAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 2)),
+                                      accountID: UUID(uuidString: string(query, 3)),
+                                      accountName: optionalString(query, 4))
+            sqlite3_finalize(query)
+            return source
+        }
+        sqlite3_finalize(query)
+        let sourceName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matchedName = try matchingExistingAccountName(for: sourceName)
+        let matchedAccount = try matchedName.map { try localAccount(named: $0) }
+        let source = ParserSource(id: UUID(), name: sourceName, createdAt: .now,
+                                  accountID: matchedAccount?.id, accountName: matchedAccount?.name)
+        let insert = try statement("INSERT INTO parser_sources(id,name,normalized_name,created_at,account_id) VALUES(?,?,?,?,?)")
+        defer { sqlite3_finalize(insert) }
+        bind(source.id.uuidString, at: 1, to: insert)
+        bind(source.name, at: 2, to: insert)
+        bind(normalized, at: 3, to: insert)
+        sqlite3_bind_double(insert, 4, source.createdAt.timeIntervalSince1970)
+        bindOptional(source.accountID?.uuidString, at: 5, to: insert)
+        guard sqlite3_step(insert) == SQLITE_DONE else { throw error() }
+        return source
+    }
+
+    private func backfillLegacyNotificationEvents() throws {
+        let check = try statement("SELECT COUNT(*) FROM notification_attempts")
+        guard sqlite3_step(check) == SQLITE_ROW else { sqlite3_finalize(check); throw error() }
+        let hasAttempts = sqlite3_column_int64(check, 0) > 0
+        sqlite3_finalize(check)
+        guard !hasAttempts else { return }
+        let legacy = try notificationEvents()
+        guard !legacy.isEmpty else { return }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for event in legacy {
+                let source = try parserSource(named: event.sourceApp)
+                _ = try insertAttempt(event: event, canonicalEventID: event.id, sourceID: source.id,
+                                      status: .setupRequired)
+            }
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+    }
+
+    func parserSources() throws -> [ParserSource] {
+        let query = try statement("""
+            SELECT s.id,s.name,s.created_at,s.account_id,a.name
+            FROM parser_sources s LEFT JOIN local_accounts a ON a.id=s.account_id
+            ORDER BY s.name COLLATE NOCASE
+            """)
+        defer { sqlite3_finalize(query) }
+        var sources: [ParserSource] = []
+        while sqlite3_step(query) == SQLITE_ROW {
+            guard let id = UUID(uuidString: string(query, 0)) else { continue }
+            sources.append(ParserSource(id: id, name: string(query, 1),
+                                        createdAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 2)),
+                                        accountID: UUID(uuidString: string(query, 3)),
+                                        accountName: optionalString(query, 4)))
+        }
+        return sources
+    }
+
+    private func mappedAccountName(for sourceID: UUID) throws -> String? {
+        let query = try statement("""
+            SELECT a.name FROM parser_sources s JOIN local_accounts a ON a.id=s.account_id
+            WHERE s.id=?
+            """)
+        defer { sqlite3_finalize(query) }
+        bind(sourceID.uuidString, at: 1, to: query)
+        return sqlite3_step(query) == SQLITE_ROW ? string(query, 0) : nil
+    }
+
+    func parserRules(sourceID: UUID? = nil, includeDeleted: Bool = false) throws -> [ParserRule] {
+        let sql = "SELECT id,source_id,name,enabled,priority,version,config_json,created_at,updated_at,deleted_at FROM parser_rules" +
+            (sourceID == nil ? " WHERE 1=1" : " WHERE source_id=?") +
+            (includeDeleted ? "" : " AND deleted_at IS NULL") + " ORDER BY priority ASC, created_at ASC"
+        let query = try statement(sql)
+        defer { sqlite3_finalize(query) }
+        if let sourceID { bind(sourceID.uuidString, at: 1, to: query) }
+        var rules: [ParserRule] = []
+        while sqlite3_step(query) == SQLITE_ROW {
+            guard let id = UUID(uuidString: string(query, 0)),
+                  let source = UUID(uuidString: string(query, 1)),
+                  let config = try? JSONDecoder().decode(ParserRuleConfig.self, from: Data(string(query, 6).utf8)) else { continue }
+            rules.append(ParserRule(id: id, sourceID: source, name: string(query, 2),
+                                    enabled: sqlite3_column_int(query, 3) != 0,
+                                    priority: Int(sqlite3_column_int(query, 4)),
+                                    version: Int(sqlite3_column_int(query, 5)), config: config,
+                                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 7)),
+                                    updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 8)),
+                                    deletedAt: sqlite3_column_type(query, 9) == SQLITE_NULL ? nil :
+                                        Date(timeIntervalSince1970: sqlite3_column_double(query, 9))))
+        }
+        return rules
+    }
+
+    func parserRuleHistory(_ id: UUID) throws -> [ParserRuleRevision] {
+        let query = try statement("SELECT version,config_json,changed_at FROM parser_rule_versions WHERE rule_id=? ORDER BY version DESC")
+        defer { sqlite3_finalize(query) }
+        bind(id.uuidString, at: 1, to: query)
+        var revisions: [ParserRuleRevision] = []
+        while sqlite3_step(query) == SQLITE_ROW {
+            guard let config = try? JSONDecoder().decode(ParserRuleConfig.self, from: Data(string(query, 1).utf8)) else { continue }
+            revisions.append(ParserRuleRevision(ruleID: id, version: Int(sqlite3_column_int(query, 0)),
+                                                config: config, changedAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 2))))
+        }
+        return revisions
+    }
+
+    @discardableResult func saveParserRule(_ input: ParserRule) throws -> ParserRule {
+        try NotificationParser.validate(input.config)
+        guard try mappedAccountName(for: input.sourceID) != nil else {
+            throw ParserValidationError.invalidRule("Map this notification source to an account first.")
+        }
+        guard !input.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ParserValidationError.invalidRule("Name this automation.")
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let current = try statement("SELECT version,created_at FROM parser_rules WHERE id=?")
+            bind(input.id.uuidString, at: 1, to: current)
+            let exists = sqlite3_step(current) == SQLITE_ROW
+            if exists && input.version != Int(sqlite3_column_int(current, 0)) {
+                sqlite3_finalize(current)
+                throw ParserValidationError.invalidRule("This automation changed. Reopen it before saving.")
+            }
+            let version = exists ? Int(sqlite3_column_int(current, 0)) + 1 : 1
+            let createdAt = exists ? Date(timeIntervalSince1970: sqlite3_column_double(current, 1)) : Date()
+            sqlite3_finalize(current)
+            var rule = input
+            rule.version = version
+            rule.createdAt = createdAt
+            rule.updatedAt = .now
+            let configJSON = String(data: try JSONEncoder().encode(rule.config), encoding: .utf8)!
+            let save = try statement("""
+                INSERT INTO parser_rules(id,source_id,name,enabled,priority,version,config_json,created_at,updated_at,deleted_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET name=excluded.name, enabled=excluded.enabled,
+                    priority=excluded.priority, version=excluded.version, config_json=excluded.config_json,
+                    updated_at=excluded.updated_at, deleted_at=excluded.deleted_at
+                """)
+            bind(rule.id.uuidString, at: 1, to: save)
+            bind(rule.sourceID.uuidString, at: 2, to: save)
+            bind(rule.name.trimmingCharacters(in: .whitespacesAndNewlines), at: 3, to: save)
+            sqlite3_bind_int(save, 4, rule.enabled ? 1 : 0)
+            sqlite3_bind_int(save, 5, Int32(rule.priority))
+            sqlite3_bind_int(save, 6, Int32(rule.version))
+            bind(configJSON, at: 7, to: save)
+            sqlite3_bind_double(save, 8, rule.createdAt.timeIntervalSince1970)
+            sqlite3_bind_double(save, 9, rule.updatedAt.timeIntervalSince1970)
+            if let deletedAt = rule.deletedAt { sqlite3_bind_double(save, 10, deletedAt.timeIntervalSince1970) }
+            else { sqlite3_bind_null(save, 10) }
+            guard sqlite3_step(save) == SQLITE_DONE else { sqlite3_finalize(save); throw error() }
+            sqlite3_finalize(save)
+            let revision = try statement("INSERT INTO parser_rule_versions(rule_id,version,config_json,changed_at) VALUES(?,?,?,?)")
+            bind(rule.id.uuidString, at: 1, to: revision)
+            sqlite3_bind_int(revision, 2, Int32(rule.version))
+            bind(configJSON, at: 3, to: revision)
+            sqlite3_bind_double(revision, 4, rule.updatedAt.timeIntervalSince1970)
+            guard sqlite3_step(revision) == SQLITE_DONE else { sqlite3_finalize(revision); throw error() }
+            sqlite3_finalize(revision)
+            try execute("COMMIT")
+            return rule
+        } catch { try? execute("ROLLBACK"); throw error }
+    }
+
+    func swapParserRulePriorities(_ first: ParserRule, _ second: ParserRule) throws {
+        guard first.sourceID == second.sourceID, first.id != second.id,
+              first.deletedAt == nil, second.deletedAt == nil else {
+            throw ParserValidationError.invalidRule("These automations cannot be reordered together.")
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for (rule, priority) in [(first, second.priority), (second, first.priority)] {
+                let update = try statement("""
+                    UPDATE parser_rules SET priority=?,version=version+1,updated_at=?
+                    WHERE id=? AND source_id=? AND version=? AND deleted_at IS NULL
+                    """)
+                sqlite3_bind_int(update, 1, Int32(priority))
+                sqlite3_bind_double(update, 2, Date().timeIntervalSince1970)
+                bind(rule.id.uuidString, at: 3, to: update)
+                bind(rule.sourceID.uuidString, at: 4, to: update)
+                sqlite3_bind_int(update, 5, Int32(rule.version))
+                guard sqlite3_step(update) == SQLITE_DONE else { sqlite3_finalize(update); throw error() }
+                sqlite3_finalize(update)
+                guard sqlite3_changes(handle) == 1 else {
+                    throw ParserValidationError.invalidRule("This automation changed. Reopen the source and try again.")
+                }
+                let audit = try statement("""
+                    INSERT INTO parser_rule_versions(rule_id,version,config_json,changed_at)
+                    SELECT id,version,config_json,updated_at FROM parser_rules WHERE id=?
+                    """)
+                bind(rule.id.uuidString, at: 1, to: audit)
+                guard sqlite3_step(audit) == SQLITE_DONE else { sqlite3_finalize(audit); throw error() }
+                sqlite3_finalize(audit)
+            }
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+    }
+
+    func parserAttempts(sourceID: UUID? = nil) throws -> [ParserAttempt] {
+        let sql = "SELECT id,event_id,source_id,raw_json,captured_at,status,rule_id,rule_version,transaction_id,detail FROM notification_attempts" +
+            (sourceID == nil ? "" : " WHERE source_id=?") + " ORDER BY captured_at DESC"
+        let query = try statement(sql)
+        defer { sqlite3_finalize(query) }
+        if let sourceID { bind(sourceID.uuidString, at: 1, to: query) }
+        var attempts: [ParserAttempt] = []
+        while sqlite3_step(query) == SQLITE_ROW {
+            guard let id = UUID(uuidString: string(query, 0)),
+                  let eventID = UUID(uuidString: string(query, 1)),
+                  let source = UUID(uuidString: string(query, 2)),
+                  var event = try? JSONDecoder().decode(NotificationEvent.self, from: Data(string(query, 3).utf8)),
+                  let status = ParserAttemptStatus(rawValue: string(query, 5)) else { continue }
+            event.id = eventID
+            attempts.append(ParserAttempt(id: id, event: event, sourceID: source,
+                                          capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 4)),
+                                          status: status, ruleID: UUID(uuidString: string(query, 6)),
+                                          ruleVersion: optionalInt(query, 7).map(Int.init),
+                                          transactionID: UUID(uuidString: string(query, 8)), detail: optionalString(query, 9)))
+        }
+        return attempts
+    }
+
+    private func insertAttempt(event: NotificationEvent, canonicalEventID: UUID, sourceID: UUID,
+                               status: ParserAttemptStatus = .captured) throws -> UUID {
+        let id = UUID()
+        let insert = try statement("""
+            INSERT INTO notification_attempts(id,event_id,source_id,raw_json,captured_at,status,exact_fingerprint)
+            VALUES(?,?,?,?,?,?,?)
+            """)
+        defer { sqlite3_finalize(insert) }
+        bind(id.uuidString, at: 1, to: insert)
+        bind(canonicalEventID.uuidString, at: 2, to: insert)
+        bind(sourceID.uuidString, at: 3, to: insert)
+        bind(String(data: try JSONEncoder().encode(event), encoding: .utf8)!, at: 4, to: insert)
+        sqlite3_bind_double(insert, 5, event.capturedAt.timeIntervalSince1970)
+        bind(status.rawValue, at: 6, to: insert)
+        bind(NotificationParser.exactFingerprint(event), at: 7, to: insert)
+        guard sqlite3_step(insert) == SQLITE_DONE else { throw error() }
+        return id
+    }
+
+    @discardableResult func captureNotification(_ event: NotificationEvent) throws -> ParserAttempt {
+        let attemptID: UUID
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let source = try parserSource(named: event.sourceApp)
+            _ = try insertEvent(event)
+            let canonical = try statement("SELECT id FROM notification_events WHERE fingerprint=?")
+            bind(event.fingerprint, at: 1, to: canonical)
+            guard sqlite3_step(canonical) == SQLITE_ROW,
+                  let canonicalID = UUID(uuidString: string(canonical, 0)) else {
+                sqlite3_finalize(canonical)
+                throw error()
+            }
+            sqlite3_finalize(canonical)
+            attemptID = try insertAttempt(event: event, canonicalEventID: canonicalID, sourceID: source.id)
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+        do { return try processNotificationAttempt(attemptID) }
+        catch {
+            // The raw capture has already committed. A processing failure cannot erase it.
+            try markAttempt(attemptID, status: .failed, detail: "Local save failed. Retry this sample.")
+            return try notificationAttempt(attemptID)
+        }
+    }
+
+    private func notificationAttempt(_ id: UUID) throws -> ParserAttempt {
+        let query = try statement("""
+            SELECT event_id,source_id,raw_json,captured_at,status,rule_id,rule_version,transaction_id,detail
+            FROM notification_attempts WHERE id=?
+            """)
+        defer { sqlite3_finalize(query) }
+        bind(id.uuidString, at: 1, to: query)
+        guard sqlite3_step(query) == SQLITE_ROW,
+              let eventID = UUID(uuidString: string(query, 0)),
+              let sourceID = UUID(uuidString: string(query, 1)),
+              var event = try? JSONDecoder().decode(NotificationEvent.self, from: Data(string(query, 2).utf8)),
+              let status = ParserAttemptStatus(rawValue: string(query, 4)) else {
+            throw DatabaseError.sqlite("Notification sample was not found")
+        }
+        event.id = eventID
+        return ParserAttempt(id: id, event: event, sourceID: sourceID,
+                             capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(query, 3)),
+                             status: status, ruleID: UUID(uuidString: string(query, 5)),
+                             ruleVersion: optionalInt(query, 6).map(Int.init),
+                             transactionID: UUID(uuidString: string(query, 7)), detail: optionalString(query, 8))
+    }
+
+    private func markAttempt(_ id: UUID, status: ParserAttemptStatus, rule: ParserRule? = nil,
+                             transactionID: UUID? = nil, semantic: String? = nil,
+                             detail: String? = nil) throws {
+        let update = try statement("""
+            UPDATE notification_attempts SET status=?,rule_id=?,rule_version=?,transaction_id=?,
+                semantic_fingerprint=?,detail=? WHERE id=?
+            """)
+        defer { sqlite3_finalize(update) }
+        bind(status.rawValue, at: 1, to: update)
+        bindOptional(rule?.id.uuidString, at: 2, to: update)
+        bindOptional(rule.map { Int64($0.version) }, at: 3, to: update)
+        bindOptional(transactionID?.uuidString, at: 4, to: update)
+        bindOptional(semantic, at: 5, to: update)
+        bindOptional(detail, at: 6, to: update)
+        bind(id.uuidString, at: 7, to: update)
+        guard sqlite3_step(update) == SQLITE_DONE else { throw error() }
+    }
+
+    private func existingTransaction(sql: String, fingerprint: String, date: Date,
+                                     window: Int? = nil) throws -> UUID? {
+        let query = try statement(sql)
+        defer { sqlite3_finalize(query) }
+        bind(fingerprint, at: 1, to: query)
+        sqlite3_bind_double(query, 2, date.timeIntervalSince1970)
+        if let window { sqlite3_bind_double(query, 3, Double(window)) }
+        guard sqlite3_step(query) == SQLITE_ROW else { return nil }
+        return UUID(uuidString: string(query, 0))
+    }
+
+    private func exactDuplicate(_ event: NotificationEvent, window: Int) throws -> UUID? {
+        try existingTransaction(sql: """
+            SELECT transaction_id FROM exact_dedup
+            WHERE fingerprint=? AND (has_payload_date=1 OR ABS(occurred_at-?)<=?)
+            ORDER BY created_at DESC LIMIT 1
+            """, fingerprint: NotificationParser.exactFingerprint(event),
+            date: event.receivedAt ?? event.capturedAt, window: window)
+    }
+
+    private func semanticDuplicate(key: String, date: Date, window: Int) throws -> UUID? {
+        try existingTransaction(sql: """
+            SELECT transaction_id FROM semantic_dedup
+            WHERE semantic_key=? AND ABS(occurred_at-?)<=?
+            ORDER BY created_at DESC LIMIT 1
+            """, fingerprint: key, date: date, window: window)
+    }
+
+    private func commitAttempt(_ id: UUID) throws -> ParserAttempt {
+        let result = try notificationAttempt(id)
+        try execute("COMMIT")
+        return result
+    }
+
+    @discardableResult func processNotificationAttempt(_ id: UUID, preferredRuleID: UUID? = nil) throws -> ParserAttempt {
+        var attemptedRule: ParserRule?
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let attempt = try notificationAttempt(id)
+            let event = attempt.event
+            let date = event.receivedAt ?? event.capturedAt
+            if let duplicate = try exactDuplicate(event, window: 600) {
+                try markAttempt(id, status: .duplicateIgnored, transactionID: duplicate,
+                                detail: "This notification was already recorded.")
+                return try commitAttempt(id)
+            }
+            guard let accountName = try mappedAccountName(for: attempt.sourceID) else {
+                try markAttempt(id, status: .setupRequired,
+                                detail: "Choose the account for this notification source.")
+                return try commitAttempt(id)
+            }
+            let rules = try parserRules(sourceID: attempt.sourceID).filter { $0.enabled &&
+                (preferredRuleID == nil || $0.id == preferredRuleID) }
+            var chosen: (ParserRule, ParserPreview)?
+            var incomplete: ParserRule?
+            for rule in rules {
+                let preview = NotificationParser.preview(event, config: rule.config,
+                                                         mappedAccount: accountName)
+                if preview.ready { chosen = (rule, preview); break }
+                if preview.conditionMatched && incomplete == nil { incomplete = rule }
+            }
+            guard let (rule, preview) = chosen, let amount = preview.amount,
+                  let merchant = preview.merchant else {
+                let status: ParserAttemptStatus = incomplete == nil ? (rules.isEmpty ? .setupRequired : .unmatched) : .failed
+                try markAttempt(id, status: status, rule: incomplete,
+                                detail: incomplete == nil ? nil : "A matching rule needs a usable EUR amount and description.")
+                return try commitAttempt(id)
+            }
+            attemptedRule = rule
+            let semantic = NotificationParser.semanticFingerprint(amountMinor: amount.cents,
+                                                                  merchant: merchant, account: accountName)
+            if let duplicate = try semanticDuplicate(key: semantic, date: date,
+                                                     window: rule.config.duplicateWindowSeconds) {
+                try markAttempt(id, status: .duplicateIgnored, rule: rule,
+                                transactionID: duplicate, semantic: semantic,
+                                detail: "A matching transaction was recorded recently.")
+                return try commitAttempt(id)
+            }
+            let linked = try statement("SELECT id FROM transactions WHERE source_event_id=? AND deleted_at IS NULL LIMIT 1")
+            bind(event.id.uuidString, at: 1, to: linked)
+            let existingID = sqlite3_step(linked) == SQLITE_ROW ? UUID(uuidString: string(linked, 0)) : nil
+            sqlite3_finalize(linked)
+            if let existingID {
+                try markAttempt(id, status: .duplicateIgnored, rule: rule, transactionID: existingID,
+                                semantic: semantic, detail: "This notification already has a transaction.")
+                return try commitAttempt(id)
+            }
+            let values = TransactionEditPolicy.values(original: nil, kind: rule.config.kind,
+                                                      newEURMinor: amount.cents)
+            var transaction = Transaction(id: UUID(), kind: rule.config.kind, amountMinor: amount.cents,
+                                          currency: "EUR", merchant: merchant, account: accountName,
+                                          category: "", note: "", occurredAt: date,
+                                          updatedAt: .now, deletedAt: nil, isDemo: false, revision: 0,
+                                          sourceEventID: event.id)
+            transaction.eurMinor = amount.cents
+            transaction.personalExpenseEURMinor = values.personal
+            transaction.recoverableEURMinor = values.recoverable
+#if DEBUG
+            if preferredRuleID != nil,
+               let token = ProcessInfo.processInfo.environment["EASYTRACK_TEST_FAIL_PARSER_ONCE"] {
+                let key = "syntheticParserFailureConsumed-\(token)"
+                if !UserDefaults.standard.bool(forKey: key) {
+                    UserDefaults.standard.set(true, forKey: key)
+                    throw DatabaseError.sqlite("Synthetic parser save failure")
+                }
+            }
+#endif
+            transaction = try save(transaction, manageTransaction: false)
+            let exactRecord = try statement("""
+                INSERT INTO exact_dedup(id,fingerprint,occurred_at,has_payload_date,transaction_id,created_at)
+                VALUES(?,?,?,?,?,?)
+                """)
+            bind(UUID().uuidString, at: 1, to: exactRecord)
+            bind(NotificationParser.exactFingerprint(event), at: 2, to: exactRecord)
+            sqlite3_bind_double(exactRecord, 3, date.timeIntervalSince1970)
+            sqlite3_bind_int(exactRecord, 4, event.receivedAt == nil ? 0 : 1)
+            bind(transaction.id.uuidString, at: 5, to: exactRecord)
+            sqlite3_bind_double(exactRecord, 6, Date().timeIntervalSince1970)
+            guard sqlite3_step(exactRecord) == SQLITE_DONE else { sqlite3_finalize(exactRecord); throw error() }
+            sqlite3_finalize(exactRecord)
+            let semanticRecord = try statement("""
+                INSERT INTO semantic_dedup(id,semantic_key,occurred_at,transaction_id,rule_id,created_at)
+                VALUES(?,?,?,?,?,?)
+                """)
+            bind(UUID().uuidString, at: 1, to: semanticRecord)
+            bind(semantic, at: 2, to: semanticRecord)
+            sqlite3_bind_double(semanticRecord, 3, date.timeIntervalSince1970)
+            bind(transaction.id.uuidString, at: 4, to: semanticRecord)
+            bind(rule.id.uuidString, at: 5, to: semanticRecord)
+            sqlite3_bind_double(semanticRecord, 6, Date().timeIntervalSince1970)
+            guard sqlite3_step(semanticRecord) == SQLITE_DONE else { sqlite3_finalize(semanticRecord); throw error() }
+            sqlite3_finalize(semanticRecord)
+            try markAttempt(id, status: .created, rule: rule, transactionID: transaction.id,
+                            semantic: semantic)
+            return try commitAttempt(id)
+        } catch {
+            try? execute("ROLLBACK")
+            try markAttempt(id, status: .failed, rule: attemptedRule,
+                            detail: "Local save failed. Retry this sample.")
+            return try notificationAttempt(id)
+        }
+    }
+
+    func leaveSampleReady(_ id: UUID) throws {
+        try markAttempt(id, status: .ready, detail: "Automation active. This sample was not added to Activity.")
     }
 }

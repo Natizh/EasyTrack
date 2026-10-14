@@ -319,7 +319,7 @@ struct NotificationEvent: Identifiable, Codable, Equatable {
               fields.contains(where: { !$0.isEmpty }) else { return nil }
         var bytes = Data()
         for field in fields {
-            let data = Data(field.utf8)
+            let data = Data(NotificationParser.normalize(field).utf8)
             var length = UInt32(data.count).bigEndian
             withUnsafeBytes(of: &length) { bytes.append(contentsOf: $0) }
             bytes.append(data)
@@ -327,6 +327,12 @@ struct NotificationEvent: Identifiable, Codable, Equatable {
         if let receivedAt {
             var milliseconds = Int64((receivedAt.timeIntervalSince1970 * 1_000).rounded()).bigEndian
             withUnsafeBytes(of: &milliseconds) { bytes.append(contentsOf: $0) }
+        } else {
+            // Without a payload date, identical text can represent a later real purchase.
+            // A ten-minute bucket keeps the canonical source-event identity bounded;
+            // the exact and semantic tables still check the actual time window.
+            var bucket = Int64((capturedAt.timeIntervalSince1970 / 600).rounded(.down)).bigEndian
+            withUnsafeBytes(of: &bucket) { bytes.append(contentsOf: $0) }
         }
         let fingerprint = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         return NotificationEvent(id: UUID(), sourceApp: source, title: title, subtitle: subtitle,
@@ -356,6 +362,11 @@ struct BackupEnvelope: Codable {
     let notificationEvents: [NotificationEvent]
     let operations: [LedgerOperation]
     let historical: HistoricalImportBackup?
+    let parserSources: [ParserSource]
+    let parserRules: [ParserRule]
+    let localAccounts: [LocalAccount]
+    let parserRuleVersions: [ParserRuleRevision]
+    let parserAttempts: [ParserAttempt]
 }
 
 struct HistoricalProvenanceRecord: Codable {

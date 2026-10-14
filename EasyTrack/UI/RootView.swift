@@ -78,6 +78,9 @@ private struct HomeView: View {
     @State private var showingNew = false
 
     private var totals: LedgerTotals { LedgerTotals(transactions: store.transactions) }
+    private var uncategorized: [Transaction] {
+        store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
 
     var body: some View {
         ScrollView {
@@ -88,6 +91,7 @@ private struct HomeView: View {
                     Text(Money.format(totals.personalSpendingEURMinor))
                         .font(.system(size: 40, weight: .bold, design: .rounded)).monospacedDigit()
                         .minimumScaleFactor(0.7).lineLimit(1)
+                        .accessibilityIdentifier("homePersonalSpendingTotal")
                     HStack(spacing: 22) {
                         metric("All expenses", value: totals.totalExpensesEURMinor, symbol: "arrow.up.right")
                         metric("Income", value: totals.incomeEURMinor, symbol: "arrow.down.left")
@@ -99,6 +103,35 @@ private struct HomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(LinearGradient(colors: [Palette.ink, Palette.teal], startPoint: .topLeading, endPoint: .bottomTrailing),
                             in: RoundedRectangle(cornerRadius: 26))
+
+                if !uncategorized.isEmpty {
+                    VStack(alignment: .leading, spacing: 11) {
+                        HStack {
+                            Label("Uncategorized", systemImage: "tag")
+                                .font(.title3.bold()).foregroundStyle(Palette.ink)
+                            Spacer()
+                            Text("\(uncategorized.count)")
+                                .font(.caption.weight(.bold)).foregroundStyle(Palette.teal)
+                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                .background(Palette.mint, in: Capsule())
+                        }
+                        Text("Complete transactions waiting for an optional category.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        ForEach(uncategorized.prefix(3)) { item in
+                            NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+                                .buttonStyle(.plain)
+                            if item.id != uncategorized.prefix(3).last?.id { Divider().padding(.leading, 55) }
+                        }
+                        if uncategorized.count > 3 {
+                            NavigationLink("See all") { UncategorizedTransactionsView() }
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                                .padding(.top, 3)
+                        }
+                    }
+                    .padding(17)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 20))
+                    .accessibilityIdentifier("homeUncategorizedSection")
+                }
 
                 HStack {
                     Text("Recent activity").font(.title3.bold()).foregroundStyle(Palette.ink)
@@ -129,6 +162,22 @@ private struct HomeView: View {
             Label(title, systemImage: symbol).font(.caption).foregroundStyle(.white.opacity(0.75))
             Text(Money.format(value)).font(.headline).monospacedDigit()
         }
+    }
+}
+
+private struct UncategorizedTransactionsView: View {
+    @EnvironmentObject private var store: FinanceStore
+
+    private var items: [Transaction] {
+        store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    var body: some View {
+        List(items) { item in
+            NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+        }
+        .navigationTitle("Uncategorized")
+        .overlay { if items.isEmpty { ContentUnavailableView("All categorized", systemImage: "checkmark.circle") } }
     }
 }
 
@@ -176,9 +225,12 @@ private struct TransactionsView: View {
                         filterChip(option.title, selected: kind == option) { kind = option }
                     }
                     Menu {
-                        ForEach(categories, id: \.self) { value in Button(value) { category = value } }
+                        ForEach(categories, id: \.self) { value in
+                            Button(value.isEmpty ? "Uncategorized" : value) { category = value }
+                        }
                     } label: {
-                        Label(category, systemImage: "line.3.horizontal.decrease")
+                        Label(category.isEmpty ? "Uncategorized" : category,
+                              systemImage: "line.3.horizontal.decrease")
                             .font(.subheadline.weight(.medium)).padding(.horizontal, 14).padding(.vertical, 9)
                             .background(.white, in: Capsule())
                     }
@@ -234,7 +286,7 @@ private struct TransactionsView: View {
     }
 }
 
-private struct TransactionEditor: View {
+struct TransactionEditor: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
     private let original: Transaction?
@@ -309,7 +361,17 @@ private struct TransactionEditor: View {
                     TextField("Account", text: $account).multilineTextAlignment(.trailing)
                 }
                 LabeledContent("Category") {
-                    TextField("Category", text: $category).multilineTextAlignment(.trailing)
+                    HStack {
+                        TextField("Uncategorized", text: $category).multilineTextAlignment(.trailing)
+                            .accessibilityIdentifier("transactionCategoryField")
+                        let categories = Array(Set(store.transactions.map(\.category).filter { !$0.isEmpty })).sorted()
+                        if !categories.isEmpty {
+                            Menu {
+                                ForEach(categories, id: \.self) { value in Button(value) { category = value } }
+                            } label: { Image(systemName: "chevron.down.circle").foregroundStyle(Palette.teal) }
+                                .accessibilityLabel("Choose existing category")
+                        }
+                    }
                 }
                 LabeledContent("Subcategory") {
                     TextField("Optional", text: $subcategory).multilineTextAlignment(.trailing)
@@ -356,9 +418,6 @@ private struct TransactionEditor: View {
         guard !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             validation = "Enter a description."; return
         }
-        guard !category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            validation = "Enter a category."; return
-        }
         if original == nil && account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             validation = "Enter an account for a new transaction."; return
         }
@@ -401,77 +460,6 @@ private struct TransactionEditor: View {
         } catch {
             validation = "Couldn’t delete transaction. \(error.localizedDescription)"
             isSaving = false
-        }
-    }
-}
-
-private struct AutomationsView: View {
-    @EnvironmentObject private var store: FinanceStore
-    private var sources: [String] { Array(Set(store.events.map(\.sourceApp))).sorted() }
-
-    var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    Image(systemName: "bell.badge").font(.title2).foregroundStyle(Palette.teal)
-                    Text("Notification intake").font(.headline)
-                    Text("The Shortcuts action saves notification text here as a diagnostic event. It never creates a transaction automatically in this milestone.")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    Button("Send a demo test payload") { store.captureDemoEvent() }
-                        .buttonStyle(.borderedProminent).tint(Palette.teal)
-                }
-                .padding(.vertical, 10)
-            }
-            Section("Sources") {
-                ForEach(sources, id: \.self) { source in
-                    NavigationLink {
-                        SourceEventsView(source: source)
-                    } label: {
-                        HStack {
-                            Label(source, systemImage: "app.badge")
-                            Spacer()
-                            Text("\(store.events.filter { $0.sourceApp == source }.count)").foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if sources.isEmpty { Text("No notifications captured yet").foregroundStyle(.secondary) }
-            }
-        }
-        .navigationTitle("Automations")
-    }
-}
-
-private struct SourceEventsView: View {
-    @EnvironmentObject private var store: FinanceStore
-    let source: String
-    @State private var eventToCreate: NotificationEvent?
-
-    var body: some View {
-        List {
-            Section { Text("Events stay on this device. Rule configuration and parsing arrive in a later milestone.")
-                .font(.footnote).foregroundStyle(.secondary) }
-            Section("Diagnostic events") {
-                ForEach(store.events.filter { $0.sourceApp == source }) { event in
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(event.title.isEmpty ? "Untitled notification" : event.title).font(.headline)
-                        if !event.subtitle.isEmpty { Text(event.subtitle).font(.subheadline) }
-                        if !event.message.isEmpty { Text(event.message).font(.subheadline).textSelection(.enabled) }
-                        Text((event.receivedAt ?? event.capturedAt).formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if store.transactions.contains(where: { $0.sourceEventID == event.id }) {
-                            Label("Linked to a transaction", systemImage: "checkmark.circle").font(.caption).foregroundStyle(Palette.teal)
-                        } else {
-                            Button("Create manually from this event") { eventToCreate = event }
-                                .font(.subheadline.weight(.medium))
-                        }
-                    }
-                    .padding(.vertical, 5)
-                }
-            }
-        }
-        .navigationTitle(source)
-        .sheet(item: $eventToCreate) { event in
-            NavigationStack { TransactionEditor(prefillEvent: event) }
         }
     }
 }
@@ -542,7 +530,7 @@ private struct SettingsView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("About") {
-                LabeledContent("Version", value: "0.2 · historical import")
+                LabeledContent("Version", value: "0.4 · notification formats")
                 LabeledContent("Currency in editor", value: "EUR")
             }
         }
