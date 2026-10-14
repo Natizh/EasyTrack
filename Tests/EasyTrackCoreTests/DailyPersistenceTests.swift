@@ -168,4 +168,78 @@ final class DailyPersistenceTests: XCTestCase {
             XCTAssertEqual(try database.materializeDueRecurring(now: self.date("2026-02-01")), 1)
         }
     }
+
+    func testSchemaFourUpgradePreservesExistingLedgerAndParserRows() throws {
+        try withDatabase { url, database in
+            let original = Transaction(id: UUID(), kind: .expense, amountMinor: 1_234,
+                                       currency: "EUR", merchant: "Fictional legacy purchase",
+                                       account: "Fictional legacy account", category: "", note: "",
+                                       occurredAt: self.date("2026-02-01"), updatedAt: .now,
+                                       deletedAt: nil, isDemo: false, revision: 0, sourceEventID: nil)
+            try database.save(original)
+            let event = try XCTUnwrap(NotificationEvent.make(sourceApp: "Fictional legacy source",
+                title: "Purchase", subtitle: "", message: "12,34 EUR", receivedAt: self.date("2026-02-01")))
+            XCTAssertEqual(try database.captureNotification(event).status, .setupRequired)
+            for command in [
+                "DROP TABLE recurring_occurrences_local",
+                "DROP TABLE recurring_rules_local",
+                "DROP TABLE ledger_categories",
+                "DROP INDEX unique_transaction_recurring_occurrence",
+                "ALTER TABLE transactions DROP COLUMN recurring_occurrence_id",
+                "ALTER TABLE transactions DROP COLUMN category_id",
+                "ALTER TABLE transactions DROP COLUMN account_id",
+                "ALTER TABLE local_accounts DROP COLUMN symbol_name",
+                "ALTER TABLE local_accounts DROP COLUMN color_name",
+                "ALTER TABLE local_accounts DROP COLUMN updated_at",
+                "ALTER TABLE local_accounts DROP COLUMN archived_at",
+                "ALTER TABLE local_accounts DROP COLUMN revision",
+                "PRAGMA user_version=4"
+            ] { try self.sql(command, url: url) }
+            XCTAssertEqual(try self.scalar("PRAGMA user_version", url: url), 4)
+            let upgraded = try SQLiteDatabase(url: url)
+            XCTAssertEqual(try self.scalar("PRAGMA user_version", url: url), 5)
+            XCTAssertEqual(try upgraded.transactions().first?.id, original.id)
+            XCTAssertEqual(try upgraded.transactions().first?.amountMinor, 1_234)
+            XCTAssertEqual(try upgraded.notificationEvents().first?.id, event.id)
+            XCTAssertEqual(try upgraded.ledgerCategories().count, 12)
+            XCTAssertEqual(try self.scalar("SELECT COUNT(*) FROM pragma_foreign_key_check", url: url), 0)
+        }
+    }
+
+    func testParserSourceMappingRetainsAccountIdentityThroughRenameAndArchive() throws {
+        try withDatabase { _, database in
+            var account = try self.account(database, name: "Fictional mapped checking")
+            let event = try XCTUnwrap(NotificationEvent.make(sourceApp: "Fictional notification app",
+                title: "Purchase", subtitle: "", message: "2,50 EUR", receivedAt: self.date("2026-02-01")))
+            XCTAssertEqual(try database.captureNotification(event).status, .setupRequired)
+            let sourceID = try XCTUnwrap(database.parserSources().first?.id)
+            _ = try database.mapParserSource(sourceID, to: account.name)
+            XCTAssertEqual(try database.parserSources().first?.accountID, account.id)
+            account.name = "Fictional checking renamed"
+            account = try database.saveLocalAccount(account)
+            XCTAssertEqual(try database.parserSources().first?.accountID, account.id)
+            XCTAssertEqual(try database.parserSources().first?.accountName, account.name)
+            account.archivedAt = .now
+            _ = try database.saveLocalAccount(account)
+            XCTAssertEqual(try database.parserSources().first?.accountID, account.id)
+        }
+    }
+
+    func testCategoryReorderPersistsAndKeepsStableIDs() throws {
+        try withDatabase { url, database in
+            let first = try self.category(database, name: "Fictional first category")
+            var secondInput = LedgerCategory(id: UUID(), name: "Fictional second category",
+                symbolName: "book.fill", colorName: "blue", sortIndex: 31,
+                createdAt: .now, updatedAt: .now, archivedAt: nil, revision: 0)
+            secondInput = try database.saveLedgerCategory(secondInput)
+            let beforeOperations = try database.operations().count
+            try database.swapCategoryOrder(first, secondInput)
+            let reopened = try SQLiteDatabase(url: url)
+            let categories = try reopened.ledgerCategories()
+            XCTAssertEqual(categories.first { $0.id == first.id }?.sortIndex, 31)
+            XCTAssertEqual(categories.first { $0.id == secondInput.id }?.sortIndex, 30)
+            XCTAssertEqual(categories.first { $0.id == first.id }?.revision, first.revision + 1)
+            XCTAssertEqual(try reopened.operations().count, beforeOperations + 2)
+        }
+    }
 }

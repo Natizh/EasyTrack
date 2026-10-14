@@ -41,6 +41,7 @@ struct AccountsView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) {
             Button { showingNew = true } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add account")
+                .accessibilityIdentifier("addAccountButton")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { AccountEditorView() } }
         .sheet(item: $selected) { account in NavigationStack { AccountEditorView(account: account) } }
@@ -179,6 +180,7 @@ struct CategoriesView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) {
             Button { showingNew = true } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add category")
+                .accessibilityIdentifier("addCategoryButton")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { CategoryEditorView() } }
         .sheet(item: $selected) { category in NavigationStack { CategoryEditorView(category: category) } }
@@ -199,6 +201,7 @@ struct CategoriesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("categoryRow-\(category.name)")
             if category.archivedAt == nil {
                 let position = active.firstIndex(where: { $0.id == category.id }) ?? 0
                 Button { move(category, by: -1) } label: { Image(systemName: "arrow.up") }
@@ -210,7 +213,6 @@ struct CategoriesView: View {
             }
         }
         .buttonStyle(.borderless)
-        .accessibilityIdentifier("categoryRow-\(category.name)")
     }
 
     private func move(_ category: LedgerCategory, by offset: Int) {

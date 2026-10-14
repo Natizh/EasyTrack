@@ -50,6 +50,12 @@ Source dates have no timezone. The exact text is kept so a future date model can
 
 **Mac verification:** all 2,881 movements passed the version-1 mapper; zero movement rows were rejected. The 3 accounts, 10 trips, 11 recurring rules, 303 exchange rates, 2,881 original source rows, and 254 warning rows were imported into a disposable local database. The source-row numbers for unresolved account links and date/cache ambiguities are written only to the ignored local file `DerivedData/import-audit.txt` by `scripts/audit_seed.py`. This audit file contains row numbers and counts, never transaction contents.
 
+## Managed accounts and recurrence in local schema 5
+
+On the schema-5 upgrade, each distinct historical master-account name is added to the managed account list if absent. The existing historical table and transaction labels are retained. No `transactions.account_id` is inferred for unmatched movement labels; the user can select a managed account when editing a specific movement. Account rename and archive preserve its stable ID and historical source rows.
+
+Imported recurring definitions remain in `historical_recurring_rules` and generate no transactions. The user may explicitly create a new EUR local recurring template from one, choosing its account and start date. Its `historical_source_id` links the template to the imported definition, while local due dates use deterministic occurrence IDs. The original 11 definitions and their spreadsheet provenance stay intact; no past imported payment is duplicated or silently matched.
+
 **Simulator verification:** the iOS 27 Files picker, preview, atomic import, Demo removal, relaunch persistence, and no-op reimport were exercised with a clearly synthetic one-movement seed. The real 2,881-row seed was not copied into the simulator or captured by UI tests.
 
 **Current editor behavior:** The normal editor accepts and displays one EUR amount and saves integer EUR cents. Source currency/amount, imported EUR value, historical rate, personal value, source row, and raw row JSON remain stored for provenance and backup. An edit to a foreign-currency movement sets the current transaction amount/currency to EUR while retaining the original imported fields in provenance. The “Historical values” editor section is intentionally absent. Imported separate personal shares are preserved rather than silently recalculated; a short note appears when that affects an expense.

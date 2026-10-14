@@ -60,19 +60,27 @@ struct RecurringListView: View {
                 }
                 sectionHeader("Next 30 days", systemImage: "calendar")
                 if upcoming.isEmpty { emptyCard("No payments expected in the next 30 days.") }
-                ForEach(upcoming.prefix(8)) { item in
+                ForEach(upcoming.prefix(2)) { item in
                     UpcomingRecurringRow(item: item)
                         .padding(13)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color(uiColor: .secondarySystemGroupedBackground),
                                     in: RoundedRectangle(cornerRadius: 16))
                 }
+                if upcoming.count > 2 {
+                    Text("\(upcoming.count - 2) more dates in the next 30 days")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 sectionHeader("Active rules", systemImage: "repeat")
                 if active.isEmpty { emptyCard("Add a subscription, repeating payment, income, or PAC plan.") }
-                ForEach(active) { rule in ruleCard(rule) }
+                ForEach(active) { rule in
+                    ruleCard(rule).id("\(rule.id.uuidString)-\(rule.revision)-\(rule.isActive)")
+                }
                 if !paused.isEmpty {
                     sectionHeader("Paused", systemImage: "pause.circle")
-                    ForEach(paused) { rule in ruleCard(rule) }
+                    ForEach(paused) { rule in
+                        ruleCard(rule).id("\(rule.id.uuidString)-\(rule.revision)-\(rule.isActive)")
+                    }
                 }
                 if !store.historicalRules.isEmpty {
                     sectionHeader("Imported plans", systemImage: "tray.full")
@@ -104,6 +112,7 @@ struct RecurringListView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) {
             Button { showingNew = true } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add recurring rule")
+                .accessibilityIdentifier("addRecurringRuleButton")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { RecurringRuleEditorView() } }
         .sheet(item: $selected) { rule in NavigationStack { RecurringRuleEditorView(rule: rule) } }
@@ -226,6 +235,10 @@ private struct RecurringRuleEditorView: View {
     @State private var note: String
     @State private var errorMessage: String?
     @State private var saving = false
+    @State private var choosingType = false
+    @State private var choosingAccount = false
+    @State private var choosingCategory = false
+    @State private var choosingFrequency = false
 
     init(rule: RecurringRule? = nil, imported: HistoricalRecurringRule? = nil) {
         original = rule
@@ -244,38 +257,37 @@ private struct RecurringRuleEditorView: View {
         _note = State(initialValue: rule?.note ?? "")
     }
 
-    private var selectableAccounts: [LocalAccount] {
-        store.localAccounts.filter { $0.archivedAt == nil || $0.id == accountID }
-    }
-    private var selectableCategories: [LedgerCategory] {
-        store.ledgerCategories.filter { $0.archivedAt == nil || $0.id == categoryID }
-    }
-
     var body: some View {
         Form {
             Section("Payment") {
                 TextField("Name or merchant", text: $name)
                     .accessibilityIdentifier("recurringNameField")
-                Picker("Kind", selection: $type) {
-                    ForEach(RecurringType.allCases) { Text($0.title).tag($0) }
+                LabeledContent("Kind") {
+                    Button(type.title) { choosingType = true }
+                        .accessibilityIdentifier("recurringTypePicker")
                 }
                 LabeledContent("Amount (EUR)") {
                     TextField("0,00", text: $amount).keyboardType(.numbersAndPunctuation)
                         .multilineTextAlignment(.trailing)
                         .accessibilityIdentifier("recurringAmountField")
                 }
-                Picker("Account", selection: $accountID) {
-                    Text("Choose account").tag(nil as UUID?)
-                    ForEach(selectableAccounts) { account in Text(account.name).tag(Optional(account.id)) }
+                LabeledContent("Account") {
+                    Button(store.localAccounts.first(where: { $0.id == accountID })?.name ?? "Choose account") {
+                        choosingAccount = true
+                    }
+                    .accessibilityIdentifier("recurringAccountPicker")
                 }
-                Picker("Category", selection: $categoryID) {
-                    Text("Uncategorized").tag(nil as UUID?)
-                    ForEach(selectableCategories) { category in Text(category.name).tag(Optional(category.id)) }
+                LabeledContent("Category") {
+                    Button(store.ledgerCategories.first(where: { $0.id == categoryID })?.name ?? "Uncategorized") {
+                        choosingCategory = true
+                    }
+                    .accessibilityIdentifier("recurringCategoryPicker")
                 }
             }
             Section("Schedule") {
-                Picker("Repeats", selection: $frequency) {
-                    ForEach(RecurringFrequency.allCases) { Text($0.title).tag($0) }
+                LabeledContent("Repeats") {
+                    Button(frequency.title) { choosingFrequency = true }
+                        .accessibilityIdentifier("recurringFrequencyPicker")
                 }
                 DatePicker("Schedule starts",
                            selection: $startDate, displayedComponents: .date)
@@ -308,6 +320,32 @@ private struct RecurringRuleEditorView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Save") { save() }.fontWeight(.semibold).disabled(saving)
                     .accessibilityIdentifier("saveRecurringRuleButton")
+            }
+        }
+        .sheet(isPresented: $choosingType) {
+            NavigationStack {
+                List(RecurringType.allCases) { option in
+                    Button(option.title) { type = option; choosingType = false }
+                }
+                .navigationTitle("Movement kind")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { choosingType = false } } }
+            }
+        }
+        .sheet(isPresented: $choosingAccount) {
+            NavigationStack { AccountSelectionView(selectedID: accountID) { accountID = $0.id } }
+        }
+        .sheet(isPresented: $choosingCategory) {
+            NavigationStack { CategorySelectionView(selectedID: categoryID) { categoryID = $0?.id } }
+        }
+        .sheet(isPresented: $choosingFrequency) {
+            NavigationStack {
+                List(RecurringFrequency.allCases) { option in
+                    Button(option.title) { frequency = option; choosingFrequency = false }
+                }
+                .navigationTitle("Repeat")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { choosingFrequency = false } } }
             }
         }
     }

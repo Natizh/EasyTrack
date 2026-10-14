@@ -2,10 +2,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum Palette {
-    static let ink = Color(red: 0.10, green: 0.17, blue: 0.20)
-    static let teal = Color(red: 0.08, green: 0.45, blue: 0.43)
-    static let mint = Color(red: 0.85, green: 0.95, blue: 0.91)
-    static let canvas = Color(red: 0.96, green: 0.97, blue: 0.96)
+    static let ink = Color.primary
+    static let heroInk = Color(red: 0.10, green: 0.17, blue: 0.20)
+    static let heroTeal = Color(red: 0.08, green: 0.45, blue: 0.43)
+    static let teal = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.38, green: 0.84, blue: 0.80, alpha: 1)
+            : UIColor(red: 0.08, green: 0.45, blue: 0.43, alpha: 1)
+    })
+    static let mint = Color.teal.opacity(0.12)
+    static let canvas = Color(uiColor: .systemGroupedBackground)
+    static let surface = Color(uiColor: .secondarySystemGroupedBackground)
 }
 
 struct RootView: View {
@@ -110,7 +117,7 @@ private struct HomeView: View {
                 .foregroundStyle(.white)
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(LinearGradient(colors: [Palette.ink, Palette.teal], startPoint: .topLeading, endPoint: .bottomTrailing),
+                .background(LinearGradient(colors: [Palette.heroInk, Palette.heroTeal], startPoint: .topLeading, endPoint: .bottomTrailing),
                             in: RoundedRectangle(cornerRadius: 26))
 
                 VStack(alignment: .leading, spacing: 11) {
@@ -125,15 +132,35 @@ private struct HomeView: View {
                         Text("No repeating payments expected in the next 30 days.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     } else {
-                        ForEach(upcoming.prefix(3)) { item in
+                        ForEach(upcoming.prefix(1)) { item in
                             UpcomingRecurringRow(item: item)
-                            if item.id != upcoming.prefix(3).last?.id { Divider().padding(.leading, 54) }
+                        }
+                        if upcoming.count > 1 {
+                            Text("\(upcoming.count - 1) more expected in the next 30 days")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
                 .padding(17)
-                .background(.white, in: RoundedRectangle(cornerRadius: 20))
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityIdentifier("homeUpcomingSection")
+
+                HStack {
+                    Text("Recent activity").font(.title3.bold()).foregroundStyle(Palette.ink)
+                    Spacer()
+                    NavigationLink("See all") { TransactionsView() }
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                }
+                VStack(spacing: 0) {
+                    ForEach(store.transactions.prefix(3)) { item in
+                        NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+                            .buttonStyle(.plain)
+                        if item.id != store.transactions.prefix(3).last?.id { Divider().padding(.leading, 55) }
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 6)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
+                if store.transactions.isEmpty { ContentUnavailableView("No transactions", systemImage: "tray") }
 
                 if !uncategorized.isEmpty {
                     VStack(alignment: .leading, spacing: 11) {
@@ -160,26 +187,9 @@ private struct HomeView: View {
                         }
                     }
                     .padding(17)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 20))
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
                     .accessibilityIdentifier("homeUncategorizedSection")
                 }
-
-                HStack {
-                    Text("Recent activity").font(.title3.bold()).foregroundStyle(Palette.ink)
-                    Spacer()
-                    NavigationLink("See all") { TransactionsView() }
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
-                }
-                VStack(spacing: 0) {
-                    ForEach(store.transactions.prefix(3)) { item in
-                        NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
-                            .buttonStyle(.plain)
-                        if item.id != store.transactions.prefix(3).last?.id { Divider().padding(.leading, 55) }
-                    }
-                }
-                .padding(.horizontal, 16).padding(.vertical, 6)
-                .background(.white, in: RoundedRectangle(cornerRadius: 20))
-                if store.transactions.isEmpty { ContentUnavailableView("No transactions", systemImage: "tray") }
             }
             .padding(20)
         }
@@ -252,7 +262,7 @@ private struct TransactionsView: View {
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 11)
-            .background(.white, in: RoundedRectangle(cornerRadius: 14))
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 14))
             .padding(.horizontal, 20).padding(.top, 8)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -268,7 +278,7 @@ private struct TransactionsView: View {
                         Label(category.isEmpty ? "Uncategorized" : category,
                               systemImage: "line.3.horizontal.decrease")
                             .font(.subheadline.weight(.medium)).padding(.horizontal, 14).padding(.vertical, 9)
-                            .background(.white, in: Capsule())
+                            .background(Palette.surface, in: Capsule())
                     }
                     Menu {
                         Button("All accounts") { accountFilter = nil }
@@ -312,13 +322,13 @@ private struct TransactionsView: View {
     private func filterChip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(title).font(.subheadline.weight(.medium)).padding(.horizontal, 15).padding(.vertical, 9) }
             .foregroundStyle(selected ? .white : Palette.ink)
-            .background(selected ? Palette.teal : .white, in: Capsule())
+            .background(selected ? Palette.heroTeal : Palette.surface, in: Capsule())
     }
 
     private func filterMenuLabel(_ title: String) -> some View {
         Label(title, systemImage: "line.3.horizontal.decrease")
             .font(.subheadline.weight(.medium)).padding(.horizontal, 14).padding(.vertical, 9)
-            .background(.white, in: Capsule())
+            .background(Palette.surface, in: Capsule())
     }
 }
 
@@ -343,8 +353,8 @@ struct TransactionEditor: View {
     @State private var showDelete = false
     @State private var isSaving = false
     @State private var validation: String?
-    @State private var showingAccounts = false
-    @State private var showingCategories = false
+    @State private var choosingAccount = false
+    @State private var choosingCategory = false
 
     init(item: Transaction? = nil, prefillEvent: NotificationEvent? = nil) {
         original = item
@@ -401,15 +411,7 @@ struct TransactionEditor: View {
             }
             Section("Details") {
                 LabeledContent("Account") {
-                    Menu {
-                        ForEach(store.localAccounts.filter { $0.archivedAt == nil || $0.id == accountID }) { option in
-                            Button(option.name) {
-                                accountID = option.id
-                                account = option.name
-                            }
-                        }
-                        Button("Manage accounts") { showingAccounts = true }
-                    } label: {
+                    Button { choosingAccount = true } label: {
                         HStack {
                             Text(store.localAccounts.first(where: { $0.id == accountID })?.name ??
                                  (account.isEmpty ? "Choose account" : account))
@@ -423,14 +425,11 @@ struct TransactionEditor: View {
                     HStack {
                         TextField("Uncategorized", text: $category).multilineTextAlignment(.trailing)
                             .accessibilityIdentifier("transactionCategoryField")
-                        Menu {
-                            Button("Uncategorized") { category = ""; categoryID = nil }
-                            ForEach(store.ledgerCategories.filter { $0.archivedAt == nil || $0.id == categoryID }) { option in
-                                Button(option.name) { category = option.name; categoryID = option.id }
-                            }
-                            Button("Manage categories") { showingCategories = true }
-                        } label: { Image(systemName: "chevron.down.circle").foregroundStyle(Palette.teal) }
+                        Button { choosingCategory = true } label: {
+                            Image(systemName: "chevron.down.circle").foregroundStyle(Palette.teal)
+                        }
                             .accessibilityLabel("Choose category")
+                            .accessibilityIdentifier("transactionCategoryPicker")
                     }
                 }
                 LabeledContent("Subcategory") {
@@ -471,8 +470,22 @@ struct TransactionEditor: View {
                     NotificationParser.normalize($0.name) == NotificationParser.normalize(value)
             }?.id
         }
-        .sheet(isPresented: $showingAccounts) { NavigationStack { AccountsView() } }
-        .sheet(isPresented: $showingCategories) { NavigationStack { CategoriesView() } }
+        .sheet(isPresented: $choosingAccount) {
+            NavigationStack {
+                AccountSelectionView(selectedID: accountID) { selected in
+                    accountID = selected.id
+                    account = selected.name
+                }
+            }
+        }
+        .sheet(isPresented: $choosingCategory) {
+            NavigationStack {
+                CategorySelectionView(selectedID: categoryID) { selected in
+                    categoryID = selected?.id
+                    category = selected?.name ?? ""
+                }
+            }
+        }
     }
 
     private func save() {
@@ -540,6 +553,73 @@ struct TransactionEditor: View {
     }
 }
 
+struct AccountSelectionView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.dismiss) private var dismiss
+    let selectedID: UUID?
+    let onSelect: (LocalAccount) -> Void
+
+    var body: some View {
+        List {
+            Section("Accounts") {
+                ForEach(store.localAccounts.filter { $0.archivedAt == nil || $0.id == selectedID }) { option in
+                    Button {
+                        onSelect(option)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Label(option.name, systemImage: option.symbolName)
+                            Spacer()
+                            if selectedID == option.id { Image(systemName: "checkmark").foregroundStyle(Palette.teal) }
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                }
+            }
+            Section {
+                NavigationLink { AccountsView() } label: { Label("Manage accounts", systemImage: "plus.circle") }
+            }
+        }
+        .navigationTitle("Choose account")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+    }
+}
+
+struct CategorySelectionView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.dismiss) private var dismiss
+    let selectedID: UUID?
+    let onSelect: (LedgerCategory?) -> Void
+
+    var body: some View {
+        List {
+            Section("Category") {
+                Button("Uncategorized") { onSelect(nil); dismiss() }
+                ForEach(store.ledgerCategories.filter { $0.archivedAt == nil || $0.id == selectedID }) { option in
+                    Button {
+                        onSelect(option)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Label(option.name, systemImage: option.symbolName)
+                            Spacer()
+                            if selectedID == option.id { Image(systemName: "checkmark").foregroundStyle(Palette.teal) }
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                }
+            }
+            Section {
+                NavigationLink { CategoriesView() } label: { Label("Manage categories", systemImage: "plus.circle") }
+            }
+        }
+        .navigationTitle("Choose category")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+    }
+}
+
 private struct BackupDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.json] }
     let data: Data
@@ -570,6 +650,20 @@ private struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Everyday") {
+                NavigationLink { AccountsView() } label: {
+                    Label("Accounts", systemImage: "creditcard")
+                }
+                .accessibilityIdentifier("settingsAccountsLink")
+                NavigationLink { CategoriesView() } label: {
+                    Label("Categories", systemImage: "square.grid.2x2")
+                }
+                .accessibilityIdentifier("settingsCategoriesLink")
+                NavigationLink { RecurringListView() } label: {
+                    Label("Recurring payments", systemImage: "repeat")
+                }
+                .accessibilityIdentifier("settingsRecurringLink")
+            }
             Section("Storage") {
                 Label("Local database · available offline", systemImage: "internaldrive")
                 Text("EasyTrack.sqlite stays in this app’s private storage. Updates should keep it; deleting the app removes it.")
@@ -606,7 +700,7 @@ private struct SettingsView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("About") {
-                LabeledContent("Version", value: "0.4 · notification formats")
+                LabeledContent("Version", value: "0.5 · everyday finances")
                 LabeledContent("Currency in editor", value: "EUR")
             }
         }
