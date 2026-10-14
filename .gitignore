@@ -1,5 +1,8 @@
 .build/
 DerivedData*/
+Screenshots/
+screenshots/
+SimulatorData/
 .cache/
 *.xcresult/
 *.xcarchive/
@@ -31,6 +34,13 @@ xcuserdata/
 *backup*.json
 *audit*.txt
 *.png.tmp
+*screenshot*.png
+*.heic
+*.mov
+*.mp4
+*.xcactivitylog
+*.profdata
+*.trace
 .env
 .env.*
 *.p12

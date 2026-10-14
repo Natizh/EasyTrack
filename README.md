@@ -128,6 +128,16 @@ After the daily UI tests, the preserved simulator database contained **19 transa
 
 Final fictional-only screenshots are under ignored `DerivedData/VisualDailyLightFinal/` and `DerivedData/VisualDailyDark/` (ten screens each). Home, Activity, new/edit transaction, Accounts, Categories, Recurring list/editor, Automations, and Settings were inspected. The latest Home layout shows recent activity on the first screen; system surfaces and the accent adapt to dark mode. These screenshots and `.xcresult` bundles are local build artifacts, not app assets or tracked files.
 
+## Accessibility and appearance checks — 15 October 2026
+
+On the same synthetic-only iPhone 17 Pro simulator, a focused XCUITest selected a banknote icon and purple color for a fictional account, and a gift icon and orange color for a fictional category. The account and category editors displayed the saved selections after relaunch. The test moved the category one position earlier; a read-only SQLite check found `banknote.fill`/`purple`, `gift.fill`/`orange`, and the expected category sort index and revision. No transaction or imported source row changed.
+
+The simulator's text size was set to `accessibility-medium` using `simctl ui`, then restored to its original `large` setting. A focused XCUITest verified accessible button and text-field roles, account/category picker labels and selected values, the disabled first-category Move Earlier action, the enabled Move Later action, and an actionable Activity transaction row. Six fictional-only Home, Activity, list, and editor screenshots were inspected under ignored `DerivedData/VisualLargeTypeFinal2/`. Activity transaction rows now place the amount below the description at accessibility text sizes so category names and descriptions remain readable. Opening an Activity transaction clears search focus, leaving tab navigation available after Save. Decorative preview icons are hidden from the accessibility tree; account/category rows have edit hints, and category move controls have full-size targets. Spoken VoiceOver output and swipe-focus order were not available through the command-line simulator tooling and still need a hands-on accessibility pass.
+
+The temporary navigation-only screenshot test was removed after capturing the local visual artifacts; the focused behavior and accessibility tests remain.
+
+After these fictional-only checks, the final simulator install preserved schema 5, **19 transactions**, **23 managed accounts**, **20 categories**, **three recurring occurrences**, and the one synthetic import identity. SQLite reported zero foreign-key violations. The real historical seed and spreadsheet were never placed in this simulator or the app bundle.
+
 ## Pending iPhone tests
 
 1. Set up [SideStore with iLoader](https://docs.sidestore.io/docs/installation/install). First rebuild **Release for generic iOS device** using the command above, then package an unsigned IPA locally with `sh scripts/package_unsigned_ipa.sh`, import it into SideStore, and confirm installation. No Apple credentials belong in this repository. The older unsigned IPA was removed after simulator-only code changes so it cannot be mistaken for a current build.

@@ -18,6 +18,12 @@ enum LedgerAppearance {
                           "cart.fill", "fork.knife", "car.fill", "bag.fill", "house.fill",
                           "doc.text.fill", "cross.case.fill", "ticket.fill", "airplane",
                           "book.fill", "square.grid.2x2.fill", "gift.fill", "heart.fill"]
+
+    static func symbolTitle(_ symbol: String) -> String {
+        symbol.replacingOccurrences(of: ".fill", with: "")
+            .replacingOccurrences(of: ".", with: " ")
+            .capitalized
+    }
 }
 
 enum DailyValidationError: LocalizedError {

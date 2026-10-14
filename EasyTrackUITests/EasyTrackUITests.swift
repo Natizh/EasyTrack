@@ -148,12 +148,19 @@ final class EasyTrackUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Synthetic Edited Purchase"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", newAmount)).firstMatch.exists)
 
-        app.tabBars.buttons["Home"].tap()
+        let homeTab = app.tabBars.buttons["Home"]
+        homeTab.tap()
+        if !homeTab.isSelected { homeTab.tap() }
+        XCTAssertTrue(homeTab.isSelected)
+        for _ in 0..<5 where !homeTotal.exists { app.swipeDown() }
         XCTAssertTrue(homeTotal.waitForExistence(timeout: 5))
         let afterTotal = homeTotal.label
         XCTAssertNotEqual(afterTotal, beforeTotal)
         app.terminate()
         app.launch()
+        if !homeTab.isSelected { homeTab.tap() }
+        XCTAssertTrue(homeTab.isSelected)
+        for _ in 0..<5 where !homeTotal.exists { app.swipeDown() }
         XCTAssertTrue(homeTotal.waitForExistence(timeout: 5))
         XCTAssertEqual(homeTotal.label, afterTotal)
         app.tabBars.buttons["Activity"].tap()
@@ -494,43 +501,6 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
-    func testDailyVisualNavigationSynthetic() throws {
-        let app = XCUIApplication()
-        app.launch()
-        try requireSyntheticHistory(app)
-        attach(app, name: "daily-settings")
-        app.buttons["settingsAccountsLink"].tap()
-        attach(app, name: "daily-accounts")
-        app.navigationBars.buttons["Settings"].tap()
-        app.buttons["settingsCategoriesLink"].tap()
-        attach(app, name: "daily-categories")
-        app.navigationBars.buttons["Settings"].tap()
-        app.buttons["settingsRecurringLink"].tap()
-        attach(app, name: "daily-recurring-list")
-        app.buttons["addRecurringRuleButton"].tap()
-        attach(app, name: "daily-recurring-editor")
-        app.buttons["Cancel"].tap()
-
-        app.tabBars.buttons["Automations"].tap()
-        attach(app, name: "daily-automations")
-        app.tabBars.buttons["Home"].tap()
-        attach(app, name: "daily-home")
-        app.buttons["homeAddTransactionButton"].tap()
-        attach(app, name: "daily-new-transaction")
-        app.buttons["Cancel"].tap()
-        app.tabBars.buttons["Activity"].tap()
-        attach(app, name: "daily-activity")
-        let search = app.textFields["transactionSearchField"]
-        search.tap()
-        search.typeText("Fictional Notebook")
-        let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Fictional Notebook")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 5), app.debugDescription)
-        row.tap()
-        XCTAssertTrue(app.navigationBars["Edit transaction"].waitForExistence(timeout: 5))
-        attach(app, name: "daily-edit-transaction")
-    }
-
-    @MainActor
     func testRecurringControlsPreservePastSyntheticTransactions() throws {
         let app = XCUIApplication()
         app.launch()
@@ -662,12 +632,160 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
+    func testManagedAppearanceAndCategoryOrderSynthetic() throws {
+        let app = XCUIApplication()
+        let suffix = String(UUID().uuidString.prefix(8))
+        let accountName = "Fictional Color Wallet \(suffix)"
+        let categoryName = "Fictional Color Category \(suffix)"
+        app.launch()
+        try requireSyntheticHistory(app)
+
+        app.buttons["settingsAccountsLink"].tap()
+        app.buttons["addAccountButton"].tap()
+        let accountIcon = app.buttons["accountIconPicker"]
+        XCTAssertTrue(accountIcon.waitForExistence(timeout: 5), app.debugDescription)
+        accountIcon.tap()
+        let banknote = app.buttons["Banknote"]
+        XCTAssertTrue(banknote.waitForExistence(timeout: 5), app.debugDescription)
+        banknote.tap()
+        let accountColor = app.buttons["accountColorPicker"]
+        accountColor.tap()
+        let purple = app.buttons["Purple"]
+        XCTAssertTrue(purple.waitForExistence(timeout: 5), app.debugDescription)
+        purple.tap()
+        let accountNameField = app.textFields["accountNameField"]
+        accountNameField.tap()
+        accountNameField.typeText(accountName)
+        app.buttons["saveAccountButton"].tap()
+        let accountRow = app.buttons["accountRow-\(accountName)"]
+        for _ in 0..<12 where !accountRow.exists { app.swipeUp() }
+        XCTAssertTrue(accountRow.waitForExistence(timeout: 5))
+        XCTAssertEqual(accountRow.label, accountName)
+        accountRow.tap()
+        XCTAssertEqual(app.buttons["accountIconPicker"].value as? String, "Banknote")
+        XCTAssertEqual(app.buttons["accountColorPicker"].value as? String, "Purple")
+        app.buttons["Cancel"].tap()
+        app.navigationBars.buttons["Settings"].tap()
+
+        app.buttons["settingsCategoriesLink"].tap()
+        app.buttons["addCategoryButton"].tap()
+        let categoryIcon = app.buttons["categoryIconPicker"]
+        categoryIcon.tap()
+        let gift = app.buttons["Gift"]
+        XCTAssertTrue(gift.waitForExistence(timeout: 5), app.debugDescription)
+        gift.tap()
+        let categoryColor = app.buttons["categoryColorPicker"]
+        categoryColor.tap()
+        let orange = app.buttons["Orange"]
+        XCTAssertTrue(orange.waitForExistence(timeout: 5), app.debugDescription)
+        orange.tap()
+        let categoryNameField = app.textFields["categoryNameField"]
+        categoryNameField.tap()
+        categoryNameField.typeText(categoryName)
+        app.buttons["saveCategoryButton"].tap()
+        let categoryRow = app.buttons["categoryRow-\(categoryName)"]
+        for _ in 0..<12 where !categoryRow.exists { app.swipeUp() }
+        XCTAssertTrue(categoryRow.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(categoryRow.label, categoryName)
+        let earlier = app.buttons["Move \(categoryName) earlier"]
+        XCTAssertTrue(earlier.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(earlier.isEnabled)
+        earlier.tap()
+        categoryRow.tap()
+        XCTAssertEqual(app.buttons["categoryIconPicker"].value as? String, "Gift")
+        XCTAssertEqual(app.buttons["categoryColorPicker"].value as? String, "Orange")
+        app.buttons["Cancel"].tap()
+
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settingsAccountsLink"].tap()
+        for _ in 0..<12 where !accountRow.exists { app.swipeUp() }
+        accountRow.tap()
+        XCTAssertEqual(app.buttons["accountIconPicker"].value as? String, "Banknote")
+        XCTAssertEqual(app.buttons["accountColorPicker"].value as? String, "Purple")
+        app.buttons["Cancel"].tap()
+        app.navigationBars.buttons["Settings"].tap()
+        app.buttons["settingsCategoriesLink"].tap()
+        for _ in 0..<12 where !categoryRow.exists { app.swipeUp() }
+        categoryRow.tap()
+        XCTAssertEqual(app.buttons["categoryIconPicker"].value as? String, "Gift")
+        XCTAssertEqual(app.buttons["categoryColorPicker"].value as? String, "Orange")
+    }
+
+    @MainActor
+    func testManagedAccessibilityAtLargeTextSynthetic() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireSyntheticHistory(app)
+        let accountsLink = app.buttons["settingsAccountsLink"]
+        XCTAssertEqual(accountsLink.elementType, .button)
+        XCTAssertTrue(accountsLink.label.contains("Accounts"))
+        accountsLink.tap()
+        attach(app, name: "large-type-accounts")
+        let addAccount = app.buttons["addAccountButton"]
+        XCTAssertEqual(addAccount.label, "Add account")
+        XCTAssertTrue(addAccount.isEnabled)
+        addAccount.tap()
+        let accountIcon = app.buttons["accountIconPicker"]
+        let accountColor = app.buttons["accountColorPicker"]
+        XCTAssertEqual(accountIcon.elementType, .button)
+        XCTAssertEqual(accountIcon.label, "Icon")
+        XCTAssertEqual(accountIcon.value as? String, "Creditcard")
+        XCTAssertEqual(accountColor.elementType, .button)
+        XCTAssertEqual(accountColor.label, "Color")
+        XCTAssertEqual(accountColor.value as? String, "Teal")
+        XCTAssertEqual(app.textFields["accountNameField"].elementType, .textField)
+        XCTAssertEqual(app.buttons["saveAccountButton"].label, "Save")
+        attach(app, name: "large-type-account-editor")
+        app.buttons["Cancel"].tap()
+        app.navigationBars.buttons["Settings"].tap()
+
+        let categoriesLink = app.buttons["settingsCategoriesLink"]
+        XCTAssertEqual(categoriesLink.elementType, .button)
+        XCTAssertTrue(categoriesLink.label.contains("Categories"))
+        categoriesLink.tap()
+        attach(app, name: "large-type-categories")
+        let groceries = app.buttons["categoryRow-Groceries"]
+        XCTAssertTrue(groceries.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(groceries.elementType, .button)
+        XCTAssertEqual(groceries.label, "Groceries")
+        let earlier = app.buttons["Move Groceries earlier"]
+        let later = app.buttons["Move Groceries later"]
+        XCTAssertEqual(earlier.elementType, .button)
+        XCTAssertFalse(earlier.isEnabled)
+        XCTAssertEqual(later.elementType, .button)
+        XCTAssertTrue(later.isEnabled)
+        groceries.tap()
+        XCTAssertEqual(app.buttons["categoryIconPicker"].value as? String, "Cart")
+        XCTAssertEqual(app.buttons["categoryColorPicker"].value as? String, "Green")
+        attach(app, name: "large-type-category-editor")
+        app.buttons["Cancel"].tap()
+
+        app.tabBars.buttons["Home"].tap()
+        XCTAssertTrue(app.staticTexts["homePersonalSpendingTotal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["homeAddTransactionButton"].isEnabled)
+        attach(app, name: "large-type-home")
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.textFields["transactionSearchField"].waitForExistence(timeout: 5))
+        let transaction = app.buttons.matching(NSPredicate(
+            format: "label CONTAINS %@ AND label CONTAINS %@", "Expense", "€")).firstMatch
+        XCTAssertTrue(transaction.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(transaction.elementType, .button)
+        XCTAssertTrue(transaction.isEnabled)
+        attach(app, name: "large-type-activity")
+    }
+
+    @MainActor
     private func requireSyntheticHistory(_ app: XCUIApplication) throws {
         app.tabBars.buttons["Settings"].tap()
         let marker = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 historical movements imported")).firstMatch
+        for _ in 0..<10 where !marker.exists { app.swipeUp() }
         guard marker.waitForExistence(timeout: 5) else {
             throw XCTSkip("Requires the synthetic one-row simulator database")
         }
+        let accounts = app.buttons["settingsAccountsLink"]
+        for _ in 0..<10 where !accounts.isHittable { app.swipeDown() }
     }
 
     @MainActor

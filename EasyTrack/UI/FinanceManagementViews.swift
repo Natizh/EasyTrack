@@ -65,6 +65,8 @@ struct AccountsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(account.archivedAt == nil ? account.name : "\(account.name), archived")
+        .accessibilityHint("Edit account")
         .accessibilityIdentifier("accountRow-\(account.name)")
     }
 }
@@ -102,20 +104,24 @@ private struct AccountEditorView: View {
                         .frame(width: 50, height: 50)
                         .background(LedgerColor.color(color).opacity(0.12),
                                     in: RoundedRectangle(cornerRadius: 15))
+                        .accessibilityHidden(true)
                     Text(name.isEmpty ? "New account" : name).font(.headline).lineLimit(1)
                 }
                 Picker("Icon", selection: $symbol) {
                     ForEach(LedgerAppearance.symbols, id: \.self) { value in
-                        Label(value.replacingOccurrences(of: ".fill", with: "").capitalized,
-                              systemImage: value).tag(value)
+                        Label(LedgerAppearance.symbolTitle(value), systemImage: value).tag(value)
                     }
                 }
+                .accessibilityIdentifier("accountIconPicker")
+                .accessibilityValue(LedgerAppearance.symbolTitle(symbol))
                 Picker("Color", selection: $color) {
                     ForEach(LedgerAppearance.colors, id: \.self) { value in
                         Label(value.capitalized, systemImage: "circle.fill")
                             .foregroundStyle(LedgerColor.color(value)).tag(value)
                     }
                 }
+                .accessibilityIdentifier("accountColorPicker")
+                .accessibilityValue(color.capitalized)
             }
             if original != nil {
                 Section("Availability") {
@@ -193,6 +199,7 @@ struct CategoriesView: View {
                 .frame(width: 42, height: 42)
                 .background(LedgerColor.color(category.colorName).opacity(0.12),
                             in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityHidden(true)
             Button { selected = category } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(category.name).font(.body.weight(.medium)).foregroundStyle(.primary)
@@ -201,13 +208,17 @@ struct CategoriesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(category.archivedAt == nil ? category.name : "\(category.name), archived")
+            .accessibilityHint("Edit category")
             .accessibilityIdentifier("categoryRow-\(category.name)")
             if category.archivedAt == nil {
                 let position = active.firstIndex(where: { $0.id == category.id }) ?? 0
                 Button { move(category, by: -1) } label: { Image(systemName: "arrow.up") }
+                    .frame(minWidth: 44, minHeight: 44)
                     .disabled(position == 0)
                     .accessibilityLabel("Move \(category.name) earlier")
                 Button { move(category, by: 1) } label: { Image(systemName: "arrow.down") }
+                    .frame(minWidth: 44, minHeight: 44)
                     .disabled(position >= active.count - 1)
                     .accessibilityLabel("Move \(category.name) later")
             }
@@ -254,20 +265,24 @@ private struct CategoryEditorView: View {
                         .frame(width: 44, height: 44)
                         .background(LedgerColor.color(color).opacity(0.12),
                                     in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityHidden(true)
                     Text(name.isEmpty ? "New category" : name).font(.headline)
                 }
                 Picker("Icon", selection: $symbol) {
                     ForEach(LedgerAppearance.symbols, id: \.self) { value in
-                        Label(value.replacingOccurrences(of: ".fill", with: "").capitalized,
-                              systemImage: value).tag(value)
+                        Label(LedgerAppearance.symbolTitle(value), systemImage: value).tag(value)
                     }
                 }
+                .accessibilityIdentifier("categoryIconPicker")
+                .accessibilityValue(LedgerAppearance.symbolTitle(symbol))
                 Picker("Color", selection: $color) {
                     ForEach(LedgerAppearance.colors, id: \.self) { value in
                         Label(value.capitalized, systemImage: "circle.fill")
                             .foregroundStyle(LedgerColor.color(value)).tag(value)
                     }
                 }
+                .accessibilityIdentifier("categoryColorPicker")
+                .accessibilityValue(color.capitalized)
             }
             if original != nil {
                 Section("Availability") {

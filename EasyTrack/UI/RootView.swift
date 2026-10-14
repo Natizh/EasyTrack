@@ -52,6 +52,7 @@ private struct DemoBanner: View {
 
 private struct TransactionRow: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let item: Transaction
 
     private var displayedEURMinor: Int64? {
@@ -63,25 +64,56 @@ private struct TransactionRow: View {
         return item.category.isEmpty ? "Uncategorized" : item.category
     }
 
-    var body: some View {
-        HStack(spacing: 13) {
-            Image(systemName: item.kind.isOutflow ? "arrow.up.right" : "arrow.down.left")
-                .font(.system(size: 17, weight: .semibold))
+    private var movementIcon: some View {
+        Image(systemName: item.kind.isOutflow ? "arrow.up.right" : "arrow.down.left")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(item.kind.isOutflow ? Palette.ink : Palette.teal)
+            .frame(width: 42, height: 42)
+            .background(item.kind.isOutflow ? Palette.canvas : Palette.mint, in: RoundedRectangle(cornerRadius: 13))
+            .accessibilityHidden(true)
+    }
+
+    private var movementLabels: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(item.merchant).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+            Text("\(item.kind.title) · \(categoryName)")
+                .font(.caption).foregroundStyle(.secondary)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
+        }
+    }
+
+    private var movementAmount: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            Text(displayedEURMinor.map { "\(item.kind.isOutflow ? "−" : "+")\(Money.format($0))" } ?? "EUR amount unavailable")
+                .font(.subheadline.weight(.semibold)).monospacedDigit()
                 .foregroundStyle(item.kind.isOutflow ? Palette.ink : Palette.teal)
-                .frame(width: 42, height: 42)
-                .background(item.kind.isOutflow ? Palette.canvas : Palette.mint, in: RoundedRectangle(cornerRadius: 13))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.merchant).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink).lineLimit(1)
-                Text("\(item.kind.title) · \(categoryName)")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(displayedEURMinor.map { "\(item.kind.isOutflow ? "−" : "+")\(Money.format($0))" } ?? "EUR amount unavailable")
-                    .font(.subheadline.weight(.semibold)).monospacedDigit()
-                    .foregroundStyle(item.kind.isOutflow ? Palette.ink : Palette.teal)
-                Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated)))
-                    .font(.caption2).foregroundStyle(.secondary)
+            Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated)))
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    var body: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 13) {
+                        movementIcon
+                        movementLabels
+                        Spacer(minLength: 0)
+                    }
+                    HStack {
+                        Spacer(minLength: 0)
+                        movementAmount
+                    }
+                }
+            } else {
+                HStack(spacing: 13) {
+                    movementIcon
+                    movementLabels
+                    Spacer(minLength: 4)
+                    movementAmount
+                }
             }
         }
         .padding(.vertical, 4)
@@ -230,12 +262,14 @@ private struct UncategorizedTransactionsView: View {
 private struct TransactionsView: View {
     @EnvironmentObject private var store: FinanceStore
     @State private var search = ""
+    @FocusState private var searchFocused: Bool
     @State private var kind: TransactionKind?
     @State private var category = "All categories"
     @State private var accountFilter: String?
     @State private var tripFilter: String?
     @State private var currencyFilter: String?
     @State private var showingNew = false
+    @State private var selectedTransactionID: UUID?
 
     private var categories: [String] { ["All categories"] + Array(Set(store.transactions.map(\.category))).sorted() }
     private var accounts: [String] { Array(Set(store.transactions.map(\.account))).sorted() }
@@ -255,6 +289,9 @@ private struct TransactionsView: View {
                 TextField("Search transactions", text: $search)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($searchFocused)
+                    .submitLabel(.search)
+                    .onSubmit { searchFocused = false }
                     .accessibilityIdentifier("transactionSearchField")
                 if !search.isEmpty {
                     Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -302,7 +339,20 @@ private struct TransactionsView: View {
                 }
                 Section("Transactions · \(filtered.count)") {
                     ForEach(filtered) { item in
-                        NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+                        Button {
+                            searchFocused = false
+                            selectedTransactionID = item.id
+                        } label: {
+                            HStack {
+                                TransactionRow(item: item)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption).foregroundStyle(.tertiary)
+                                    .accessibilityHidden(true)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Edit transaction")
                     }
                 }
             }
@@ -315,8 +365,14 @@ private struct TransactionsView: View {
         }
         .background(Palette.canvas)
         .navigationTitle("Activity")
+        .onDisappear { searchFocused = false }
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingNew = true } label: { Image(systemName: "plus") } } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
+        .navigationDestination(item: $selectedTransactionID) { id in
+            if let item = store.transactions.first(where: { $0.id == id }) {
+                TransactionEditor(item: item)
+            }
+        }
     }
 
     private func filterChip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
