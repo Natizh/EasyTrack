@@ -680,7 +680,7 @@ private struct BackupDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.json] }
     let data: Data
 
-    init(_ envelope: BackupEnvelope) throws {
+    init(_ envelope: BackupArchive) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         data = try encoder.encode(envelope)
@@ -692,7 +692,7 @@ private struct BackupDocument: FileDocument {
 
 private struct SettingsView: View {
     @EnvironmentObject private var store: FinanceStore
-    private enum PickerPurpose { case seed, folder }
+    private enum PickerPurpose { case seed, folder, backup }
     @State private var showingFilePicker = false
     @State private var pickerPurpose: PickerPurpose = .seed
     @State private var selectedSeedFile: URL?
@@ -703,6 +703,11 @@ private struct SettingsView: View {
     @State private var showingExporter = false
     @State private var backupStatus: String?
     @State private var backupFilename = "EasyTrack-backup"
+    @State private var restorePreview: BackupRestorePreview?
+    @State private var restoreBusy = false
+    @State private var restoreStatus: String?
+    @State private var pendingRestoreMode: BackupRestoreMode?
+    @State private var confirmingRestore = false
 
     var body: some View {
         Form {
@@ -752,7 +757,57 @@ private struct SettingsView: View {
                     catch { store.errorMessage = error.localizedDescription }
                 }
                 if let backupStatus { Text(backupStatus).font(.footnote).foregroundStyle(.secondary) }
-                Text("Keep this file private. It includes imported history and source rows. Backup restore is planned for a later milestone.")
+                Button(restoreBusy ? "Checking backup…" : "Choose JSON backup to restore") {
+                    pickerPurpose = .backup
+                    showingFilePicker = true
+                }
+                .disabled(restoreBusy)
+                .accessibilityIdentifier("chooseBackupToRestore")
+                if let preview = restorePreview {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Backup preview · \(preview.exportedAt.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.headline)
+                        LabeledContent("Transactions", value: "\(preview.incomingTransactions)")
+                        LabeledContent("Notification events", value: "\(preview.incomingEvents)")
+                        LabeledContent("Parser and recurring rules", value: "\(preview.incomingRules)")
+                        LabeledContent("Recurring occurrences", value: "\(preview.incomingOccurrences)")
+                        LabeledContent("Historical identities", value: "\(preview.incomingHistoricalMovements)")
+                        LabeledContent("Operation logs", value: "\(preview.incomingOperations)")
+                        if preview.sourceFormatVersion == 5 {
+                            Text("This older backup omitted duplicate protection rows and expected occurrence links. Duplicate keys are rebuilt from captured attempts; expected links cannot be recovered. Review before replacing local data.")
+                                .font(.footnote).foregroundStyle(.orange)
+                        }
+                        Text("This phone currently has \(preview.existingTransactions) transactions. Replace removes its current ledger and installs the backup. Merge adds only new records with no conflicting identities.")
+                            .font(.footnote)
+                        if let conflict = preview.mergeConflict {
+                            Text("Merge unavailable: conflicting \(conflict) records.")
+                                .font(.footnote).foregroundStyle(.orange)
+                        } else if let added = preview.newRowsForMerge {
+                            Text("Merge would add \(added) records across all tables.")
+                                .font(.footnote)
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("backupRestorePreview")
+                    Button("Replace local data", role: .destructive) {
+                        pendingRestoreMode = .replace
+                        confirmingRestore = true
+                    }
+                    .disabled(restoreBusy)
+                    .accessibilityIdentifier("replaceFromBackup")
+                    Button("Merge new records") {
+                        pendingRestoreMode = .merge
+                        confirmingRestore = true
+                    }
+                    .disabled(restoreBusy || preview.mergeConflict != nil)
+                    .accessibilityIdentifier("mergeFromBackup")
+                    Button("Discard backup preview", role: .cancel) {
+                        restorePreview = nil
+                        Task { await BackupRestoreCoordinator.shared.discard() }
+                    }
+                }
+                if let restoreStatus { Text(restoreStatus).font(.footnote).accessibilityIdentifier("backupRestoreStatus") }
+                Text("Keep backups private. They include raw notification text, imported history, and source rows.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("About") {
@@ -763,9 +818,11 @@ private struct SettingsView: View {
         .navigationTitle("Settings")
         .task { folderSelected = await FolderProbe.shared.hasSavedFolder(); if folderSelected { probeStatus = "Folder bookmark saved" } }
         .sheet(isPresented: $showingFilePicker) {
-            SystemDocumentPicker(contentTypes: pickerPurpose == .folder ? [.folder] : [.data]) { url in
+            SystemDocumentPicker(contentTypes: pickerPurpose == .folder ? [.folder] :
+                                 pickerPurpose == .backup ? [.json] : [.data]) { url in
                 showingFilePicker = false
                 if pickerPurpose == .seed { selectedSeedFile = url }
+                else if pickerPurpose == .backup { stageBackup(url) }
                 else {
                     Task {
                         do { try await FolderProbe.shared.select(url); folderSelected = true; probeStatus = "Folder bookmark saved" }
@@ -782,6 +839,50 @@ private struct SettingsView: View {
             case .success(let url): backupStatus = "Exported \(url.lastPathComponent)"
             case .failure(let error): store.errorMessage = error.localizedDescription
             }
+        }
+        .confirmationDialog(pendingRestoreMode == .replace ? "Replace the local ledger?" : "Merge backup records?",
+                            isPresented: $confirmingRestore, titleVisibility: .visible) {
+            if pendingRestoreMode == .replace {
+                Button("Replace local ledger", role: .destructive) { confirmBackup(.replace) }
+            } else {
+                Button("Merge new records") { confirmBackup(.merge) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let preview = restorePreview {
+                Text(pendingRestoreMode == .replace
+                     ? "Replace \(preview.existingTransactions) current transactions with \(preview.incomingTransactions) backed-up transactions and all related records? This cannot be undone here."
+                     : "Add \(preview.newRowsForMerge ?? 0) new backed-up records? Existing records stay unchanged; any conflict cancels the whole merge.")
+            }
+        }
+    }
+
+    private func stageBackup(_ url: URL) {
+        restoreBusy = true
+        restorePreview = nil
+        restoreStatus = "Validating backup and checking local data…"
+        Task {
+            do {
+                restorePreview = try await BackupRestoreCoordinator.shared.stage(url)
+                restoreStatus = "Ready. No local records have changed."
+            } catch { restoreStatus = error.localizedDescription }
+            restoreBusy = false
+        }
+    }
+
+    private func confirmBackup(_ mode: BackupRestoreMode) {
+        restoreBusy = true
+        restoreStatus = "Restoring and checking database integrity…"
+        Task {
+            do {
+                let added = try await BackupRestoreCoordinator.shared.confirm(mode)
+                store.reload()
+                restorePreview = nil
+                restoreStatus = mode == .replace
+                    ? "Restore complete. Database integrity and reopen checks passed."
+                    : "Merge complete. Added \(added) records; database integrity and reopen checks passed."
+            } catch { restoreStatus = error.localizedDescription }
+            restoreBusy = false
         }
     }
 

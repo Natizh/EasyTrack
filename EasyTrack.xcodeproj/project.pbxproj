@@ -24,6 +24,8 @@
 		B32C870AED59B3CBC1BD155F /* FolderProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2334F00EBB10C86D9FD0B158 /* FolderProbe.swift */; };
 		B6E8ED92FB2C4C4C38C1FBC3 /* SQLiteDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73DEACB48A2F3A61EF2789DA /* SQLiteDatabase.swift */; };
 		A4B5C6D7E8F9012A3B4C5D6E /* SQLiteDatabase+Daily.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */; };
+		D2E3F40516273849A5B6C7D8 /* SQLiteDatabase+Backup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F40516273849A5B6C7D8E9 /* SQLiteDatabase+Backup.swift */; };
+		F40516273849A5B6C7D8E9F0 /* LegacyBackupConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0516273849A5B6C7D8E9F0A1 /* LegacyBackupConverter.swift */; };
 		C67F480188BCCBB544FD3118 /* SystemDocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B213F8546319D3AE8F801F /* SystemDocumentPicker.swift */; };
 		D740139540BF108F7F9EDCA7 /* Icon-60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = 3D24BCD975ADF170B117F140 /* Icon-60@3x.png */; };
 		D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A18BE776B20AE51FF239E7 /* Models.swift */; };
@@ -52,6 +54,8 @@
 		6B97F59D3F2D4FB49B75B6B6 /* EasyTrackUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EasyTrackUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		73DEACB48A2F3A61EF2789DA /* SQLiteDatabase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SQLiteDatabase.swift; sourceTree = "<group>"; };
 		B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SQLiteDatabase+Daily.swift"; sourceTree = "<group>"; };
+		E3F40516273849A5B6C7D8E9 /* SQLiteDatabase+Backup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SQLiteDatabase+Backup.swift"; sourceTree = "<group>"; };
+		0516273849A5B6C7D8E9F0A1 /* LegacyBackupConverter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LegacyBackupConverter.swift; sourceTree = "<group>"; };
 		76B767246820AD0774018D33 /* EasyTrackUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EasyTrackUITests.swift; sourceTree = "<group>"; };
 		7C322502569D2F1686527961 /* CaptureNotificationIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureNotificationIntent.swift; sourceTree = "<group>"; };
 		81A18BE776B20AE51FF239E7 /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -118,6 +122,8 @@
 				DF2B12A9D4543CDC906ECF61 /* FinanceStore.swift */,
 				73DEACB48A2F3A61EF2789DA /* SQLiteDatabase.swift */,
 				B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */,
+				E3F40516273849A5B6C7D8E9 /* SQLiteDatabase+Backup.swift */,
+				0516273849A5B6C7D8E9F0A1 /* LegacyBackupConverter.swift */,
 			);
 			name = Persistence;
 			path = Persistence;
@@ -341,6 +347,8 @@
 				56C2FA802360149DC48B50F9 /* FinanceStore.swift in Sources */,
 				B6E8ED92FB2C4C4C38C1FBC3 /* SQLiteDatabase.swift in Sources */,
 				A4B5C6D7E8F9012A3B4C5D6E /* SQLiteDatabase+Daily.swift in Sources */,
+				D2E3F40516273849A5B6C7D8 /* SQLiteDatabase+Backup.swift in Sources */,
+				F40516273849A5B6C7D8E9F0 /* LegacyBackupConverter.swift in Sources */,
 				D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* NotificationParser.swift in Sources */,
 				A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */,

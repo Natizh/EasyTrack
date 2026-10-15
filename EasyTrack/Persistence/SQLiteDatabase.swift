@@ -12,6 +12,7 @@ private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self
 
 final class SQLiteDatabase {
     var handle: OpaquePointer?
+    let url: URL
 
     static func open() throws -> SQLiteDatabase {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -20,6 +21,7 @@ final class SQLiteDatabase {
     }
 
     init(url: URL) throws {
+        self.url = url
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             throw DatabaseError.sqlite("Could not open local database")
         }

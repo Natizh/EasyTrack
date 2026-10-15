@@ -243,6 +243,59 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
+    func testDemoBackupRestorePreviewAndReplace() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireDemoOnly(app)
+        app.tabBars.buttons["Settings"].tap()
+        let export = app.buttons["Export local data as JSON"]
+        for _ in 0..<4 where !export.isHittable { app.swipeUp() }
+        XCTAssertTrue(export.isHittable, app.debugDescription)
+        export.tap()
+        let save = app.buttons["Save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 20), app.debugDescription)
+        save.tap()
+        let success = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Exported EasyTrack-backup-")).firstMatch
+        XCTAssertTrue(success.waitForExistence(timeout: 20), app.debugDescription)
+        let filename = success.label.replacingOccurrences(of: "Exported ", with: "")
+
+        let choose = app.buttons["chooseBackupToRestore"]
+        for _ in 0..<4 where !choose.isHittable { app.swipeUp() }
+        XCTAssertTrue(choose.isHittable, app.debugDescription)
+        choose.tap()
+        var file = app.staticTexts[filename]
+        if !file.waitForExistence(timeout: 8) {
+            let browse = app.buttons["Browse"]
+            if browse.exists { browse.tap() }
+            let local = app.staticTexts["On My iPhone"]
+            if local.exists { local.tap() }
+            let folder = app.staticTexts["EasyTrack"]
+            if folder.exists { folder.tap() }
+            file = app.staticTexts[filename]
+        }
+        XCTAssertTrue(file.waitForExistence(timeout: 15), app.debugDescription)
+        let fileCell = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@", filename)).firstMatch
+        XCTAssertTrue(fileCell.exists, app.debugDescription)
+        fileCell.tap()
+        let preview = app.otherElements["backupRestorePreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 30), app.debugDescription)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "3 transactions")).firstMatch.exists)
+        attach(app, name: "backup-restore-preview-demo")
+        let replace = app.buttons["replaceFromBackup"]
+        for _ in 0..<3 where !replace.isHittable { app.swipeUp() }
+        replace.tap()
+        XCTAssertTrue(app.buttons["Replace local ledger"].waitForExistence(timeout: 5))
+        app.buttons["Replace local ledger"].tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Restore complete.")).firstMatch.waitForExistence(timeout: 30), app.debugDescription)
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Demo · Coffee Shop")).firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Demo · Book Store"].exists)
+        XCTAssertTrue(app.staticTexts["Demo · Salary"].exists)
+    }
+
+    @MainActor
     func testSyntheticNotificationSetupCreatesOnceAndAutoProcessesLaterPayment() throws {
         let app = XCUIApplication()
         let suffix = String(UUID().uuidString.prefix(8))

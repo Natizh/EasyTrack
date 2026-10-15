@@ -183,21 +183,7 @@ final class FinanceStore: ObservableObject {
         reload()
     }
 
-    func backup() throws -> BackupEnvelope {
-        let database = try SQLiteDatabase.open()
-        let rules = try database.parserRules(includeDeleted: true)
-        return BackupEnvelope(schemaVersion: 5, exportID: UUID(), exportedAt: .now,
-                              transactions: try database.transactions(includeDeleted: true),
-                              notificationEvents: try database.notificationEvents(),
-                              operations: try database.operations(), historical: try database.historicalBackup(),
-                              parserSources: try database.parserSources(), parserRules: rules,
-                              localAccounts: try database.localAccounts(),
-                              ledgerCategories: try database.ledgerCategories(),
-                              recurringRules: try database.recurringRules(includeArchived: true),
-                              recurringOccurrences: try database.recurringOccurrences(),
-                              parserRuleVersions: try rules.flatMap { try database.parserRuleHistory($0.id) },
-                              parserAttempts: try database.parserAttempts())
-    }
+    func backup() throws -> BackupArchive { try SQLiteDatabase.open().exportBackup() }
 
     var hasHistoricalImport: Bool { (historicalCounts["historical_imported_movements"] ?? 0) > 0 }
 
