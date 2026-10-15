@@ -24,7 +24,7 @@ An exact SHA-256 key normalizes source and payload whitespace/case. With a suppl
 
 Schema version 3 added `parser_sources`, `parser_rules`, `parser_rule_versions`, `notification_attempts`, `exact_dedup`, and `semantic_dedup`. Schema version 4 adds `local_accounts`, a source-to-account link, and a nullable transaction category. It backfills source mappings from existing schema-3 rules without rewriting their JSON/version history or previously created transactions. Earlier notification events remain as diagnostics. The raw attempt commits first. Transaction creation, transaction provenance, processing status, exact and semantic records, and the ledger operation commit in one SQLite transaction. A failed second phase rolls back those writes and keeps a retryable failed diagnostic with its raw sample. Unmatched and duplicate captures stay inspectable under their source; there is no general review inbox.
 
-The app does not send notification content to a server or AI service. Backups include raw events and rule history, so exported files must be handled as private financial data. The local Files folder probe does not synchronize the live database.
+The app does not send notification content to a server or AI service. Format-6 backups include raw events, attempts, rule history, and exact and semantic deduplication records, so exported files must be handled as private financial data. [Backup restoration](BACKUP_RESTORE.md) validates parser rows and their links before a confirmed database change. The local Files folder probe does not synchronize the live database.
 
 ## Verification boundary
 
