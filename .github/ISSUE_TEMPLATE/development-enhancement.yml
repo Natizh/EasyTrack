@@ -1,0 +1,92 @@
+name: "🚀 Development / Enhancement"
+description: "A scoped EasyTrack feature, improvement, or implementation step for Codex."
+title: "[Enhancement] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is the **living specification** for one piece of work. Check related issues and the roadmap first. Do not paste real financial records, tokens, notification content or screenshots with personal data.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - "Data safety / backup"
+        - "Transactions / ledger"
+        - "Import / export"
+        - "Automations / notifications"
+        - "Recurring payments"
+        - "Reports / budgets"
+        - "Synchronization / storage"
+        - "UX / accessibility"
+        - "Testing / release"
+        - "Architecture / maintenance"
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - "P0 — Data loss / critical blocker"
+        - "P1 — Essential before daily use"
+        - "P2 — Important improvement"
+        - "P3 — Later / optional"
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User goal and expected behavior
+      description: "Describe the observable behavior, not just an implementation idea."
+      placeholder: "As a user, I need... so that..."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope / out of scope
+      value: |
+        **In scope**
+        -
+
+        **Out of scope**
+        -
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Definition of done
+      description: "Testable outcomes, covering edge cases and data integrity."
+      value: |
+        - [ ] User-facing behavior works
+        - [ ] Edge cases and financial semantics verified
+        - [ ] Automated tests and simulator checks pass (where applicable)
+        - [ ] Privacy, accessibility and offline operation checked
+        - [ ] Documentation updated
+    validations:
+      required: true
+  - type: textarea
+    id: technical
+    attributes:
+      label: Technical context / dependencies
+      description: "Relevant files, models, linked issues and constraints. Codex must inspect current code before starting."
+  - type: textarea
+    id: decisions
+    attributes:
+      label: Open decisions / questions for discussion
+      description: "List alternatives and mark the chosen one explicitly as DECIDED when agreed."
+  - type: textarea
+    id: validation
+    attributes:
+      label: Codex implementation and verification plan
+      value: |
+        - [ ] Inspect latest local worktree and issue comments
+        - [ ] Implement in small, testable increments
+        - [ ] Run Swift/database tests and relevant XCUITests on existing iOS 27 simulator, using only fictional data
+        - [ ] Verify no unexpected database mutations and no regressions
+        - [ ] Report evidence, limitations, and local commit(s)
+        - [ ] Update checklist and link commits / PR when completed
+
+        **Default rules:** offline-first, no paid APIs or Apple Developer Program requirement, preserve existing data, keep repo private. Do not push/release without authorization.
