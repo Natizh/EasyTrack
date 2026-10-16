@@ -20,6 +20,34 @@ final class SQLiteDatabase {
         return try SQLiteDatabase(url: directory.appendingPathComponent("EasyTrack.sqlite"))
     }
 
+    static func openReadOnly() throws -> SQLiteDatabase {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return try SQLiteDatabase(readOnlyURL: directory.appendingPathComponent("EasyTrack.sqlite"))
+    }
+
+    init(readOnlyURL: URL) throws {
+        url = readOnlyURL
+        guard sqlite3_open_v2(readOnlyURL.path, &handle,
+                              SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+            sqlite3_close(handle)
+            handle = nil
+            throw DatabaseError.sqlite("Could not open the ledger for read-only export")
+        }
+        do {
+            try execute("PRAGMA busy_timeout=5000")
+            try execute("PRAGMA query_only=ON")
+            let stmt = try statement("PRAGMA user_version")
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_int(stmt, 0) == 5 else {
+                throw DatabaseError.sqlite("Ledger schema must be version 5 before export")
+            }
+        } catch {
+            sqlite3_close(handle)
+            handle = nil
+            throw error
+        }
+    }
+
     init(url: URL) throws {
         self.url = url
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {

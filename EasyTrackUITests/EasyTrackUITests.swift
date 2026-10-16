@@ -296,6 +296,106 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
+    func testDemoExportScreenOpens() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireDemoOnly(app)
+        app.tabBars.buttons["Settings"].tap()
+        let link = app.buttons["settingsTransactionExport"]
+        for _ in 0..<6 where !link.isHittable { app.swipeUp() }
+        XCTAssertTrue(link.isHittable, app.debugDescription)
+        link.tap()
+        XCTAssertTrue(app.navigationBars["Export transactions"].waitForExistence(timeout: 8), app.debugDescription)
+        attach(app, name: "transaction-export-screen")
+    }
+
+    @MainActor
+    func testFictionalCSVSave() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireDemoOnly(app)
+        try ensureFictionalExportTransaction(in: app)
+        app.tabBars.buttons["Settings"].tap()
+        let link = app.buttons["settingsTransactionExport"]
+        for _ in 0..<6 where !link.isHittable { app.swipeUp() }
+        XCTAssertTrue(link.isHittable, app.debugDescription)
+        link.tap()
+        XCTAssertTrue(app.navigationBars["Export transactions"].waitForExistence(timeout: 8))
+        let saveExport = app.buttons["saveTransactionExport"]
+        for _ in 0..<8 where !saveExport.isHittable { app.swipeUp() }
+        XCTAssertTrue(saveExport.isHittable, app.debugDescription)
+        XCTAssertTrue(saveExport.isEnabled, app.debugDescription)
+        attach(app, name: "csv-export-ready")
+        saveExport.tap()
+        let saveFile = app.buttons["Save"]
+        XCTAssertTrue(saveFile.waitForExistence(timeout: 20), app.debugDescription)
+        saveFile.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Saved EasyTrack-transactions-")).firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+    }
+
+    @MainActor
+    func testFictionalXLSXSave() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireDemoOnly(app)
+        try ensureFictionalExportTransaction(in: app)
+        app.tabBars.buttons["Settings"].tap()
+        let link = app.buttons["settingsTransactionExport"]
+        for _ in 0..<6 where !link.isHittable { app.swipeUp() }
+        XCTAssertTrue(link.isHittable, app.debugDescription)
+        link.tap()
+        XCTAssertTrue(app.navigationBars["Export transactions"].waitForExistence(timeout: 8))
+        app.buttons["XLSX"].tap()
+        let summary = app.switches["Include Riepilogo summary sheet"]
+        for _ in 0..<6 where !summary.isHittable { app.swipeUp() }
+        XCTAssertTrue(summary.isHittable, app.debugDescription)
+        if summary.value as? String != "1" {
+            summary.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+        XCTAssertEqual(summary.value as? String, "1", app.debugDescription)
+        let saveExport = app.buttons["saveTransactionExport"]
+        for _ in 0..<6 where !saveExport.isHittable { app.swipeUp() }
+        XCTAssertTrue(saveExport.isHittable, app.debugDescription)
+        XCTAssertTrue(saveExport.isEnabled, app.debugDescription)
+        attach(app, name: "xlsx-export-ready")
+        saveExport.tap()
+        let saveFile = app.buttons["Save"]
+        XCTAssertTrue(saveFile.waitForExistence(timeout: 20), app.debugDescription)
+        saveFile.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Saved EasyTrack-transactions-")).firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+    }
+
+    @MainActor
+    func testActivityExportKeepsCurrentFilters() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireDemoOnly(app)
+        try ensureFictionalExportTransaction(in: app)
+        let row = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Fictional Export Purchase")).firstMatch
+        guard row.waitForExistence(timeout: 5) else {
+            throw XCTSkip("Requires isolated fictional export transactions")
+        }
+        let selectedDescription = row.label
+        let search = app.textFields["transactionSearchField"]
+        search.tap()
+        search.typeText(selectedDescription)
+        XCTAssertTrue(app.staticTexts[selectedDescription].waitForExistence(timeout: 5))
+        app.buttons["activityExportTransactions"].tap()
+        XCTAssertTrue(app.navigationBars["Export transactions"].waitForExistence(timeout: 8))
+        let notice = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Current Activity filters also apply.")).firstMatch
+        for _ in 0..<6 where !notice.exists { app.swipeUp() }
+        XCTAssertTrue(notice.waitForExistence(timeout: 5), app.debugDescription)
+        let count = app.descendants(matching: .any)["transactionExportCount"]
+        for _ in 0..<5 where !count.exists { app.swipeUp() }
+        XCTAssertTrue(count.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(count.label.contains("1"), app.debugDescription)
+    }
+
+    @MainActor
     func testSyntheticNotificationSetupCreatesOnceAndAutoProcessesLaterPayment() throws {
         let app = XCUIApplication()
         let suffix = String(UUID().uuidString.prefix(8))
@@ -876,6 +976,40 @@ final class EasyTrackUITests: XCTestCase {
         }
         XCTAssertTrue(seed.waitForExistence(timeout: 10), app.debugDescription)
         seed.tap()
+    }
+
+    @MainActor
+    private func ensureFictionalExportTransaction(in app: XCUIApplication) throws {
+        app.tabBars.buttons["Activity"].tap()
+        let existing = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Fictional Export Purchase")).firstMatch
+        if existing.waitForExistence(timeout: 3) { return }
+
+        let suffix = String(UUID().uuidString.prefix(8))
+        let accountName = "Fictional Export Wallet \(suffix)"
+        let description = "Fictional Export Purchase \(suffix)"
+        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settingsAccountsLink"].tap()
+        app.buttons["addAccountButton"].tap()
+        let field = app.textFields["accountNameField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(accountName)
+        app.buttons["saveAccountButton"].tap()
+        app.navigationBars.buttons["Settings"].tap()
+        app.tabBars.buttons["Home"].tap()
+        app.buttons["homeAddTransactionButton"].tap()
+        replaceText(in: app.textFields["transactionAmountField"], with: "12,34")
+        replaceText(in: app.textFields["transactionDescriptionField"], with: description)
+        let picker = app.buttons["transactionAccountPicker"]
+        for _ in 0..<4 where !picker.isHittable { app.swipeUp() }
+        picker.tap()
+        XCTAssertTrue(app.navigationBars["Choose account"].waitForExistence(timeout: 5), app.debugDescription)
+        for _ in 0..<8 where !app.buttons[accountName].exists { app.swipeUp() }
+        app.buttons[accountName].tap()
+        app.buttons["Save"].tap()
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.staticTexts[description].waitForExistence(timeout: 5), app.debugDescription)
     }
 
     @MainActor

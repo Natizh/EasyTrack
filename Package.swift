@@ -11,7 +11,9 @@ let package = Package(
                           "Shared/RecurringSchedule.swift", "Persistence/SQLiteDatabase.swift",
                           "Persistence/SQLiteDatabase+Daily.swift",
                           "Persistence/SQLiteDatabase+Backup.swift",
+                          "Persistence/SQLiteDatabase+Export.swift",
                           "Persistence/LegacyBackupConverter.swift",
+                          "Export/TransactionExport.swift", "Export/XLSXWriter.swift",
                           "Import/SeedMapper.swift", "Import/SeedImportCoordinator.swift"]),
         .testTarget(name: "EasyTrackCoreTests", dependencies: ["EasyTrackCore"], path: "Tests/EasyTrackCoreTests")
     ]

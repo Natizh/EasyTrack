@@ -26,6 +26,10 @@
 		A4B5C6D7E8F9012A3B4C5D6E /* SQLiteDatabase+Daily.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */; };
 		D2E3F40516273849A5B6C7D8 /* SQLiteDatabase+Backup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F40516273849A5B6C7D8E9 /* SQLiteDatabase+Backup.swift */; };
 		F40516273849A5B6C7D8E9F0 /* LegacyBackupConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0516273849A5B6C7D8E9F0A1 /* LegacyBackupConverter.swift */; };
+		6FB3A65033844089A7743A01 /* SQLiteDatabase+Export.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDD18067E5DA4C4C94BA2A72 /* SQLiteDatabase+Export.swift */; };
+		ECFEB71993AB4AB08C279250 /* TransactionExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5130003CA3C40F6AD6D4B73 /* TransactionExport.swift */; };
+		6EE87AB06EE7478AA75F75CA /* XLSXWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DC694EC4C51433B9A68A18E /* XLSXWriter.swift */; };
+		23EC4C354E1F428182BC6B44 /* TransactionExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05355FA9F79D4634A52D5C82 /* TransactionExportView.swift */; };
 		C67F480188BCCBB544FD3118 /* SystemDocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B213F8546319D3AE8F801F /* SystemDocumentPicker.swift */; };
 		D740139540BF108F7F9EDCA7 /* Icon-60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = 3D24BCD975ADF170B117F140 /* Icon-60@3x.png */; };
 		D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A18BE776B20AE51FF239E7 /* Models.swift */; };
@@ -56,6 +60,10 @@
 		B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SQLiteDatabase+Daily.swift"; sourceTree = "<group>"; };
 		E3F40516273849A5B6C7D8E9 /* SQLiteDatabase+Backup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SQLiteDatabase+Backup.swift"; sourceTree = "<group>"; };
 		0516273849A5B6C7D8E9F0A1 /* LegacyBackupConverter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LegacyBackupConverter.swift; sourceTree = "<group>"; };
+		EDD18067E5DA4C4C94BA2A72 /* SQLiteDatabase+Export.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SQLiteDatabase+Export.swift"; sourceTree = "<group>"; };
+		C5130003CA3C40F6AD6D4B73 /* TransactionExport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TransactionExport.swift; sourceTree = "<group>"; };
+		1DC694EC4C51433B9A68A18E /* XLSXWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = XLSXWriter.swift; sourceTree = "<group>"; };
+		05355FA9F79D4634A52D5C82 /* TransactionExportView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TransactionExportView.swift; sourceTree = "<group>"; };
 		76B767246820AD0774018D33 /* EasyTrackUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EasyTrackUITests.swift; sourceTree = "<group>"; };
 		7C322502569D2F1686527961 /* CaptureNotificationIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureNotificationIntent.swift; sourceTree = "<group>"; };
 		81A18BE776B20AE51FF239E7 /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -111,6 +119,7 @@
 				B5C6D7E8F9012A3B4C5D6E7F /* FinanceManagementViews.swift */,
 				B6C7D8E9F0123A4B5C6D7E8F /* RecurringViews.swift */,
 				15B213F8546319D3AE8F801F /* SystemDocumentPicker.swift */,
+				05355FA9F79D4634A52D5C82 /* TransactionExportView.swift */,
 			);
 			name = UI;
 			path = UI;
@@ -124,9 +133,20 @@
 				B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */,
 				E3F40516273849A5B6C7D8E9 /* SQLiteDatabase+Backup.swift */,
 				0516273849A5B6C7D8E9F0A1 /* LegacyBackupConverter.swift */,
+				EDD18067E5DA4C4C94BA2A72 /* SQLiteDatabase+Export.swift */,
 			);
 			name = Persistence;
 			path = Persistence;
+			sourceTree = "<group>";
+		};
+		8980BF810ACF4EC6A95B08A2 /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				C5130003CA3C40F6AD6D4B73 /* TransactionExport.swift */,
+				1DC694EC4C51433B9A68A18E /* XLSXWriter.swift */,
+			);
+			name = Export;
+			path = Export;
 			sourceTree = "<group>";
 		};
 		7CF8BFC81BFF11F691E8ED5C = {
@@ -163,6 +183,7 @@
 			children = (
 				E1D605168AF9293A9EBA202E /* App */,
 				00D99D729D5A8E807483D538 /* Exchange */,
+				8980BF810ACF4EC6A95B08A2 /* Export */,
 				92B16144B1A2A02A8A54DF9F /* Import */,
 				9B36B1DDD29153BE0400EEFF /* Intake */,
 				679AB009C48807EBCA77C965 /* Persistence */,
@@ -349,6 +370,10 @@
 				A4B5C6D7E8F9012A3B4C5D6E /* SQLiteDatabase+Daily.swift in Sources */,
 				D2E3F40516273849A5B6C7D8 /* SQLiteDatabase+Backup.swift in Sources */,
 				F40516273849A5B6C7D8E9F0 /* LegacyBackupConverter.swift in Sources */,
+				6FB3A65033844089A7743A01 /* SQLiteDatabase+Export.swift in Sources */,
+				ECFEB71993AB4AB08C279250 /* TransactionExport.swift in Sources */,
+				6EE87AB06EE7478AA75F75CA /* XLSXWriter.swift in Sources */,
+				23EC4C354E1F428182BC6B44 /* TransactionExportView.swift in Sources */,
 				D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* NotificationParser.swift in Sources */,
 				A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */,

@@ -260,6 +260,11 @@ private struct UncategorizedTransactionsView: View {
 }
 
 private struct TransactionsView: View {
+    private struct ExportRequest: Identifiable {
+        let id = UUID()
+        let filter: TransactionFilter
+    }
+
     @EnvironmentObject private var store: FinanceStore
     @State private var search = ""
     @FocusState private var searchFocused: Bool
@@ -269,15 +274,19 @@ private struct TransactionsView: View {
     @State private var tripFilter: String?
     @State private var currencyFilter: String?
     @State private var showingNew = false
+    @State private var exportRequest: ExportRequest?
     @State private var selectedTransactionID: UUID?
 
     private var categories: [String] { ["All categories"] + Array(Set(store.transactions.map(\.category))).sorted() }
     private var accounts: [String] { Array(Set(store.transactions.map(\.account))).sorted() }
     private var currencies: [String] { Array(Set(store.transactions.map(\.currency))).sorted() }
-    private var filtered: [Transaction] {
+    private var currentActivityFilter: TransactionFilter {
         TransactionFilter(query: search, kind: kind,
                           category: category == "All categories" ? nil : category,
                           account: accountFilter, tripID: tripFilter, currency: currencyFilter)
+    }
+    private var filtered: [Transaction] {
+        currentActivityFilter
             .apply(to: store.transactions,
                    tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
     }
@@ -366,8 +375,20 @@ private struct TransactionsView: View {
         .background(Palette.canvas)
         .navigationTitle("Activity")
         .onDisappear { searchFocused = false }
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingNew = true } label: { Image(systemName: "plus") } } }
+        .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                searchFocused = false
+                exportRequest = ExportRequest(filter: currentActivityFilter)
+            } label: { Image(systemName: "square.and.arrow.up") }
+                .accessibilityLabel("Export filtered transactions")
+                .accessibilityIdentifier("activityExportTransactions")
+            Button { showingNew = true } label: { Image(systemName: "plus") }
+                .accessibilityLabel("Add transaction")
+        } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
+        .sheet(item: $exportRequest) { request in
+            NavigationStack { TransactionExportView(activityFilter: request.filter) }
+        }
         .navigationDestination(item: $selectedTransactionID) { id in
             if let item = store.transactions.first(where: { $0.id == id }) {
                 TransactionEditor(item: item)
@@ -808,6 +829,14 @@ private struct SettingsView: View {
                 }
                 if let restoreStatus { Text(restoreStatus).font(.footnote).accessibilityIdentifier("backupRestoreStatus") }
                 Text("Keep backups private. They include raw notification text, imported history, and source rows.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Transaction export") {
+                NavigationLink { TransactionExportView(activityFilter: nil) } label: {
+                    Label("Export transactions", systemImage: "square.and.arrow.up")
+                }
+                .accessibilityIdentifier("settingsTransactionExport")
+                Text("Save filtered CSV or Excel files. Backups are exported separately above.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("About") {
