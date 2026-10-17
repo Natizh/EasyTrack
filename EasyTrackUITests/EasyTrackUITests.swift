@@ -980,6 +980,67 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
+    func testSeparateHeldNotificationCreatesSecondPaymentOnlyAfterChoice() throws {
+        let app = XCUIApplication()
+        app.launch()
+        guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
+            throw XCTSkip("Requires the isolated fictional held-notification fixture")
+        }
+        app.tabBars.buttons["Automations"].tap()
+        let source = app.staticTexts["Northstar Pay (fictional)"]
+        XCTAssertTrue(source.waitForExistence(timeout: 5))
+        source.tap()
+        let review = app.buttons["reviewRecurringMatch"]
+        for _ in 0..<8 where !review.isHittable { app.swipeUp() }
+        XCTAssertTrue(review.isHittable)
+        review.tap()
+        let separate = app.buttons["Separate payment"]
+        for _ in 0..<8 where !separate.isHittable { app.swipeUp() }
+        XCTAssertTrue(separate.isHittable)
+        separate.tap()
+        app.buttons["Treat as separate payment"].tap()
+        app.tabBars.buttons["Activity"].tap()
+        let payments = app.staticTexts.matching(NSPredicate(format: "label == %@",
+            "Fictional Plan"))
+        XCTAssertEqual(payments.count, 2)
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertEqual(payments.count, 2)
+    }
+
+    @MainActor
+    func testTwoCandidatesKeepEarlyDateForExplicitReview() throws {
+        let app = XCUIApplication()
+        app.launch()
+        guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
+            throw XCTSkip("Requires the isolated fictional two-candidate fixture")
+        }
+        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settingsRecurringLink"].tap()
+        XCTAssertTrue(app.staticTexts["Needs review · 2"].waitForExistence(timeout: 5))
+        let early = app.buttons.matching(NSPredicate(format: "label CONTAINS %@",
+            "2026-10-16")).firstMatch
+        for _ in 0..<8 where !early.isHittable { app.swipeUp() }
+        XCTAssertTrue(early.isHittable)
+        early.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@",
+            "Payment date differs by 1 day")).firstMatch.waitForExistence(timeout: 5))
+        let confirm = app.buttons["Confirm payment"]
+        for _ in 0..<8 where !confirm.isHittable { app.swipeUp() }
+        confirm.tap()
+        app.buttons["Confirm this payment"].tap()
+        app.tabBars.buttons["Home"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["homeRecurringPaidStatus"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.staticTexts["Fictional Plan"].waitForExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.staticTexts["Fictional Plan"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testManualCancelDoesNotCreateTransaction() throws {
         let app = XCUIApplication()
         let description = "Fictional Cancelled \(UUID().uuidString.prefix(8))"
