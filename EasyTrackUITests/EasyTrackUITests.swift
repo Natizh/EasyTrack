@@ -646,11 +646,11 @@ final class EasyTrackUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["homeUpcomingSection"].waitForExistence(timeout: 5))
         attach(app, name: "home-with-upcoming-synthetic")
         app.tabBars.buttons["Activity"].tap()
-        XCTAssertTrue(app.staticTexts[ruleName].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts[ruleName].exists)
         app.terminate()
         app.launch()
         app.tabBars.buttons["Activity"].tap()
-        XCTAssertTrue(app.staticTexts[ruleName].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts[ruleName].exists)
     }
 
     @MainActor
@@ -691,7 +691,8 @@ final class EasyTrackUITests: XCTestCase {
 
         app.buttons["Skip"].tap()
         app.buttons["Skip once"].tap()
-        app.buttons["Create now"].tap()
+        app.buttons["Record paid manually"].tap()
+        app.buttons["Record paid manually"].tap()
         XCTAssertTrue(app.alerts["Recurring payment"].waitForExistence(timeout: 5))
         app.alerts.buttons["OK"].tap()
         more.tap()
@@ -700,6 +701,282 @@ final class EasyTrackUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Edit \(ruleName)"].exists)
         app.tabBars.buttons["Activity"].tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Fictional Weekly Pass")).firstMatch.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testExpectedRecurringManualPaymentPersistsWithoutDueDateSpending() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireDemoOnly(app)
+        let total = app.staticTexts["homePersonalSpendingTotal"]
+        XCTAssertTrue(total.waitForExistence(timeout: 5))
+        let before = total.label
+        let suffix = String(UUID().uuidString.prefix(8))
+        let accountName = "Fictional Scenario Wallet \(suffix)"
+        let ruleName = "Fictional Scenario Pass \(suffix)"
+
+        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settingsAccountsLink"].tap()
+        app.buttons["addAccountButton"].tap()
+        let accountField = app.textFields["accountNameField"]
+        XCTAssertTrue(accountField.waitForExistence(timeout: 5))
+        accountField.tap()
+        accountField.typeText(accountName)
+        app.buttons["saveAccountButton"].tap()
+        app.navigationBars.buttons["Settings"].tap()
+        app.buttons["settingsRecurringLink"].tap()
+        app.buttons["addRecurringRuleButton"].tap()
+        app.textFields["recurringNameField"].tap()
+        app.textFields["recurringNameField"].typeText(ruleName)
+        replaceText(in: app.textFields["recurringAmountField"], with: "2,50")
+        let picker = app.buttons["recurringAccountPicker"]
+        for _ in 0..<4 where !picker.isHittable { app.swipeUp() }
+        picker.tap()
+        for _ in 0..<8 where !app.buttons[accountName].exists { app.swipeUp() }
+        XCTAssertTrue(app.buttons[accountName].waitForExistence(timeout: 5))
+        app.buttons[accountName].tap()
+        app.buttons["saveRecurringRuleButton"].tap()
+        XCTAssertTrue(app.navigationBars["Recurring"].waitForExistence(timeout: 5))
+
+        app.tabBars.buttons["Home"].tap()
+        XCTAssertEqual(total.label, before, "A due expectation must not enter personal spending")
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertFalse(app.staticTexts[ruleName].exists)
+        app.tabBars.buttons["Settings"].tap()
+        if !app.navigationBars["Recurring"].exists {
+            app.buttons["settingsRecurringLink"].tap()
+        }
+        let history = app.buttons["Occurrence history for \(ruleName)"]
+        XCTAssertTrue(history.waitForExistence(timeout: 5), app.debugDescription)
+        history.tap()
+        let occurrence = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recurringOccurrence-")).firstMatch
+        XCTAssertTrue(occurrence.waitForExistence(timeout: 5), app.debugDescription)
+        occurrence.tap()
+        XCTAssertTrue(app.buttons["recordExpectedRecurringButton"].waitForExistence(timeout: 5))
+        app.buttons["recordExpectedRecurringButton"].tap()
+        app.buttons["Confirm manual recording"].tap()
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.staticTexts[ruleName].waitForExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.staticTexts[ruleName].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testRecurringStatusControlsAtCurrentAppearanceAndTextSize() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireDemoOnly(app)
+        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settingsRecurringLink"].tap()
+        let history = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@",
+            "Occurrence history for Fictional Scenario Pass")).firstMatch
+        for _ in 0..<10 where !history.isHittable { app.swipeUp() }
+        guard history.waitForExistence(timeout: 5) else {
+            throw XCTSkip("Requires the isolated fictional recurring UI fixture")
+        }
+        XCTAssertTrue(history.isHittable)
+        history.tap()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+            "recurringOccurrence-")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertTrue(row.label.contains("Expected") || row.label.contains("Recorded manually"))
+        row.tap()
+        XCTAssertTrue(app.staticTexts["Scheduled payment"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Expected"].exists || app.staticTexts["Recorded manually"].exists)
+        attach(app, name: "recurring-status-fictional")
+    }
+
+    @MainActor
+    func testCollectiveRecurringImportReviewAndCancellation() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try requireDemoOnly(app)
+        selectSyntheticSeed(in: app, token: "issue4_collective_fixture")
+        let conflictHeading = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@",
+            "Recurring overlaps · 2")).firstMatch
+        XCTAssertTrue(conflictHeading.waitForExistence(timeout: 10), app.debugDescription)
+        let importButton = app.buttons["Import 2 movements"]
+        for _ in 0..<8 where !importButton.exists { app.swipeUp() }
+        XCTAssertTrue(importButton.exists)
+        XCTAssertFalse(importButton.isEnabled)
+        let choices = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+            "recurringConflictDecision-"))
+        for _ in 0..<8 where choices.count < 2 { app.swipeDown() }
+        XCTAssertEqual(choices.count, 2)
+        choices.element(boundBy: 0).tap()
+        app.buttons["Same payment"].tap()
+        choices.element(boundBy: 1).tap()
+        app.buttons["Same payment"].tap()
+        for _ in 0..<8 where !importButton.exists { app.swipeUp() }
+        XCTAssertFalse(importButton.isEnabled, "One source movement cannot settle the same occurrence twice")
+        for _ in 0..<8 where !choices.element(boundBy: 1).isHittable { app.swipeDown() }
+        XCTAssertTrue(choices.element(boundBy: 1).isHittable)
+        choices.element(boundBy: 1).tap()
+        XCTAssertTrue(app.buttons["Separate payment"].waitForExistence(timeout: 5))
+        app.buttons["Separate payment"].tap()
+        for _ in 0..<8 where !importButton.exists { app.swipeUp() }
+        XCTAssertTrue(importButton.isEnabled)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@",
+            "2 imported, 1 provisional records replaced")).firstMatch.exists)
+        let discard = app.buttons["Discard preview"]
+        for _ in 0..<8 where !discard.isHittable { app.swipeUp() }
+        XCTAssertTrue(discard.isHittable)
+        discard.tap()
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@",
+            "2 historical movements imported")).firstMatch.exists)
+
+        selectSyntheticSeed(in: app, token: "issue4_collective_fixture")
+        XCTAssertTrue(conflictHeading.waitForExistence(timeout: 10))
+        for _ in 0..<8 where !choices.element(boundBy: 0).isHittable { app.swipeDown() }
+        choices.element(boundBy: 0).tap()
+        app.buttons["Same payment"].tap()
+        for _ in 0..<8 where !choices.element(boundBy: 1).isHittable { app.swipeDown() }
+        choices.element(boundBy: 1).tap()
+        app.buttons["Separate payment"].tap()
+        for _ in 0..<8 where !importButton.exists { app.swipeUp() }
+        XCTAssertTrue(importButton.isEnabled)
+        importButton.tap()
+        let success = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@",
+            "Imported 2 movements")).firstMatch
+        for _ in 0..<8 where !success.exists { app.swipeDown() }
+        XCTAssertTrue(success.waitForExistence(timeout: 15), app.debugDescription)
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@",
+            "2 historical movements imported")).firstMatch.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testRecurringReviewFromAutomationSourceAndUnlinkPersists() throws {
+        let app = XCUIApplication()
+        app.launch()
+        guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
+            throw XCTSkip("Requires the isolated fictional pending-review fixture")
+        }
+        let total = app.staticTexts["homePersonalSpendingTotal"]
+        XCTAssertTrue(total.waitForExistence(timeout: 5))
+        let before = total.label
+        let homeReview = app.descendants(matching: .any)["homeRecurringNeedsReview"]
+        for _ in 0..<6 where !homeReview.exists { app.swipeUp() }
+        XCTAssertTrue(homeReview.waitForExistence(timeout: 5), app.debugDescription)
+        app.tabBars.buttons["Automations"].tap()
+        let source = app.staticTexts["Northstar Pay (fictional)"]
+        XCTAssertTrue(source.waitForExistence(timeout: 5))
+        source.tap()
+        XCTAssertTrue(app.staticTexts["Review recurring match"].waitForExistence(timeout: 5))
+        let review = app.buttons["reviewRecurringMatch"]
+        for _ in 0..<8 where !review.isHittable { app.swipeUp() }
+        XCTAssertTrue(review.isHittable)
+        review.tap()
+        XCTAssertTrue(app.staticTexts["Needs review"].waitForExistence(timeout: 5))
+        let confirm = app.buttons["Confirm payment"]
+        for _ in 0..<8 where !confirm.isHittable { app.swipeUp() }
+        XCTAssertTrue(confirm.isHittable)
+        confirm.tap()
+        app.buttons["Confirm this payment"].tap()
+        app.tabBars.buttons["Home"].tap()
+        let homePaid = app.descendants(matching: .any)["homeRecurringPaidStatus"]
+        XCTAssertTrue(homePaid.waitForExistence(timeout: 5))
+        let paidTotal = total.label
+        XCTAssertNotEqual(paidTotal, before)
+        homePaid.tap()
+        XCTAssertTrue(app.buttons["Unlink recurring payment"].waitForExistence(timeout: 5))
+        app.buttons["Unlink recurring payment"].tap()
+        app.buttons["Unlink payment"].tap()
+        app.tabBars.buttons["Home"].tap()
+        XCTAssertEqual(total.label, paidTotal)
+        app.terminate()
+        app.launch()
+        XCTAssertEqual(total.label, paidTotal)
+        XCTAssertFalse(homeReview.exists)
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.staticTexts["Fictional Plan"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testRecurringManualLinkSkipAndMissedPersist() throws {
+        let app = XCUIApplication()
+        app.launch()
+        guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
+            throw XCTSkip("Requires the isolated fictional manual-action fixture")
+        }
+        let total = app.staticTexts["homePersonalSpendingTotal"]
+        XCTAssertTrue(total.waitForExistence(timeout: 5))
+        let before = total.label
+        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settingsRecurringLink"].tap()
+        let history = app.buttons["Occurrence history for Fictional Plan"]
+        for _ in 0..<8 where !history.isHittable { app.swipeUp() }
+        XCTAssertTrue(history.isHittable)
+        history.tap()
+        let january = app.buttons.matching(NSPredicate(format: "identifier CONTAINS %@",
+            "|2026-01-31")).firstMatch
+        XCTAssertTrue(january.waitForExistence(timeout: 5))
+        january.tap()
+        let skip = app.buttons["Skip this payment"]
+        for _ in 0..<6 where !skip.isHittable { app.swipeUp() }
+        skip.tap()
+        app.buttons["Skip payment"].tap()
+        let choose = app.buttons["Choose an existing transaction"]
+        for _ in 0..<6 where !choose.isHittable { app.swipeUp() }
+        XCTAssertTrue(choose.isHittable)
+        choose.tap()
+        let actual = app.buttons.matching(NSPredicate(format: "label CONTAINS %@",
+            "Fictional Manual Charge")).firstMatch
+        XCTAssertTrue(actual.waitForExistence(timeout: 5))
+        actual.tap()
+        app.buttons["Link payment"].tap()
+        let unlink = app.buttons["Unlink actual transaction"]
+        for _ in 0..<6 where !unlink.isHittable { app.swipeUp() }
+        XCTAssertTrue(unlink.isHittable)
+        unlink.tap()
+        app.buttons["Unlink transaction"].tap()
+        app.navigationBars["Recurring occurrence"].buttons.firstMatch.tap()
+        let february = app.buttons.matching(NSPredicate(format: "identifier CONTAINS %@",
+            "|2026-02-28")).firstMatch
+        XCTAssertTrue(february.waitForExistence(timeout: 5))
+        february.tap()
+        let missed = app.buttons["Mark missed"]
+        for _ in 0..<6 where !missed.isHittable { app.swipeUp() }
+        missed.tap()
+        app.buttons["Confirm missed"].tap()
+        app.tabBars.buttons["Home"].tap()
+        XCTAssertEqual(total.label, before)
+        app.terminate()
+        app.launch()
+        XCTAssertEqual(total.label, before)
+        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settingsRecurringLink"].tap()
+        app.buttons["Occurrence history for Fictional Plan"].tap()
+        XCTAssertTrue(february.waitForExistence(timeout: 5))
+        XCTAssertTrue(february.label.contains("Missed"))
+        XCTAssertTrue(january.label.contains("Expected"))
+    }
+
+    @MainActor
+    func testExactApprovedRecurringPaymentOpensOneActualTransaction() throws {
+        let app = XCUIApplication()
+        app.launch()
+        guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
+            throw XCTSkip("Requires the isolated fictional exact-match fixture")
+        }
+        let paid = app.descendants(matching: .any)["homeRecurringPaidStatus"]
+        for _ in 0..<6 where !paid.exists { app.swipeUp() }
+        XCTAssertTrue(paid.waitForExistence(timeout: 5))
+        paid.tap()
+        XCTAssertTrue(app.navigationBars["Edit transaction"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Fictional Plan"].exists ||
+                      app.textFields["transactionDescriptionField"].value as? String == "Fictional Plan")
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.staticTexts["Fictional Plan"].waitForExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        let paidAfter = app.descendants(matching: .any)["homeRecurringPaidStatus"]
+        for _ in 0..<6 where !paidAfter.exists { app.swipeUp() }
+        XCTAssertTrue(paidAfter.waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -959,10 +1236,12 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
-    private func selectSyntheticSeed(in app: XCUIApplication) {
+    private func selectSyntheticSeed(in app: XCUIApplication, token: String = "synthetic_seed") {
         app.tabBars.buttons["Settings"].tap()
-        app.buttons["Choose SQLite seed"].tap()
-        let seed = app.cells.matching(NSPredicate(format: "identifier CONTAINS[c] %@", "synthetic_seed")).firstMatch
+        let choose = app.buttons["Choose SQLite seed"]
+        for _ in 0..<6 where !choose.isHittable { app.swipeDown() }
+        choose.tap()
+        let seed = app.cells.matching(NSPredicate(format: "identifier CONTAINS[c] %@", token)).firstMatch
         if !seed.waitForExistence(timeout: 8) {
             let browse = app.buttons["Browse"]
             XCTAssertTrue(browse.waitForExistence(timeout: 12))

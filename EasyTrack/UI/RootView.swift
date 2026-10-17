@@ -129,6 +129,18 @@ private struct HomeView: View {
         store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
     private var upcoming: [UpcomingRecurringItem] { store.upcomingRecurring() }
+    private var dueExpected: [RecurringOccurrence] {
+        store.recurringOccurrences.filter { occurrence in
+            guard occurrence.status == .expected,
+                  let rule = store.recurringRules.first(where: { $0.id == occurrence.ruleID }) else { return false }
+            return occurrence.scheduledDay <= LocalDay(date: .now,
+                timeZone: TimeZone(identifier: rule.timeZoneIdentifier) ?? .current)
+        }
+    }
+    private var needsReview: Int { store.recurringCandidates.filter { $0.status == .pending }.count }
+    private var recentPaid: RecurringOccurrence? {
+        store.recurringOccurrences.first { $0.status == .confirmed && $0.transactionID != nil }
+    }
 
     var body: some View {
         ScrollView {
@@ -172,9 +184,44 @@ private struct HomeView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    if !dueExpected.isEmpty {
+                        if let due = dueExpected.first,
+                           let rule = store.recurringRules.first(where: { $0.id == due.ruleID }) {
+                            let today = LocalDay(date: .now,
+                                timeZone: TimeZone(identifier: rule.timeZoneIdentifier) ?? .current)
+                            let dueStatus = due.scheduledDay < today ? "Overdue" : "Expected today"
+                            NavigationLink { RecurringOccurrenceDetailView(occurrenceID: due.id) } label: {
+                                Label("\(dueStatus) · \(rule.name)",
+                                      systemImage: "clock")
+                            }
+                            .font(.subheadline.weight(.medium))
+                            .accessibilityIdentifier("homeRecurringDueStatus")
+                        }
+                        Text("\(dueExpected.count) expected payment(s) are not included in totals.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let paid = recentPaid, let id = paid.transactionID,
+                       let transaction = store.transactions.first(where: { $0.id == id }),
+                       let rule = store.recurringRules.first(where: { $0.id == paid.ruleID }) {
+                        NavigationLink { TransactionEditor(item: transaction) } label: {
+                            Label("Paid · \(rule.name) · \(Money.format(transaction.eurMinor ?? transaction.amountMinor))",
+                                  systemImage: "checkmark.circle")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .accessibilityIdentifier("homeRecurringPaidStatus")
+                    }
+                    if needsReview > 0 {
+                        NavigationLink { RecurringListView() } label: {
+                            Label("\(needsReview) recurring match(es) need review",
+                                  systemImage: "exclamationmark.circle")
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityIdentifier("homeRecurringNeedsReview")
+                    }
                 }
                 .padding(17)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("homeUpcomingSection")
 
                 HStack {
@@ -428,6 +475,7 @@ struct TransactionEditor: View {
     @State private var note: String
     @State private var occurredAt: Date
     @State private var showDelete = false
+    @State private var showUnlink = false
     @State private var isSaving = false
     @State private var validation: String?
     @State private var choosingAccount = false
@@ -529,6 +577,26 @@ struct TransactionEditor: View {
                     TextField("Optional note", text: $note, axis: .vertical).lineLimit(2...5)
                 }
             }
+            if let original, !original.isDemo {
+                Section("Recurring payment") {
+                    if let occurrenceID = original.recurringOccurrenceID,
+                       let occurrence = store.recurringOccurrences.first(where: { $0.id == occurrenceID }) {
+                        NavigationLink {
+                            RecurringOccurrenceDetailView(occurrenceID: occurrenceID)
+                        } label: {
+                            LabeledContent("Scheduled \(occurrence.scheduledDay.isoString)",
+                                           value: occurrence.status.title)
+                        }
+                        if occurrence.status == .confirmed {
+                            Button("Unlink recurring payment") { showUnlink = true }
+                        }
+                    } else {
+                        NavigationLink("Link to a recurring occurrence") {
+                            RecurringTransactionLinkView(transactionID: original.id)
+                        }
+                    }
+                }
+            }
             if original != nil { Section { Button("Delete transaction", role: .destructive) { showDelete = true } } }
         }
         .navigationTitle(original == nil ? "New transaction" : "Edit transaction")
@@ -540,6 +608,17 @@ struct TransactionEditor: View {
         .confirmationDialog("Delete this transaction?", isPresented: $showDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive, action: delete)
         }
+        .confirmationDialog("Unlink recurring payment?", isPresented: $showUnlink,
+                            titleVisibility: .visible) {
+            Button("Unlink payment") {
+                guard let id = original?.recurringOccurrenceID else { return }
+                let occurrenceRevision = store.recurringOccurrences.first(where: { $0.id == id })?.revision
+                do { try store.unlinkRecurringTransaction(id,
+                    occurrenceRevision: occurrenceRevision,
+                    transactionRevision: original?.revision) }
+                catch { validation = error.localizedDescription }
+            }
+        } message: { Text("The actual transaction remains counted. The scheduled occurrence becomes expected; no old estimate is restored.") }
         .onChange(of: amount) { _, _ in validation = nil }
         .onChange(of: category) { _, value in
             categoryID = store.ledgerCategories.first {
@@ -794,8 +873,15 @@ private struct SettingsView: View {
                         LabeledContent("Recurring occurrences", value: "\(preview.incomingOccurrences)")
                         LabeledContent("Historical identities", value: "\(preview.incomingHistoricalMovements)")
                         LabeledContent("Operation logs", value: "\(preview.incomingOperations)")
-                        if preview.sourceFormatVersion == 5 {
-                            Text("This older backup omitted duplicate protection rows and expected occurrence links. Duplicate keys are rebuilt from captured attempts; expected links cannot be recovered. Review before replacing local data.")
+                        LabeledContent("Matching suggestions", value: "\(preview.incomingCandidates)")
+                        LabeledContent("Approved payees", value: "\(preview.incomingApprovedPayees)")
+                        LabeledContent("Reconciliation audit", value: "\(preview.incomingReconciliationAudit)")
+                        if let source = preview.sourceFormatVersion {
+                            Text(source == 5 ?
+                                 "Format 5 omitted duplicate protection rows and historical expected links. Duplicate keys are rebuilt from attempts; omitted links cannot be recovered." :
+                                 "Format 6 predates recurring reconciliation. Its active recurring estimates remain counted; deleted ones remain deleted. The file cannot restore newer matching decisions.")
+                                .font(.footnote).foregroundStyle(.orange)
+                            Text("Replacing current data with this older backup removes any newer recurring matches, aliases, candidates and audit decisions now on this phone (\(preview.existingReconciliationRows) local reconciliation rows). Review before confirming.")
                                 .font(.footnote).foregroundStyle(.orange)
                         }
                         Text("This phone currently has \(preview.existingTransactions) transactions. Replace removes its current ledger and installs the backup. Merge adds only new records with no conflicting identities.")

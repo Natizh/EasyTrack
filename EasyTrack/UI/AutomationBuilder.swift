@@ -255,6 +255,16 @@ private struct AutomationSourceView: View {
                     .textSelection(.enabled)
             }
             if let detail = attempt.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+            if attempt.status == .recurringReview,
+               let candidate = store.recurringCandidates.first(where: {
+                   $0.eventID == attempt.event.id && $0.status == .pending
+               }) {
+                NavigationLink("Review recurring payment") {
+                    RecurringOccurrenceDetailView(occurrenceID: candidate.occurrenceID)
+                }
+                .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("reviewRecurringMatch")
+            }
             HStack {
                 if [.setupRequired, .unmatched, .failed].contains(attempt.status) {
                     Button(attempt.status == .unmatched ? "Add notification format" : "Set up format") {
@@ -268,7 +278,8 @@ private struct AutomationSourceView: View {
                         catch { store.errorMessage = error.localizedDescription }
                     }.buttonStyle(.bordered)
                 }
-                if attempt.transactionID == nil && attempt.status != .duplicateIgnored {
+                if attempt.transactionID == nil && attempt.status != .duplicateIgnored &&
+                   attempt.status != .recurringReview {
                     Button("Create manually") { manualEvent = attempt.event }
                         .buttonStyle(.bordered)
                 }
@@ -281,6 +292,8 @@ private struct AutomationSourceView: View {
     private func symbol(for status: ParserAttemptStatus) -> String {
         switch status {
         case .created: "checkmark.circle.fill"
+        case .matchedExisting: "checkmark.circle.fill"
+        case .recurringReview: "exclamationmark.circle.fill"
         case .duplicateIgnored: "square.on.square"
         case .failed: "exclamationmark.triangle.fill"
         case .setupRequired, .unmatched: "wand.and.stars"
@@ -290,7 +303,8 @@ private struct AutomationSourceView: View {
 
     private func color(for status: ParserAttemptStatus) -> Color {
         switch status {
-        case .created: .green
+        case .created, .matchedExisting: .green
+        case .recurringReview: .orange
         case .failed: .red
         case .setupRequired, .unmatched: .orange
         case .duplicateIgnored, .captured, .ready: .teal

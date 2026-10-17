@@ -9,6 +9,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var ledgerCategories: [LedgerCategory] = []
     @Published private(set) var recurringRules: [RecurringRule] = []
     @Published private(set) var recurringOccurrences: [RecurringOccurrence] = []
+    @Published private(set) var recurringCandidates: [RecurringCandidate] = []
     @Published private(set) var parserRules: [ParserRule] = []
     @Published private(set) var parserAttempts: [ParserAttempt] = []
     @Published private(set) var historicalCounts: [String: Int] = [:]
@@ -41,8 +42,9 @@ final class FinanceStore: ObservableObject {
             parserSources = try database.parserSources()
             localAccounts = try database.localAccounts()
             ledgerCategories = try database.ledgerCategories()
-            recurringRules = try database.recurringRules()
+            recurringRules = try database.recurringRules(includeArchived: true)
             recurringOccurrences = try database.recurringOccurrences()
+            recurringCandidates = try database.recurringCandidates()
             parserRules = try database.parserRules()
             parserAttempts = try database.parserAttempts()
             historicalCounts = try database.historicalCounts()
@@ -54,9 +56,7 @@ final class FinanceStore: ObservableObject {
 
     @discardableResult func save(_ item: Transaction) throws -> Transaction {
         let persisted = try SQLiteDatabase.open().save(item)
-        var updated = transactions.filter { $0.id != persisted.id }
-        if persisted.deletedAt == nil { updated.append(persisted) }
-        transactions = updated.sorted { $0.occurredAt > $1.occurredAt }
+        reload()
         return persisted
     }
 
@@ -98,6 +98,66 @@ final class FinanceStore: ObservableObject {
         let saved = try SQLiteDatabase.open().createNextRecurringNow(id)
         reload()
         return saved
+    }
+
+    @discardableResult func recordExpectedRecurringNow(_ id: String) throws -> Transaction {
+        let saved = try SQLiteDatabase.open().recordExpectedRecurringNow(id)
+        reload()
+        return saved
+    }
+
+    func changeExpectedOccurrence(_ id: String, to status: RecurringOccurrenceStatus) throws {
+        try SQLiteDatabase.open().changeExpectedOccurrence(id, to: status)
+        reload()
+    }
+
+    func markCountedOccurrenceMissed(_ id: String) throws {
+        try SQLiteDatabase.open().markCountedOccurrenceMissed(id)
+        reload()
+    }
+
+    func confirmRecurringCandidate(_ id: UUID, candidateRevision: Int64? = nil,
+                                   occurrenceRevision: Int64? = nil, ruleRevision: Int64? = nil,
+                                   transactionRevision: Int64? = nil) throws {
+        try SQLiteDatabase.open().confirmRecurringCandidate(id,
+            expectedCandidateRevision: candidateRevision,
+            expectedOccurrenceRevision: occurrenceRevision,
+            expectedRuleRevision: ruleRevision,
+            expectedTransactionRevision: transactionRevision)
+        reload()
+    }
+
+    func separateRecurringEvent(_ eventID: UUID) throws {
+        _ = try SQLiteDatabase.open().separateRecurringEvent(eventID)
+        reload()
+    }
+
+    func rejectRecurringCandidate(_ id: UUID) throws {
+        _ = try SQLiteDatabase.open().rejectRecurringCandidate(id)
+        reload()
+    }
+
+    func approveRecurringPayee(_ name: String, for ruleID: UUID) throws {
+        try SQLiteDatabase.open().approveRecurringPayee(name, for: ruleID)
+        reload()
+    }
+
+    func linkRecurringTransaction(_ transactionID: UUID, to occurrenceID: String,
+                                  occurrenceRevision: Int64? = nil,
+                                  transactionRevision: Int64? = nil) throws {
+        try SQLiteDatabase.open().linkRecurringTransaction(transactionID, to: occurrenceID,
+            expectedOccurrenceRevision: occurrenceRevision,
+            expectedTransactionRevision: transactionRevision)
+        reload()
+    }
+
+    func unlinkRecurringTransaction(_ occurrenceID: String,
+                                    occurrenceRevision: Int64? = nil,
+                                    transactionRevision: Int64? = nil) throws {
+        try SQLiteDatabase.open().unlinkRecurringTransaction(occurrenceID,
+            expectedOccurrenceRevision: occurrenceRevision,
+            expectedTransactionRevision: transactionRevision)
+        reload()
     }
 
     func upcomingRecurring(days: Int = 30, now: Date = .now) -> [UpcomingRecurringItem] {

@@ -1,5 +1,13 @@
 import SwiftUI
 
+private func recurringLinkEffect(actual: Transaction, replacing old: Transaction?) -> String {
+    guard let old, old.id != actual.id else {
+        return "The existing transaction stays counted; linking changes no totals."
+    }
+    let removed = LedgerTotals(transactions: [old])
+    return "The existing actual transaction stays counted. The old estimate is removed: personal spending −\(Money.format(removed.personalSpendingEURMinor)), expenses −\(Money.format(removed.totalExpensesEURMinor)), income −\(Money.format(removed.incomeEURMinor)), PAC −\(Money.format(removed.pacInvestedEURMinor))."
+}
+
 struct UpcomingRecurringRow: View {
     @EnvironmentObject private var store: FinanceStore
     let item: UpcomingRecurringItem
@@ -44,10 +52,12 @@ struct RecurringListView: View {
     @State private var adopting: HistoricalRecurringRule?
     @State private var toArchive: RecurringRule?
     @State private var toSkip: RecurringRule?
+    @State private var toRecord: RecurringRule?
     @State private var confirmationMessage: String?
 
-    private var active: [RecurringRule] { store.recurringRules.filter(\.isActive) }
-    private var paused: [RecurringRule] { store.recurringRules.filter { !$0.isActive } }
+    private var active: [RecurringRule] { store.recurringRules.filter { $0.isActive && $0.archivedAt == nil } }
+    private var paused: [RecurringRule] { store.recurringRules.filter { !$0.isActive && $0.archivedAt == nil } }
+    private var archived: [RecurringRule] { store.recurringRules.filter { $0.archivedAt != nil } }
     private var upcoming: [UpcomingRecurringItem] { store.upcomingRecurring() }
 
     var body: some View {
@@ -71,6 +81,22 @@ struct RecurringListView: View {
                     Text("\(upcoming.count - 2) more dates in the next 30 days")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                let pending = store.recurringCandidates.filter { $0.status == .pending }
+                if !pending.isEmpty {
+                    sectionHeader("Needs review · \(pending.count)", systemImage: "exclamationmark.circle")
+                    ForEach(Array(Set(pending.map(\.occurrenceID))).sorted(), id: \.self) { id in
+                        if let occurrence = store.recurringOccurrences.first(where: { $0.id == id }),
+                           let rule = store.recurringRules.first(where: { $0.id == occurrence.ruleID }) {
+                            NavigationLink { RecurringOccurrenceDetailView(occurrenceID: id) } label: {
+                                Label("\(rule.name) · \(occurrence.scheduledDay.isoString)",
+                                      systemImage: "arrow.right.circle")
+                            }
+                            .padding(13)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                        in: RoundedRectangle(cornerRadius: 14))
+                        }
+                    }
+                }
                 sectionHeader("Active rules", systemImage: "repeat")
                 if active.isEmpty { emptyCard("Add a subscription, repeating payment, income, or PAC plan.") }
                 ForEach(active) { rule in
@@ -80,6 +106,17 @@ struct RecurringListView: View {
                     sectionHeader("Paused", systemImage: "pause.circle")
                     ForEach(paused) { rule in
                         ruleCard(rule).id("\(rule.id.uuidString)-\(rule.revision)-\(rule.isActive)")
+                    }
+                }
+                if !archived.isEmpty {
+                    sectionHeader("Archived history", systemImage: "archivebox")
+                    ForEach(archived) { rule in
+                        NavigationLink { RecurringRuleDetailView(ruleID: rule.id) } label: {
+                            Label(rule.name, systemImage: "clock.arrow.circlepath")
+                        }
+                        .padding(13)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 14))
                     }
                 }
                 if !store.historicalRules.isEmpty {
@@ -126,6 +163,17 @@ struct RecurringListView: View {
                     toSkip = nil
                 }
             } message: { Text("The rule will continue on its following date.") }
+        .confirmationDialog("Record this payment manually?", isPresented: Binding(
+            get: { toRecord != nil }, set: { if !$0 { toRecord = nil } }), titleVisibility: .visible) {
+                Button("Record paid manually") {
+                    guard let rule = toRecord else { return }
+                    do {
+                        let transaction = try store.createNextRecurringNow(rule.id)
+                        confirmationMessage = "\(Money.format(transaction.amountMinor)) added to Activity."
+                    } catch { store.errorMessage = error.localizedDescription }
+                    toRecord = nil
+                }
+            } message: { Text("This creates one counted transaction. Use it only when the payment happened and no bank movement was captured.") }
         .confirmationDialog("Archive this rule?", isPresented: Binding(
             get: { toArchive != nil }, set: { if !$0 { toArchive = nil } }), titleVisibility: .visible) {
                 Button("Archive rule", role: .destructive) {
@@ -174,14 +222,11 @@ struct RecurringListView: View {
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Edit") { selected = rule }.accessibilityLabel("Edit \(rule.name)")
+                NavigationLink("History") { RecurringRuleDetailView(ruleID: rule.id) }
+                    .accessibilityLabel("Occurrence history for \(rule.name)")
                 Spacer()
                 if rule.isActive && next != nil {
-                    Button("Create now") {
-                        do {
-                            let transaction = try store.createNextRecurringNow(rule.id)
-                            confirmationMessage = "\(Money.format(transaction.amountMinor)) added to Activity."
-                        } catch { store.errorMessage = error.localizedDescription }
-                    }
+                    Button("Record paid manually") { toRecord = rule }
                     Button("Skip") { toSkip = rule }
                 } else if !rule.isActive {
                     Button("Resume") {
@@ -239,6 +284,7 @@ private struct RecurringRuleEditorView: View {
     @State private var choosingAccount = false
     @State private var choosingCategory = false
     @State private var choosingFrequency = false
+    @State private var reviewWindowDays: Int
 
     init(rule: RecurringRule? = nil, imported: HistoricalRecurringRule? = nil) {
         original = rule
@@ -255,6 +301,7 @@ private struct RecurringRuleEditorView: View {
         _hasEndDate = State(initialValue: rule?.endDay != nil)
         _isActive = State(initialValue: rule?.isActive ?? true)
         _note = State(initialValue: rule?.note ?? "")
+        _reviewWindowDays = State(initialValue: rule?.reviewWindowDays ?? 3)
     }
 
     var body: some View {
@@ -294,8 +341,10 @@ private struct RecurringRuleEditorView: View {
                 Toggle("End on a date", isOn: $hasEndDate)
                 if hasEndDate { DatePicker("Ends", selection: $endDate, displayedComponents: .date) }
                 Toggle("Active", isOn: $isActive)
+                Stepper("Review window: ±\(reviewWindowDays) days", value: $reviewWindowDays, in: 0...14)
+                    .accessibilityIdentifier("recurringReviewWindowStepper")
                 if original == nil {
-                    Text("If the start date is in the past, missed payments are added once when you save.")
+                    Text("Past dates become expected entries. They do not change totals until a real payment is linked or recorded manually.")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else {
                     Text("Changes apply only to future occurrences. Past transactions keep their original values.")
@@ -378,6 +427,7 @@ private struct RecurringRuleEditorView: View {
         item.endDay = end
         item.isActive = isActive
         item.note = note
+        item.reviewWindowDays = reviewWindowDays
         if let imported { item.historicalSourceID = imported.id }
         do {
             try store.saveRecurringRule(item)
@@ -386,5 +436,421 @@ private struct RecurringRuleEditorView: View {
             errorMessage = error.localizedDescription
             saving = false
         }
+    }
+}
+
+struct RecurringRuleDetailView: View {
+    @EnvironmentObject private var store: FinanceStore
+    let ruleID: UUID
+
+    private var rule: RecurringRule? { store.recurringRules.first { $0.id == ruleID } }
+    private var occurrences: [RecurringOccurrence] {
+        store.recurringOccurrences.filter { $0.ruleID == ruleID }
+            .sorted { $0.scheduledDay > $1.scheduledDay }
+    }
+
+    var body: some View {
+        List {
+            if let rule {
+                Section("Rule") {
+                    LabeledContent("Payment", value: rule.name)
+                    LabeledContent("Expected amount", value: Money.format(rule.amountMinor))
+                    LabeledContent("Review window", value: "±\(rule.reviewWindowDays) local days")
+                    Text("Expected dates do not enter your totals. A paid transaction appears in Activity.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            Section("Occurrence history") {
+                if occurrences.isEmpty { Text("No due dates recorded yet.").foregroundStyle(.secondary) }
+                ForEach(occurrences) { occurrence in
+                    NavigationLink { RecurringOccurrenceDetailView(occurrenceID: occurrence.id) } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(occurrence.scheduledDay.isoString).font(.headline)
+                            Text(occurrence.status.title)
+                                .font(.subheadline).foregroundStyle(.secondary)
+                            if store.recurringCandidates.contains(where: { $0.occurrenceID == occurrence.id && $0.status == .pending }) {
+                                Label("Needs review", systemImage: "exclamationmark.circle")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("\(occurrence.scheduledDay.isoString), \(occurrence.status.title), \(store.recurringCandidates.contains(where: { $0.occurrenceID == occurrence.id && $0.status == .pending }) ? "needs review" : "no review needed")")
+                    .accessibilityIdentifier("recurringOccurrence-\(occurrence.id)")
+                }
+            }
+        }
+        .navigationTitle(rule?.name ?? "Recurring payment")
+    }
+}
+
+struct RecurringOccurrenceDetailView: View {
+    @EnvironmentObject private var store: FinanceStore
+    let occurrenceID: String
+    @State private var pendingAction: Action?
+    @State private var resultMessage: String?
+
+    private enum Action {
+        case record, skip, missed, countedMissed, unlink
+        case confirm(UUID), reject(UUID), separate(UUID), approve(UUID)
+    }
+
+    private var occurrence: RecurringOccurrence? {
+        store.recurringOccurrences.first { $0.id == occurrenceID }
+    }
+    private var rule: RecurringRule? {
+        store.recurringRules.first { $0.id == occurrence?.ruleID }
+    }
+    private var candidates: [RecurringCandidate] {
+        store.recurringCandidates.filter { $0.occurrenceID == occurrenceID && $0.status == .pending }
+    }
+    private var actual: Transaction? {
+        store.transactions.first { $0.id == occurrence?.transactionID }
+    }
+
+    var body: some View {
+        List {
+            if let occurrence, let rule {
+                Section("Scheduled payment") {
+                    LabeledContent("Rule", value: rule.name)
+                    LabeledContent("Kind", value: rule.type.title)
+                    LabeledContent("Account", value: store.localAccounts.first(where: {
+                        $0.id == rule.accountID
+                    })?.name ?? "Account unavailable")
+                    LabeledContent("Scheduled", value: occurrence.scheduledDay.isoString)
+                    LabeledContent("Expected", value: Money.format(rule.amountMinor))
+                    LabeledContent("Status", value: occurrence.status.title)
+                    if occurrence.status == .expected,
+                       occurrence.scheduledDay < LocalDay(date: .now,
+                           timeZone: TimeZone(identifier: rule.timeZoneIdentifier) ?? .current) {
+                        Label("Overdue · not marked missed", systemImage: "clock")
+                            .foregroundStyle(.orange)
+                    }
+                    if let reason = occurrence.reviewReason { Text(reason).font(.footnote) }
+                }
+                if let actual {
+                    Section("Counted transaction") {
+                        NavigationLink { TransactionEditor(item: actual) } label: {
+                            LabeledContent(actual.merchant, value: Money.format(actual.eurMinor ?? actual.amountMinor))
+                        }
+                        Text("Linking does not add a second movement. This Activity record holds the actual amount and source details.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                if !candidates.isEmpty {
+                    Section("Needs review") {
+                        ForEach(candidates) { candidate in
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(candidate.reason).font(.subheadline)
+                                if let transaction = store.transactions.first(where: { $0.id == candidate.transactionID }) {
+                                    Text("Actual: \(transaction.merchant) · \(Money.format(transaction.eurMinor ?? transaction.amountMinor)) · \(transaction.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                        .font(.footnote)
+                                    NavigationLink("Open actual transaction") { TransactionEditor(item: transaction) }
+                                } else if let attempt = store.parserAttempts.first(where: { $0.event.id == candidate.eventID }) {
+                                    Text("Captured: \(attempt.event.title) · \((attempt.event.receivedAt ?? attempt.event.capturedAt).formatted(date: .abbreviated, time: .omitted))")
+                                        .font(.footnote)
+                                    if let extracted = candidateCapture(candidate),
+                                       let amount = extracted.amount, let merchant = extracted.merchant {
+                                        Text("Actual: \(merchant) · \(Money.format(amount.cents)) · \(extracted.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                            .font(.footnote)
+                                    }
+                                }
+                                HStack {
+                                    Button("Confirm payment") { pendingAction = .confirm(candidate.id) }
+                                        .disabled(candidate.transactionID == nil && candidateCapture(candidate) == nil)
+                                    if let eventID = candidate.eventID {
+                                        Button("Separate payment") { pendingAction = .separate(eventID) }
+                                    } else {
+                                        Button("Reject suggestion") { pendingAction = .reject(candidate.id) }
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                if candidatePayee(candidate) != nil {
+                                    Button("Approve payee for future exact matches") { pendingAction = .approve(candidate.id) }
+                                        .font(.footnote)
+                                }
+                            }
+                            .padding(.vertical, 5)
+                        }
+                    }
+                }
+                Section("Actions") {
+                    if occurrence.status == .expected {
+                        Button("Record paid manually") { pendingAction = .record }
+                            .accessibilityIdentifier("recordExpectedRecurringButton")
+                        Button("Skip this payment") { pendingAction = .skip }
+                        if occurrence.scheduledDay < LocalDay(date: .now,
+                            timeZone: TimeZone(identifier: rule.timeZoneIdentifier) ?? .current) {
+                            Button("Mark missed") { pendingAction = .missed }
+                        }
+                    }
+                    if occurrence.status == .legacyCounted || occurrence.status == .recordedManual {
+                        Button("Mark missed and remove counted payment", role: .destructive) {
+                            pendingAction = .countedMissed
+                        }
+                    }
+                    if occurrence.status == .confirmed {
+                        Button("Unlink actual transaction") { pendingAction = .unlink }
+                    }
+                    if occurrence.status == .expected || occurrence.status == .skipped ||
+                        occurrence.status == .missed || occurrence.status == .legacyCounted ||
+                        occurrence.status == .recordedManual {
+                        NavigationLink("Choose an existing transaction") {
+                            RecurringManualLinkView(occurrenceID: occurrenceID)
+                        }
+                    }
+                }
+            } else {
+                ContentUnavailableView("Occurrence unavailable", systemImage: "calendar.badge.exclamationmark")
+            }
+        }
+        .navigationTitle("Recurring occurrence")
+        .confirmationDialog(actionTitle, isPresented: Binding(
+            get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }),
+            titleVisibility: .visible) {
+                Button(confirmationButtonTitle, role: isDestructive ? .destructive : nil) { performAction() }
+                Button("Cancel", role: .cancel) { pendingAction = nil }
+            } message: { Text(actionExplanation) }
+        .alert("Recurring payment", isPresented: Binding(
+            get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
+                Button("OK") { resultMessage = nil }
+            } message: { Text(resultMessage ?? "") }
+    }
+
+    private func candidatePayee(_ candidate: RecurringCandidate) -> String? {
+        if let transaction = store.transactions.first(where: { $0.id == candidate.transactionID }) {
+            return transaction.merchant
+        }
+        return candidateCapture(candidate)?.merchant
+    }
+
+    private func candidateCapture(_ candidate: RecurringCandidate) -> ParserPreview? {
+        guard let attempt = store.parserAttempts.first(where: { $0.event.id == candidate.eventID }),
+              let ruleID = attempt.ruleID, let version = attempt.ruleVersion,
+              let source = store.parserSources.first(where: { $0.id == attempt.sourceID }),
+              let database = try? SQLiteDatabase.openReadOnly(),
+              let revision = try? database.parserRuleHistory(ruleID).first(where: {
+                  $0.version == version
+              }) else { return nil }
+        let preview = NotificationParser.preview(attempt.event, config: revision.config,
+                                                 mappedAccount: source.accountName)
+        return preview.ready ? preview : nil
+    }
+
+    private var actionTitle: String {
+        switch pendingAction {
+        case .record: "Record paid manually"
+        case .skip: "Skip payment"
+        case .missed, .countedMissed: "Mark missed"
+        case .unlink: "Unlink transaction"
+        case .confirm: "Confirm this payment"
+        case .reject: "Reject suggestion"
+        case .separate: "Treat as separate payment"
+        case .approve: "Approve payee"
+        case nil: "Confirm"
+        }
+    }
+
+    private var isDestructive: Bool {
+        if case .countedMissed = pendingAction { return true }
+        return false
+    }
+
+    private var confirmationButtonTitle: String {
+        if case .record = pendingAction { return "Confirm manual recording" }
+        if case .missed = pendingAction { return "Confirm missed" }
+        if case .countedMissed = pendingAction { return "Remove counted payment and mark missed" }
+        return actionTitle
+    }
+
+    private var actionExplanation: String {
+        switch pendingAction {
+        case .record: return "Creates one counted transaction now. Use only if the payment happened."
+        case .skip, .missed: return "No transaction will be created and totals stay unchanged."
+        case .countedMissed:
+            let value = actual.map { Money.format($0.eurMinor ?? $0.amountMinor) } ?? "the recorded amount"
+            return "The old estimate (\(value)) will be soft-deleted and removed from totals. Its identity and audit history remain."
+        case .unlink: return "The actual transaction remains counted with its source details. The occurrence becomes expected again; no old estimate is recreated."
+        case .confirm(let id):
+            if let candidate = candidates.first(where: { $0.id == id }),
+               let transaction = store.transactions.first(where: { $0.id == candidate.transactionID }),
+               let old = actual, old.id != transaction.id {
+                return recurringLinkEffect(actual: transaction, replacing: old)
+            }
+            if let candidate = candidates.first(where: { $0.id == id }),
+               let extracted = candidateCapture(candidate), let amount = extracted.amount,
+               let old = actual {
+                return "The recorded estimate \(Money.format(old.eurMinor ?? old.amountMinor)) will be corrected to the captured amount \(Money.format(amount.cents)). Review the date and payee before confirming; the transaction UUID and user note remain."
+            }
+            return "Confirm the captured payment against this occurrence. Any changed bank amount replaces the old estimate; source identity and user notes are preserved."
+        case .reject, .separate: return "The payments remain separate. A held notification can then create its own transaction."
+        case .approve: return "Only future unique, exact-cent payments from this payee can be confirmed automatically."
+        case nil: return ""
+        }
+    }
+
+    private func performAction() {
+        guard let action = pendingAction else { return }
+        pendingAction = nil
+        do {
+            switch action {
+            case .record: _ = try store.recordExpectedRecurringNow(occurrenceID)
+            case .skip: try store.changeExpectedOccurrence(occurrenceID, to: .skipped)
+            case .missed: try store.changeExpectedOccurrence(occurrenceID, to: .missed)
+            case .countedMissed: try store.markCountedOccurrenceMissed(occurrenceID)
+            case .unlink:
+                try store.unlinkRecurringTransaction(occurrenceID,
+                    occurrenceRevision: occurrence?.revision,
+                    transactionRevision: actual?.revision)
+            case .confirm(let id):
+                guard let candidate = candidates.first(where: { $0.id == id }),
+                      let occurrence, let rule else { throw RecurringError.occurrenceChanged }
+                let transactionRevision = store.transactions.first(where: {
+                    $0.id == candidate.transactionID
+                })?.revision
+                try store.confirmRecurringCandidate(id,
+                    candidateRevision: candidate.revision,
+                    occurrenceRevision: occurrence.revision,
+                    ruleRevision: rule.revision,
+                    transactionRevision: transactionRevision)
+            case .reject(let id): try store.rejectRecurringCandidate(id)
+            case .separate(let eventID): try store.separateRecurringEvent(eventID)
+            case .approve(let id):
+                guard let candidate = candidates.first(where: { $0.id == id }),
+                      let payee = candidatePayee(candidate), let rule else {
+                    throw RecurringError.occurrenceChanged
+                }
+                try store.approveRecurringPayee(payee, for: rule.id)
+            }
+        } catch { resultMessage = error.localizedDescription }
+    }
+}
+
+struct RecurringManualLinkView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.dismiss) private var dismiss
+    let occurrenceID: String
+    @State private var selected: Transaction?
+    @State private var errorMessage: String?
+
+    private var occurrence: RecurringOccurrence? {
+        store.recurringOccurrences.first { $0.id == occurrenceID }
+    }
+    private var rule: RecurringRule? { store.recurringRules.first { $0.id == occurrence?.ruleID } }
+    private var eligible: [Transaction] {
+        guard let rule else { return [] }
+        return store.transactions.filter { !$0.isDemo && $0.kind == rule.type.transactionKind &&
+            $0.accountID == rule.accountID &&
+            ($0.recurringOccurrenceID == nil || $0.recurringOccurrenceID == occurrenceID) }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Text("Only transactions from the same managed account and movement kind are shown. Historical account labels must be linked to a managed account first.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Eligible Activity transactions") {
+                if eligible.isEmpty { Text("No eligible transaction. Add or edit one in Activity first.") }
+                ForEach(eligible) { transaction in
+                    Button {
+                        selected = transaction
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(transaction.merchant)
+                            Text("\(Money.format(transaction.eurMinor ?? transaction.amountMinor)) · \(transaction.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Link transaction")
+        .confirmationDialog("Link this payment?", isPresented: Binding(
+            get: { selected != nil }, set: { if !$0 { selected = nil } }), titleVisibility: .visible) {
+                Button("Link payment") {
+                    guard let transaction = selected else { return }
+                    do {
+                        try store.linkRecurringTransaction(transaction.id, to: occurrenceID,
+                            occurrenceRevision: occurrence?.revision,
+                            transactionRevision: transaction.revision)
+                        dismiss()
+                    } catch { errorMessage = error.localizedDescription }
+                    selected = nil
+                }
+            } message: {
+                Text(selected.map { transaction in
+                    recurringLinkEffect(actual: transaction,
+                        replacing: store.transactions.first(where: { $0.id == occurrence?.transactionID }))
+                } ?? "Choose a transaction to see its effect on totals.")
+            }
+        .alert("Could not link", isPresented: Binding(
+            get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("OK") { errorMessage = nil }
+            } message: { Text(errorMessage ?? "") }
+    }
+}
+
+struct RecurringTransactionLinkView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.dismiss) private var dismiss
+    let transactionID: UUID
+    @State private var selected: RecurringOccurrence?
+    @State private var errorMessage: String?
+
+    private var transaction: Transaction? { store.transactions.first { $0.id == transactionID } }
+    private var eligible: [RecurringOccurrence] {
+        guard let transaction else { return [] }
+        return store.recurringOccurrences.filter { occurrence in
+            guard occurrence.status != .confirmed && occurrence.status != .cancelled,
+                  let rule = store.recurringRules.first(where: { $0.id == occurrence.ruleID }) else { return false }
+            return rule.accountID == transaction.accountID &&
+                rule.type.transactionKind == transaction.kind
+        }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Text("Only occurrences from this transaction’s managed account and movement kind are shown. Linking keeps the real amount and provenance.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Eligible occurrences") {
+                if eligible.isEmpty { Text("No eligible occurrence. Check the transaction’s managed account.") }
+                ForEach(eligible) { occurrence in
+                    Button {
+                        selected = occurrence
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(store.recurringRules.first(where: { $0.id == occurrence.ruleID })?.name ?? "Recurring payment")
+                            Text("\(occurrence.scheduledDay.isoString) · \(occurrence.status.title)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Link recurring payment")
+        .confirmationDialog("Link to this occurrence?", isPresented: Binding(
+            get: { selected != nil }, set: { if !$0 { selected = nil } }), titleVisibility: .visible) {
+                Button("Link payment") {
+                    guard let occurrence = selected else { return }
+                    do {
+                        try store.linkRecurringTransaction(transactionID, to: occurrence.id,
+                            occurrenceRevision: occurrence.revision,
+                            transactionRevision: transaction?.revision)
+                        dismiss()
+                    } catch { errorMessage = error.localizedDescription }
+                    selected = nil
+                }
+            } message: {
+                Text(transaction.map { actual in
+                    recurringLinkEffect(actual: actual,
+                        replacing: store.transactions.first(where: { $0.id == selected?.transactionID }))
+                } ?? "Choose an occurrence to see its effect on totals.")
+            }
+        .alert("Could not link", isPresented: Binding(
+            get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("OK") { errorMessage = nil }
+            } message: { Text(errorMessage ?? "") }
     }
 }

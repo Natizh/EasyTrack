@@ -7,6 +7,7 @@ struct HistoricalImportSection: View {
     let chooseFile: () -> Void
     @State private var busy = false
     @State private var preview: HistoricalImportPreview?
+    @State private var decisions: [String: HistoricalImportDecision] = [:]
     @State private var status: String?
 
     var body: some View {
@@ -42,14 +43,54 @@ struct HistoricalImportSection: View {
                         Text("This seed differs from previously imported source data. No changes will be made.")
                             .font(.footnote).foregroundStyle(.orange)
                     }
+                    if !preview.recurringConflicts.isEmpty {
+                        Divider()
+                        Text("Recurring overlaps · \(preview.recurringConflicts.count)").font(.headline)
+                        Text("Review all possible overlaps together. Each needs a decision before one atomic import. Historical account labels are not trusted automatically.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        ForEach(preview.recurringConflicts) { conflict in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(conflict.ruleName).font(.subheadline.bold())
+                                Text("Recorded: \(conflict.counted.merchant) · \(Money.format(conflict.counted.eurMinor ?? conflict.counted.amountMinor)) · \(conflict.counted.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                Text("Import: \(conflict.imported.merchant) · \(Money.format(conflict.imported.eurMinor ?? conflict.imported.amountMinor)) · \(conflict.imported.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                Text("\(conflict.imported.kind.title) · \(conflict.managedAccountName) ↔ \(conflict.imported.account.isEmpty ? "No source account" : conflict.imported.account)")
+                                Text(conflict.reason).foregroundStyle(.secondary)
+                                Menu(decisionTitle(conflict.id)) {
+                                    Button("Same payment") { decisions[conflict.id] = .samePayment }
+                                    Button("Separate payment") { decisions[conflict.id] = .separatePayment }
+                                }
+                                .accessibilityLabel("Decision for \(conflict.ruleName), \(conflict.imported.merchant)")
+                                .accessibilityIdentifier("recurringConflictDecision-\(conflict.id)")
+                            }
+                            .font(.caption)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                        in: RoundedRectangle(cornerRadius: 10))
+                        }
+                        Text("\(unresolvedCount(preview)) unresolved · \(sameCount(preview)) same payment · \(separateCount(preview)) separate")
+                            .font(.footnote.bold())
+                        if hasAmbiguousSame(preview) {
+                            Text("One real payment or recurring date was selected more than once. Choose one Same payment and mark the others Separate payment.")
+                                .font(.footnote).foregroundStyle(.orange)
+                        }
+                        if unresolvedCount(preview) == 0 && !hasAmbiguousSame(preview),
+                           let incoming = preview.incomingTotals {
+                            let removed = LedgerTotals(transactions: preview.recurringConflicts
+                                .filter { decisions[$0.id] == .samePayment }.map(\.counted))
+                            Text("Summary: \(preview.newMovements) imported, \(sameCount(preview)) provisional records replaced. Personal spending change: \(Money.format(incoming.personalSpendingEURMinor - removed.personalSpendingEURMinor)). Expense change: \(Money.format(incoming.totalExpensesEURMinor - removed.totalExpensesEURMinor)). Income change: \(Money.format(incoming.incomeEURMinor - removed.incomeEURMinor)). PAC change: \(Money.format(incoming.pacInvestedEURMinor - removed.pacInvestedEURMinor)).")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .padding(.vertical, 4)
                 Button(preview.newMovements == 0 ? "Confirm no changes" : "Import \(preview.newMovements) movements") {
                     confirm()
                 }
-                .disabled(busy || !preview.canImport)
+                .disabled(busy || !preview.canImport || unresolvedCount(preview) > 0 || hasAmbiguousSame(preview))
                 Button("Discard preview", role: .cancel) {
                     self.preview = nil
+                    decisions = [:]
                     Task { await SeedImportCoordinator.shared.cancel() }
                 }
             }
@@ -68,10 +109,37 @@ struct HistoricalImportSection: View {
             .font(.subheadline)
     }
 
+    private func decisionTitle(_ id: String) -> String {
+        switch decisions[id] {
+        case .samePayment: "Same payment"
+        case .separatePayment: "Separate payment"
+        case nil: "Choose same or separate"
+        }
+    }
+
+    private func unresolvedCount(_ preview: HistoricalImportPreview) -> Int {
+        preview.recurringConflicts.filter { decisions[$0.id] == nil }.count
+    }
+
+    private func sameCount(_ preview: HistoricalImportPreview) -> Int {
+        preview.recurringConflicts.filter { decisions[$0.id] == .samePayment }.count
+    }
+
+    private func separateCount(_ preview: HistoricalImportPreview) -> Int {
+        preview.recurringConflicts.filter { decisions[$0.id] == .separatePayment }.count
+    }
+
+    private func hasAmbiguousSame(_ preview: HistoricalImportPreview) -> Bool {
+        let same = preview.recurringConflicts.filter { decisions[$0.id] == .samePayment }
+        return Set(same.map(\.occurrenceID)).count != same.count ||
+            Set(same.map { $0.imported.id }).count != same.count
+    }
+
     private func stage(_ url: URL) {
         busy = true
         status = "Validating selected seed…"
         preview = nil
+        decisions = [:]
         Task {
             do {
                 preview = try await SeedImportCoordinator.shared.stage(url)
@@ -86,9 +154,10 @@ struct HistoricalImportSection: View {
         status = "Importing into local storage…"
         Task {
             do {
-                let result = try await SeedImportCoordinator.shared.confirm()
+                let result = try await SeedImportCoordinator.shared.confirm(decisions: decisions)
                 store.reload()
                 preview = nil
+                decisions = [:]
                 status = result.newMovements == 0 ? "No new movements; local data was unchanged." : "Imported \(result.newMovements) movements into local storage."
             } catch { status = error.localizedDescription }
             busy = false
