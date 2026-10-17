@@ -1,6 +1,6 @@
 # Transaction export (Issue #1)
 
-**Settings → Export transactions** writes ordinary CSV or XLSX transaction files through the native Files exporter. Activity also offers **Export filtered transactions**. These files are separate from the version-6 JSON backup: they contain no raw notification captures, parser attempts, rule JSON, or bulk spreadsheet source rows. The app performs no network request during export.
+**Settings → Export transactions** writes ordinary CSV or XLSX transaction files through the native Files exporter. Activity also offers **Export filtered transactions**. These files are separate from the version-7 JSON backup: they contain no raw notification captures, parser attempts, recurring candidates, rule JSON, or bulk spreadsheet source rows. The app performs no network request during export.
 
 ## Approved choices
 
