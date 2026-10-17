@@ -55,6 +55,8 @@ final class BackupRestoreTests: XCTestCase {
             createdAt: date, updatedAt: date, archivedAt: nil, revision: 0)
         _ = try database.saveRecurringRule(recurring)
         _ = try database.materializeDueRecurring(now: LocalDay(isoString: "2026-10-15")!.noon(in: TimeZone(identifier: "Europe/Rome")!)!)
+        let occurrence = try XCTUnwrap(database.recurringOccurrences().first)
+        _ = try database.recordExpectedRecurringNow(occurrence.id, now: date)
         try database.checkDatabase()
         return (event, parsedID)
     }
@@ -68,7 +70,12 @@ final class BackupRestoreTests: XCTestCase {
             parserSources: try database.parserSources(), parserRules: rules,
             localAccounts: try database.localAccounts(), ledgerCategories: try database.ledgerCategories(),
             recurringRules: try database.recurringRules(includeArchived: true),
-            recurringOccurrences: try database.recurringOccurrences(),
+            recurringOccurrences: try database.recurringOccurrences().map { current in
+                RecurringOccurrence(id: current.id, ruleID: current.ruleID,
+                                    scheduledDay: current.scheduledDay,
+                                    status: current.transactionID == nil ? .skipped : .materialized,
+                                    transactionID: current.transactionID, createdAt: current.createdAt)
+            },
             parserRuleVersions: try rules.flatMap { try database.parserRuleHistory($0.id) },
             parserAttempts: try database.parserAttempts())
         return try JSONEncoder().encode(envelope)
@@ -88,6 +95,48 @@ final class BackupRestoreTests: XCTestCase {
             XCTAssertEqual(try reopened.historicalBackup()?.provenance.first?.sourceID, "fictional-source-1")
             XCTAssertEqual(try reopened.recurringOccurrences().count, 1)
             XCTAssertEqual(try reopened.parserRuleHistory(XCTUnwrap(reopened.parserRules().first?.id)).count, 1)
+            try reopened.checkDatabase()
+        }
+    }
+
+    func testVersionSixBackupUpgradesToSevenWithoutChangingLegacyTotals() throws {
+        try withDatabases { source, target, targetURL in
+            _ = try populate(source)
+            let before = LedgerTotals(transactions: try source.transactions())
+            let current = try source.exportBackup()
+            let olderTables = current.tables.prefix(22).map { table -> BackupTable in
+                switch table.name {
+                case "recurring_rules_local":
+                    let index = table.columns.firstIndex(of: "review_window_days")!
+                    return BackupTable(name: table.name,
+                        columns: table.columns.enumerated().filter { $0.offset != index }.map(\.element),
+                        rows: table.rows.map { row in row.enumerated().filter { $0.offset != index }.map(\.element) })
+                case "recurring_occurrences_local":
+                    let indexes = ["id", "rule_id", "scheduled_day", "status", "transaction_id", "created_at"]
+                        .map { table.columns.firstIndex(of: $0)! }
+                    return BackupTable(name: table.name, columns: ["id", "rule_id", "scheduled_day",
+                        "status", "transaction_id", "created_at"], rows: table.rows.map { row in
+                            var old = indexes.map { row[$0] }
+                            old[3] = old[4] == nil ? "skipped" : "materialized"
+                            return old
+                        })
+                default: return table
+                }
+            }
+            let older = BackupArchive(schemaVersion: 6, databaseSchemaVersion: 5,
+                exportID: UUID(), exportedAt: .now,
+                contentSHA256: try SQLiteDatabase.digest(olderTables),
+                tables: olderTables, sourceFormatVersion: nil)
+            let converted = try BackupArchive.decode(JSONEncoder().encode(older))
+            XCTAssertEqual(converted.schemaVersion, 7)
+            XCTAssertEqual(converted.sourceFormatVersion, 6)
+            let preview = try target.previewBackup(converted)
+            XCTAssertEqual(preview.sourceFormatVersion, 6)
+            _ = try target.restoreBackup(converted, preview: preview, mode: .replace)
+            let reopened = try SQLiteDatabase(url: targetURL)
+            XCTAssertEqual(LedgerTotals(transactions: try reopened.transactions()), before)
+            XCTAssertEqual(try reopened.recurringOccurrences().first?.status, .legacyCounted)
+            XCTAssertEqual(try reopened.exportBackup().schemaVersion, 7)
             try reopened.checkDatabase()
         }
     }
@@ -156,11 +205,11 @@ final class BackupRestoreTests: XCTestCase {
             let backup = try source.exportBackup()
             let original = try target.backupTables()
             XCTAssertThrowsError(try BackupArchive.decode(Data("{".utf8)))
-            for version in [2, 3, 4, 7] {
+            for version in [2, 3, 4, 8] {
                 XCTAssertThrowsError(try BackupArchive.decode(Data("{\"schemaVersion\":\(version)}".utf8)))
             }
             XCTAssertThrowsError(try BackupArchive.decode(Data("{\"schemaVersion\":5}".utf8)))
-            let incomplete = BackupArchive(schemaVersion: 6, databaseSchemaVersion: 5,
+            let incomplete = BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
                 exportID: backup.exportID, exportedAt: backup.exportedAt,
                 contentSHA256: backup.contentSHA256, tables: Array(backup.tables.dropLast()),
                 sourceFormatVersion: nil)
@@ -172,7 +221,7 @@ final class BackupRestoreTests: XCTestCase {
                 let index = try XCTUnwrap(changed[position].columns.firstIndex(of: column))
                 rows[0][index] = value
                 changed[position] = BackupTable(name: "transactions", columns: changed[position].columns, rows: rows)
-                let damaged = BackupArchive(schemaVersion: 6, databaseSchemaVersion: 5,
+                let damaged = BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
                     exportID: backup.exportID, exportedAt: backup.exportedAt,
                     contentSHA256: try SQLiteDatabase.digest(changed), tables: changed,
                     sourceFormatVersion: nil)

@@ -125,8 +125,22 @@ enum LegacyBackupConverter {
                 try insert(database, "recurring_rules_local", row)
             }
             for item in old.recurringOccurrences {
+                guard item.status == .materialized || item.status == .skipped else {
+                    throw BackupError.invalid("A format 5 occurrence has an unsupported status.")
+                }
                 var row = try mapped(item, occurrenceFields)
                 row["scheduled_day"] = item.scheduledDay.isoString
+                let wasMaterialized = item.status == .materialized
+                let active = wasMaterialized &&
+                    item.transactionID.flatMap { transactions[$0] }.map { $0.deletedAt == nil } == true
+                row["status"] = wasMaterialized ? (active ? "legacy_counted" : "expected") : "skipped"
+                row["transaction_id"] = active ? item.transactionID?.uuidString : nil
+                row["provisional_transaction_id"] = wasMaterialized ? item.transactionID?.uuidString : nil
+                row["updated_at"] = String(item.createdAt.timeIntervalSince1970)
+                row["revision"] = "1"
+                if wasMaterialized && !active {
+                    row["review_reason"] = "Previous transaction was deleted; review before recording."
+                }
                 try insert(database, "recurring_occurrences_local", row)
             }
             for item in old.operations { try insert(database, "operations", mapped(item, operationFields)) }
@@ -134,7 +148,7 @@ enum LegacyBackupConverter {
             try database.execute("COMMIT")
         } catch { try? database.execute("ROLLBACK"); throw error }
         let tables = try database.backupTables()
-        return BackupArchive(schemaVersion: 6, databaseSchemaVersion: 5,
+        return BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
                              exportID: old.exportID, exportedAt: old.exportedAt,
                              contentSHA256: try SQLiteDatabase.digest(tables), tables: tables,
                              sourceFormatVersion: 5)

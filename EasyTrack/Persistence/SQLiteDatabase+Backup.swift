@@ -13,7 +13,7 @@ enum BackupError: LocalizedError {
         switch self {
         case .unsupportedVersion(let version):
             version < 5
-                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 or 6 backup."
+                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5, 6, or 7 backup."
                 : "Backup format \(version) is newer than this app supports. Update EasyTrack before restoring it."
         case .invalid(let reason): "Backup is incomplete or damaged: \(reason)"
         case .changedSincePreview: "Local data changed after the preview. Choose the backup again."
@@ -44,9 +44,75 @@ struct BackupArchive: Codable {
             throw BackupError.invalid("Missing format version or invalid JSON.")
         }
         if version == 5 { return try LegacyBackupConverter.convert(data) }
-        guard version == 6 else { throw BackupError.unsupportedVersion(version) }
-        do { return try JSONDecoder().decode(BackupArchive.self, from: data) }
+        guard version == 6 || version == 7 else { throw BackupError.unsupportedVersion(version) }
+        do {
+            let archive = try JSONDecoder().decode(BackupArchive.self, from: data)
+            return version == 6 ? try archive.upgradedFromSix() : archive
+        }
         catch { throw BackupError.invalid("Required fields could not be decoded.") }
+    }
+}
+
+extension BackupArchive {
+    func upgradedFromSix() throws -> BackupArchive {
+        guard schemaVersion == 6, databaseSchemaVersion == 5,
+              tables.map(\.name) == Array(SQLiteDatabase.backupTableNames.prefix(22)),
+              try SQLiteDatabase.digest(tables) == contentSHA256 else {
+            throw BackupError.invalid("The version 6 table list or checksum is invalid.")
+        }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
+        defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
+        let schema = try SQLiteDatabase(url: file)
+        let targetTables = try schema.backupTables()
+        let transactionTable = tables.first { $0.name == "transactions" }!
+        guard let idIndex = transactionTable.columns.firstIndex(of: "id"),
+              let deletedIndex = transactionTable.columns.firstIndex(of: "deleted_at") else {
+            throw BackupError.invalid("Version 6 transaction identities are incomplete.")
+        }
+        let active = Set(transactionTable.rows.compactMap { row in
+            row.count == transactionTable.columns.count && row[deletedIndex] == nil ? row[idIndex] : nil
+        })
+        var upgraded: [BackupTable] = []
+        for (index, original) in tables.enumerated() {
+            let target = targetTables[index]
+            let oldColumns: [String]
+            switch original.name {
+            case "recurring_rules_local": oldColumns = target.columns.filter { $0 != "review_window_days" }
+            case "recurring_occurrences_local":
+                oldColumns = ["id", "rule_id", "scheduled_day", "status", "transaction_id", "created_at"]
+            default: oldColumns = target.columns
+            }
+            guard original.columns == oldColumns,
+                  original.rows.allSatisfy({ $0.count == oldColumns.count }) else {
+                throw BackupError.invalid("Version 6 \(original.name) columns are incomplete.")
+            }
+            let rows: [[String?]]
+            switch original.name {
+            case "recurring_rules_local": rows = original.rows.map { $0 + ["3"] }
+            case "recurring_occurrences_local":
+                rows = try original.rows.map { row in
+                    guard row[3] == "materialized" || row[3] == "skipped",
+                          (row[3] == "materialized") == (row[4] != nil) else {
+                        throw BackupError.invalid("Version 6 occurrence status is invalid.")
+                    }
+                    let oldID = row[4]
+                    let counted = row[3] == "materialized" && oldID.map(active.contains) == true
+                    return [row[0], row[1], row[2],
+                            row[3] == "skipped" ? "skipped" : (counted ? "legacy_counted" : "expected"),
+                            counted ? oldID : nil, row[3] == "materialized" ? oldID : nil,
+                            row[5], row[5], "1",
+                            row[3] == "materialized" && !counted ?
+                                "Previous transaction was deleted; review before recording." : nil]
+                }
+            default: rows = original.rows
+            }
+            upgraded.append(BackupTable(name: target.name, columns: target.columns, rows: rows))
+        }
+        upgraded.append(contentsOf: targetTables.dropFirst(tables.count))
+        return BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
+                             exportID: exportID, exportedAt: exportedAt,
+                             contentSHA256: try SQLiteDatabase.digest(upgraded), tables: upgraded,
+                             sourceFormatVersion: sourceFormatVersion ?? 6)
     }
 }
 
@@ -62,6 +128,10 @@ struct BackupRestorePreview {
     let incomingOccurrences: Int
     let incomingHistoricalMovements: Int
     let incomingOperations: Int
+    let incomingCandidates: Int
+    let incomingApprovedPayees: Int
+    let incomingReconciliationAudit: Int
+    let existingReconciliationRows: Int
     let newRowsForMerge: Int?
     let mergeConflict: String?
     let localFingerprint: String
@@ -69,7 +139,7 @@ struct BackupRestorePreview {
 }
 
 extension SQLiteDatabase {
-    // Every persistent schema-5 table is listed here. A format change must update this list and
+    // Every persistent schema-6 table is listed here. A format change must update this list and
     // bump the backup format; unknown tables must never be silently discarded.
     static let backupTableNames = [
         "metadata", "local_accounts", "ledger_categories", "historical_accounts",
@@ -78,7 +148,8 @@ extension SQLiteDatabase {
         "notification_events", "parser_sources", "parser_rules", "parser_rule_versions",
         "notification_attempts", "exact_dedup", "semantic_dedup",
         "historical_imported_movements", "expected_occurrences", "recurring_rules_local",
-        "recurring_occurrences_local", "operations"
+        "recurring_occurrences_local", "operations", "recurring_candidates",
+        "recurring_payee_aliases", "recurring_reconciliation_audit"
     ]
 
     private func backupColumns(_ table: String) throws -> (columns: [String], primary: [String]) {
@@ -135,7 +206,7 @@ extension SQLiteDatabase {
             try checkDatabase()
             let tables = try backupTables()
             try checkReadableRows(tables)
-            let archive = BackupArchive(schemaVersion: 6, databaseSchemaVersion: 5,
+            let archive = BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
                                         exportID: UUID(), exportedAt: .now,
                                         contentSHA256: try Self.digest(tables), tables: tables,
                                         sourceFormatVersion: nil)
@@ -180,6 +251,7 @@ extension SQLiteDatabase {
             ("notification_attempts", try parserAttempts().count),
             ("recurring_rules_local", try recurringRules(includeArchived: true).count),
             ("recurring_occurrences_local", try recurringOccurrences().count),
+            ("recurring_candidates", try recurringCandidates().count),
             ("historical_accounts", try historicalAccounts().count),
             ("historical_trips", try historicalTrips().count),
             ("historical_recurring_rules", try historicalRules().count)
@@ -217,9 +289,25 @@ extension SQLiteDatabase {
         let brokenOccurrences = try countBackupRows("""
             SELECT COUNT(*) FROM recurring_occurrences_local o
             LEFT JOIN transactions t ON t.id=o.transaction_id
-            WHERE o.transaction_id IS NOT NULL AND (t.id IS NULL OR t.recurring_occurrence_id!=o.id)
+            WHERE o.transaction_id IS NOT NULL AND
+                  (t.id IS NULL OR t.deleted_at IS NOT NULL OR t.recurring_occurrence_id!=o.id)
             """)
         guard brokenOccurrences == 0 else { throw BackupError.invalid("Recurring occurrence links are broken.") }
+        let reverseLinks = try countBackupRows("""
+            SELECT COUNT(*) FROM transactions t
+            LEFT JOIN recurring_occurrences_local o ON o.id=t.recurring_occurrence_id
+            WHERE t.deleted_at IS NULL AND t.recurring_occurrence_id IS NOT NULL
+                  AND (o.id IS NULL OR o.transaction_id!=t.id)
+            """)
+        guard reverseLinks == 0 else { throw BackupError.invalid("An active recurring transaction has no effective occurrence.") }
+        let brokenCandidates = try countBackupRows("""
+            SELECT COUNT(*) FROM recurring_candidates c
+            LEFT JOIN recurring_occurrences_local o ON o.id=c.occurrence_id
+            WHERE o.id IS NULL OR (c.status='confirmed' AND
+                (c.transaction_id IS NULL OR o.transaction_id IS NULL OR
+                 c.transaction_id!=o.transaction_id))
+            """)
+        guard brokenCandidates == 0 else { throw BackupError.invalid("Recurring candidate links are broken.") }
         let orphanEvents = try countBackupRows("""
             SELECT COUNT(*) FROM transactions t LEFT JOIN notification_events e ON e.id=t.source_event_id
             WHERE t.source_event_id IS NOT NULL AND e.id IS NULL
@@ -228,7 +316,7 @@ extension SQLiteDatabase {
     }
 
     private func validate(_ archive: BackupArchive) throws {
-        guard archive.schemaVersion == 6, archive.databaseSchemaVersion == 5 else {
+        guard archive.schemaVersion == 7, archive.databaseSchemaVersion == 6 else {
             throw BackupError.unsupportedVersion(archive.schemaVersion)
         }
         guard archive.tables.map(\.name) == Self.backupTableNames else {
@@ -344,6 +432,13 @@ extension SQLiteDatabase {
                                     incomingOccurrences: count("recurring_occurrences_local") + count("expected_occurrences"),
                                     incomingHistoricalMovements: count("historical_imported_movements"),
                                     incomingOperations: count("operations"),
+                                    incomingCandidates: count("recurring_candidates"),
+                                    incomingApprovedPayees: count("recurring_payee_aliases"),
+                                    incomingReconciliationAudit: count("recurring_reconciliation_audit"),
+                                    existingReconciliationRows: ["recurring_candidates", "recurring_payee_aliases",
+                                        "recurring_reconciliation_audit"].reduce(0) { total, name in
+                                            total + (live.first { $0.name == name }?.rows.count ?? 0)
+                                        },
                                     newRowsForMerge: mergeCount, mergeConflict: conflict,
                                     localFingerprint: fingerprint,
                                     sourceFormatVersion: archive.sourceFormatVersion)

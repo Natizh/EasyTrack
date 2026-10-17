@@ -70,8 +70,23 @@ struct HistoricalImportPreview {
     let unmatchedAccountLabels: Int
     let missingAccountLabels: Int
     let sourceChanged: Bool
+    var recurringConflicts: [HistoricalImportConflict] = []
+    var incomingTotals: LedgerTotals? = nil
 
     var canImport: Bool { changedIdentities == 0 && !sourceChanged }
+}
+
+enum HistoricalImportDecision: String, Codable { case samePayment, separatePayment }
+
+struct HistoricalImportConflict: Identifiable {
+    let occurrenceID: String
+    let ruleName: String
+    let managedAccountName: String
+    let imported: Transaction
+    let counted: Transaction
+    let reason: String
+
+    var id: String { "\(occurrenceID)|\(imported.id.uuidString)" }
 }
 
 final class SeedMapper {

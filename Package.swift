@@ -10,6 +10,7 @@ let package = Package(
                 sources: ["Shared/Models.swift", "Shared/NotificationParser.swift", "Shared/DailyModels.swift",
                           "Shared/RecurringSchedule.swift", "Persistence/SQLiteDatabase.swift",
                           "Persistence/SQLiteDatabase+Daily.swift",
+                          "Persistence/SQLiteDatabase+Reconciliation.swift",
                           "Persistence/SQLiteDatabase+Backup.swift",
                           "Persistence/SQLiteDatabase+Export.swift",
                           "Persistence/LegacyBackupConverter.swift",

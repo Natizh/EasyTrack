@@ -104,6 +104,7 @@ struct ParserRuleRevision: Codable, Equatable {
 
 enum ParserAttemptStatus: String, Codable {
     case captured, setupRequired, unmatched, failed, duplicateIgnored, created, ready
+    case recurringReview, matchedExisting
 
     var title: String {
         switch self {
@@ -114,6 +115,8 @@ enum ParserAttemptStatus: String, Codable {
         case .duplicateIgnored: "Duplicate ignored"
         case .created: "Transaction created"
         case .ready: "Rule ready"
+        case .recurringReview: "Review recurring match"
+        case .matchedExisting: "Recurring payment confirmed"
         }
     }
 }

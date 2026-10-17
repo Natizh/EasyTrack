@@ -309,7 +309,7 @@ extension SQLiteDatabase {
         let sql = """
             SELECT id,name,kind,amount_minor,account_id,category_id,start_day,frequency,
                    next_index,end_day,timezone_id,is_active,note,created_at,updated_at,
-                   archived_at,revision,historical_source_id
+                   archived_at,revision,historical_source_id,review_window_days
             FROM recurring_rules_local
             """ + (includeArchived ? "" : " WHERE archived_at IS NULL") + " ORDER BY name COLLATE NOCASE"
         let stmt = try statement(sql)
@@ -334,6 +334,7 @@ extension SQLiteDatabase {
                                         Date(timeIntervalSince1970: sqlite3_column_double(stmt, 15)),
                                      revision: sqlite3_column_int64(stmt, 16))
             rule.historicalSourceID = optionalString(stmt, 17)
+            rule.reviewWindowDays = Int(sqlite3_column_int(stmt, 18))
             rules.append(rule)
         }
         return rules
@@ -341,7 +342,8 @@ extension SQLiteDatabase {
 
     func recurringOccurrences(ruleID: UUID? = nil) throws -> [RecurringOccurrence] {
         let sql = """
-            SELECT id,rule_id,scheduled_day,status,transaction_id,created_at
+            SELECT id,rule_id,scheduled_day,status,transaction_id,created_at,
+                   provisional_transaction_id,updated_at,revision,review_reason
             FROM recurring_occurrences_local
             """ + (ruleID == nil ? "" : " WHERE rule_id=?") + " ORDER BY scheduled_day DESC"
         let stmt = try statement(sql)
@@ -352,10 +354,15 @@ extension SQLiteDatabase {
             guard let sourceID = UUID(uuidString: string(stmt, 1)),
                   let day = LocalDay(isoString: string(stmt, 2)),
                   let status = RecurringOccurrenceStatus(rawValue: string(stmt, 3)) else { continue }
-            occurrences.append(RecurringOccurrence(id: string(stmt, 0), ruleID: sourceID,
+            var occurrence = RecurringOccurrence(id: string(stmt, 0), ruleID: sourceID,
                                                    scheduledDay: day, status: status,
                                                    transactionID: UUID(uuidString: string(stmt, 4)),
-                                                   createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))))
+                                                   createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5)))
+            occurrence.provisionalTransactionID = UUID(uuidString: string(stmt, 6))
+            occurrence.updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 7))
+            occurrence.revision = sqlite3_column_int64(stmt, 8)
+            occurrence.reviewReason = optionalString(stmt, 9)
+            occurrences.append(occurrence)
         }
         return occurrences
     }
@@ -364,7 +371,8 @@ extension SQLiteDatabase {
         let name = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name.utf8.count <= 120 else { throw DailyValidationError.emptyName }
         guard input.amountMinor > 0 else { throw DailyValidationError.invalidAmount }
-        guard input.nextIndex >= 0, input.endDay == nil || input.endDay! >= input.startDay,
+        guard input.nextIndex >= 0, (0...14).contains(input.reviewWindowDays),
+              input.endDay == nil || input.endDay! >= input.startDay,
               TimeZone(identifier: input.timeZoneIdentifier) != nil else { throw DailyValidationError.invalidRule }
         try execute("BEGIN IMMEDIATE")
         do {
@@ -391,8 +399,19 @@ extension SQLiteDatabase {
                 let scheduleChanged = item.startDay != existing.startDay || item.frequency != existing.frequency ||
                     item.timeZoneIdentifier != existing.timeZoneIdentifier
                 if scheduleChanged {
-                    let lastDay = try recurringOccurrences(ruleID: item.id).map(\.scheduledDay).max()
+                    let oldOccurrences = try recurringOccurrences(ruleID: item.id)
+                    let today = LocalDay(date: .now, timeZone: try RecurringSchedule.timeZone(for: existing))
+                    let protected = oldOccurrences.filter { $0.status != .cancelled &&
+                        ($0.status != .expected || $0.scheduledDay <= today) }
+                    let lastDay = protected.map(\.scheduledDay).max()
                     guard lastDay == nil || item.startDay > lastDay! else { throw DailyValidationError.invalidRule }
+                    for occurrence in oldOccurrences where occurrence.status == .expected && occurrence.scheduledDay > today {
+                        try setOccurrence(occurrence, status: .cancelled, transactionID: nil)
+                        try appendReconciliationAudit(occurrenceID: occurrence.id, action: "cancel-future",
+                                                      actor: "user", oldStatus: .expected,
+                                                      newStatus: .cancelled, oldTransactionID: nil,
+                                                      newTransactionID: nil, ruleRevision: existing.revision)
+                    }
                     item.nextIndex = 0
                 } else {
                     item.nextIndex = existing.nextIndex
@@ -401,8 +420,8 @@ extension SQLiteDatabase {
             let stmt = try statement("""
                 INSERT INTO recurring_rules_local
                 (id,name,kind,amount_minor,account_id,category_id,start_day,frequency,next_index,
-                 end_day,timezone_id,is_active,note,created_at,updated_at,archived_at,revision,historical_source_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 end_day,timezone_id,is_active,note,created_at,updated_at,archived_at,revision,historical_source_id,review_window_days)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET name=excluded.name,kind=excluded.kind,
                     amount_minor=excluded.amount_minor,account_id=excluded.account_id,
                     category_id=excluded.category_id,start_day=excluded.start_day,
@@ -410,7 +429,7 @@ extension SQLiteDatabase {
                     end_day=excluded.end_day,timezone_id=excluded.timezone_id,
                     is_active=excluded.is_active,note=excluded.note,
                     updated_at=excluded.updated_at,archived_at=excluded.archived_at,
-                    revision=excluded.revision
+                    revision=excluded.revision,review_window_days=excluded.review_window_days
                 """)
             bind(item.id.uuidString, at: 1, to: stmt)
             bind(item.name, at: 2, to: stmt)
@@ -431,6 +450,7 @@ extension SQLiteDatabase {
             else { sqlite3_bind_null(stmt, 16) }
             sqlite3_bind_int64(stmt, 17, item.revision)
             bindOptional(item.historicalSourceID, at: 18, to: stmt)
+            sqlite3_bind_int(stmt, 19, Int32(item.reviewWindowDays))
             let saved = sqlite3_step(stmt)
             sqlite3_finalize(stmt)
             guard saved == SQLITE_DONE else { throw error() }
@@ -453,10 +473,41 @@ extension SQLiteDatabase {
         return sqlite3_step(stmt) == SQLITE_ROW
     }
 
-    @discardableResult private func materialize(_ rule: RecurringRule, day: LocalDay,
-                                                occurredAt: Date) throws -> Bool {
+    @discardableResult func ensureExpected(_ rule: RecurringRule, day: LocalDay) throws -> Bool {
         let occurrenceID = RecurringSchedule.occurrenceID(ruleID: rule.id, day: day)
-        guard try !occurrenceExists(occurrenceID) else { return false }
+        if let old = try recurringOccurrences(ruleID: rule.id).first(where: { $0.id == occurrenceID }) {
+            guard old.status == .cancelled && old.provisionalTransactionID == nil else { return false }
+            try setOccurrence(old, status: .expected, transactionID: nil)
+            try appendReconciliationAudit(occurrenceID: occurrenceID, action: "reschedule-same-day",
+                                          actor: "schedule", oldStatus: .cancelled,
+                                          newStatus: .expected, oldTransactionID: nil,
+                                          newTransactionID: nil, ruleRevision: rule.revision)
+            return true
+        }
+        let now = Date().timeIntervalSince1970
+        let stmt = try statement("""
+            INSERT INTO recurring_occurrences_local
+            (id,rule_id,scheduled_day,status,transaction_id,created_at,updated_at,revision)
+            VALUES(?,?,?,'expected',NULL,?,?,1)
+            """)
+        defer { sqlite3_finalize(stmt) }
+        bind(occurrenceID, at: 1, to: stmt)
+        bind(rule.id.uuidString, at: 2, to: stmt)
+        bind(day.isoString, at: 3, to: stmt)
+        sqlite3_bind_double(stmt, 4, now)
+        sqlite3_bind_double(stmt, 5, now)
+        guard sqlite3_step(stmt) == SQLITE_DONE else { throw error() }
+        try appendReconciliationAudit(occurrenceID: occurrenceID, action: "expect", actor: "schedule",
+                                      oldStatus: nil, newStatus: .expected, oldTransactionID: nil,
+                                      newTransactionID: nil, ruleRevision: rule.revision)
+        return true
+    }
+
+    func recordPayment(_ rule: RecurringRule, day: LocalDay,
+                               occurredAt: Date) throws -> Transaction {
+        let occurrenceID = RecurringSchedule.occurrenceID(ruleID: rule.id, day: day)
+        guard let occurrence = try recurringOccurrences(ruleID: rule.id).first(where: { $0.id == occurrenceID }),
+              occurrence.status == .expected else { throw RecurringError.occurrenceChanged }
         guard let account = try localAccounts().first(where: { $0.id == rule.accountID }) else {
             throw DailyValidationError.missingAccount
         }
@@ -477,18 +528,22 @@ extension SQLiteDatabase {
         item.recurringOccurrenceID = occurrenceID
         let saved = try save(item, manageTransaction: false)
         let stmt = try statement("""
-            INSERT INTO recurring_occurrences_local
-            (id,rule_id,scheduled_day,status,transaction_id,created_at)
-            VALUES(?,?,?,'materialized',?,?)
+            UPDATE recurring_occurrences_local
+            SET status='recorded_manual',transaction_id=?,updated_at=?,revision=revision+1,
+                review_reason=NULL WHERE id=? AND status='expected' AND revision=?
             """)
         defer { sqlite3_finalize(stmt) }
-        bind(occurrenceID, at: 1, to: stmt)
-        bind(rule.id.uuidString, at: 2, to: stmt)
-        bind(day.isoString, at: 3, to: stmt)
-        bind(saved.id.uuidString, at: 4, to: stmt)
-        sqlite3_bind_double(stmt, 5, Date().timeIntervalSince1970)
+        bind(saved.id.uuidString, at: 1, to: stmt)
+        sqlite3_bind_double(stmt, 2, Date().timeIntervalSince1970)
+        bind(occurrenceID, at: 3, to: stmt)
+        sqlite3_bind_int64(stmt, 4, occurrence.revision)
         guard sqlite3_step(stmt) == SQLITE_DONE else { throw error() }
-        return true
+        guard sqlite3_changes(handle) == 1 else { throw RecurringError.occurrenceChanged }
+        try appendReconciliationAudit(occurrenceID: occurrenceID, action: "record-manually", actor: "user",
+                                      oldStatus: .expected, newStatus: .recordedManual,
+                                      oldTransactionID: nil, newTransactionID: saved.id,
+                                      ruleRevision: rule.revision)
+        return saved
     }
 
     private func skipOccurrence(_ rule: RecurringRule, day: LocalDay) throws {
@@ -496,15 +551,19 @@ extension SQLiteDatabase {
         guard try !occurrenceExists(id) else { throw RecurringError.occurrenceChanged }
         let stmt = try statement("""
             INSERT INTO recurring_occurrences_local
-            (id,rule_id,scheduled_day,status,transaction_id,created_at)
-            VALUES(?,?,?,'skipped',NULL,?)
+            (id,rule_id,scheduled_day,status,transaction_id,created_at,updated_at,revision)
+            VALUES(?,?,?,'skipped',NULL,?,?,1)
             """)
         defer { sqlite3_finalize(stmt) }
         bind(id, at: 1, to: stmt)
         bind(rule.id.uuidString, at: 2, to: stmt)
         bind(day.isoString, at: 3, to: stmt)
         sqlite3_bind_double(stmt, 4, Date().timeIntervalSince1970)
+        sqlite3_bind_double(stmt, 5, Date().timeIntervalSince1970)
         guard sqlite3_step(stmt) == SQLITE_DONE else { throw error() }
+        try appendReconciliationAudit(occurrenceID: id, action: "skip", actor: "user",
+                                      oldStatus: nil, newStatus: .skipped, oldTransactionID: nil,
+                                      newTransactionID: nil, ruleRevision: rule.revision)
     }
 
     private func advance(_ rule: RecurringRule, to index: Int, action: String) throws {
@@ -530,16 +589,17 @@ extension SQLiteDatabase {
 
     @discardableResult func materializeDueRecurring(now: Date = .now) throws -> Int {
         let rules = try recurringRules().filter(\.isActive)
+        let unlinked = try transactions().filter { !$0.isDemo && $0.recurringOccurrenceID == nil }
         var total = 0
         for rule in rules {
             let due = try RecurringSchedule.due(for: rule, now: now)
             guard !due.isEmpty else { continue }
-            let zone = try RecurringSchedule.timeZone(for: rule)
             try execute("BEGIN IMMEDIATE")
             do {
                 for occurrence in due {
-                    guard let date = occurrence.day.noon(in: zone) else { throw RecurringError.invalidDate }
-                    if try materialize(rule, day: occurrence.day, occurredAt: date) { total += 1 }
+                    if try ensureExpected(rule, day: occurrence.day) { total += 1 }
+                    try suggestExistingRecurringPayments(rule: rule, day: occurrence.day,
+                                                         transactions: unlinked)
                 }
                 try advance(rule, to: due.last!.index + 1, action: "recurring-catch-up")
                 try execute("COMMIT")
@@ -557,12 +617,9 @@ extension SQLiteDatabase {
             guard let rule = try recurringRules().first(where: { $0.id == ruleID }),
                   rule.isActive else { throw RecurringError.inactive }
             guard let day = try RecurringSchedule.nextDay(for: rule) else { throw RecurringError.invalidSchedule }
-            guard try materialize(rule, day: day, occurredAt: now) else { throw RecurringError.occurrenceChanged }
+            guard try ensureExpected(rule, day: day) else { throw RecurringError.occurrenceChanged }
+            let transaction = try recordPayment(rule, day: day, occurredAt: now)
             try advance(rule, to: rule.nextIndex + 1, action: "recurring-create-now")
-            let occurrenceID = RecurringSchedule.occurrenceID(ruleID: ruleID, day: day)
-            guard let transaction = try transactions().first(where: { $0.recurringOccurrenceID == occurrenceID }) else {
-                throw RecurringError.occurrenceChanged
-            }
             try execute("COMMIT")
             return transaction
         } catch { try? execute("ROLLBACK"); throw error }
@@ -579,4 +636,6 @@ extension SQLiteDatabase {
             try execute("COMMIT")
         } catch { try? execute("ROLLBACK"); throw error }
     }
+
+
 }

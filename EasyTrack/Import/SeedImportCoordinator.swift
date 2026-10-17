@@ -45,9 +45,9 @@ actor SeedImportCoordinator {
         }
     }
 
-    func confirm() throws -> HistoricalImportPreview {
+    func confirm(decisions: [String: HistoricalImportDecision] = [:]) throws -> HistoricalImportPreview {
         guard let seed = validatedSeed else { throw SeedImportError.database("Choose the seed file again") }
-        let result = try SQLiteDatabase.open().importHistoricalSeed(seed)
+        let result = try SQLiteDatabase.open().importHistoricalSeed(seed, decisions: decisions)
         cancel()
         return result
     }

@@ -56,7 +56,7 @@ final class DailyPersistenceTests: XCTestCase {
 
     func testAccountsAndCategoriesKeepStableReferencesThroughRenameAndArchive() throws {
         try withDatabase { url, database in
-            XCTAssertEqual(try scalar("PRAGMA user_version", url: url), 5)
+            XCTAssertEqual(try scalar("PRAGMA user_version", url: url), 6)
             XCTAssertEqual(try database.ledgerCategories().count, 12)
             var account = try self.account(database)
             var category = try self.category(database)
@@ -110,13 +110,14 @@ final class DailyPersistenceTests: XCTestCase {
             XCTAssertEqual(try database.materializeDueRecurring(now: self.date("2026-03-15")), 2)
             XCTAssertEqual(try database.recurringOccurrences(ruleID: plan.id).map(\.scheduledDay.isoString).sorted(),
                            ["2026-01-31", "2026-02-28"])
-            XCTAssertEqual(try database.transactions().count, 2)
+            XCTAssertEqual(try database.transactions().count, 0)
+            XCTAssertTrue(try database.recurringOccurrences(ruleID: plan.id).allSatisfy { $0.status == .expected })
             XCTAssertEqual(try database.materializeDueRecurring(now: self.date("2026-03-15")), 0)
             let reopened = try SQLiteDatabase(url: url)
             XCTAssertEqual(try reopened.materializeDueRecurring(now: self.date("2026-03-15")), 0)
             XCTAssertEqual(try reopened.recurringRules().first?.nextIndex, 2)
-            XCTAssertEqual(try reopened.transactions().count, 2)
-            XCTAssertEqual(try scalar("SELECT COUNT(DISTINCT recurring_occurrence_id) FROM transactions", url: url), 2)
+            XCTAssertEqual(try reopened.transactions().count, 0)
+            XCTAssertEqual(try scalar("SELECT COUNT(DISTINCT recurring_occurrence_id) FROM transactions", url: url), 0)
             XCTAssertEqual(try LedgerTotals(transactions: reopened.transactions()).pacInvestedEURMinor, 0)
         }
     }
@@ -134,22 +135,24 @@ final class DailyPersistenceTests: XCTestCase {
             try database.skipNextRecurring(plan.id)
             XCTAssertEqual(try database.recurringOccurrences(ruleID: plan.id).first?.status, .skipped)
             XCTAssertEqual(try database.materializeDueRecurring(now: self.date("2026-08-02")), 2)
-            let oldTransactions = try database.transactions()
-            XCTAssertEqual(oldTransactions.count, 2)
-            XCTAssertTrue(oldTransactions.allSatisfy { $0.kind == .pacInvestment })
-            let totals = LedgerTotals(transactions: oldTransactions)
+            let expected = try database.recurringOccurrences(ruleID: plan.id).filter { $0.status == .expected }
+            XCTAssertEqual(expected.count, 2)
+            XCTAssertEqual(try database.transactions().count, 0)
+            let totals = LedgerTotals(transactions: try database.transactions())
             XCTAssertEqual(totals.totalExpensesEURMinor, 0)
-            XCTAssertEqual(totals.pacInvestedEURMinor, 2_500)
+            XCTAssertEqual(totals.pacInvestedEURMinor, 0)
+            _ = try database.recordExpectedRecurringNow(expected[0].id, now: self.date("2026-08-03"))
+            XCTAssertEqual(try LedgerTotals(transactions: database.transactions()).pacInvestedEURMinor, 1_250)
             plan = try XCTUnwrap(database.recurringRules().first)
             plan.amountMinor = 2_000
             plan = try database.saveRecurringRule(plan)
             XCTAssertEqual(try database.createNextRecurringNow(plan.id, now: self.date("2026-08-10")).amountMinor, 2_000)
-            XCTAssertEqual(try database.transactions().filter { $0.amountMinor == 1_250 }.count, 2)
+            XCTAssertEqual(try database.transactions().filter { $0.amountMinor == 1_250 }.count, 1)
             plan = try XCTUnwrap(database.recurringRules().first)
             plan.archivedAt = .now
             _ = try database.saveRecurringRule(plan)
             XCTAssertTrue(try database.recurringRules().isEmpty)
-            XCTAssertEqual(try database.transactions().count, 3)
+            XCTAssertEqual(try database.transactions().count, 2)
         }
     }
 
@@ -158,7 +161,7 @@ final class DailyPersistenceTests: XCTestCase {
             let account = try self.account(database)
             let plan = try database.saveRecurringRule(self.rule(account: account, start: "2026-01-31"))
             let beforeOperations = try database.operations().count
-            try self.sql("CREATE TRIGGER synthetic_recurring_failure BEFORE INSERT ON transactions BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END", url: url)
+            try self.sql("CREATE TRIGGER synthetic_recurring_failure BEFORE INSERT ON recurring_occurrences_local BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END", url: url)
             XCTAssertThrowsError(try database.materializeDueRecurring(now: self.date("2026-02-01")))
             XCTAssertEqual(try database.transactions().count, 0)
             XCTAssertTrue(try database.recurringOccurrences(ruleID: plan.id).isEmpty)
@@ -181,6 +184,9 @@ final class DailyPersistenceTests: XCTestCase {
                 title: "Purchase", subtitle: "", message: "12,34 EUR", receivedAt: self.date("2026-02-01")))
             XCTAssertEqual(try database.captureNotification(event).status, .setupRequired)
             for command in [
+                "DROP TABLE recurring_reconciliation_audit",
+                "DROP TABLE recurring_payee_aliases",
+                "DROP TABLE recurring_candidates",
                 "DROP TABLE recurring_occurrences_local",
                 "DROP TABLE recurring_rules_local",
                 "DROP TABLE ledger_categories",
@@ -197,7 +203,7 @@ final class DailyPersistenceTests: XCTestCase {
             ] { try self.sql(command, url: url) }
             XCTAssertEqual(try self.scalar("PRAGMA user_version", url: url), 4)
             let upgraded = try SQLiteDatabase(url: url)
-            XCTAssertEqual(try self.scalar("PRAGMA user_version", url: url), 5)
+            XCTAssertEqual(try self.scalar("PRAGMA user_version", url: url), 6)
             XCTAssertEqual(try upgraded.transactions().first?.id, original.id)
             XCTAssertEqual(try upgraded.transactions().first?.amountMinor, 1_234)
             XCTAssertEqual(try upgraded.notificationEvents().first?.id, event.id)

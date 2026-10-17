@@ -328,6 +328,10 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(try database.captureNotification(old).status, .setupRequired)
             try execute("""
                 PRAGMA foreign_keys=OFF;
+                DROP TABLE recurring_reconciliation_audit;
+                DROP TABLE recurring_payee_aliases;
+                DROP TABLE recurring_candidates;
+                DROP TABLE recurring_occurrences_local;
                 DROP TABLE semantic_dedup;
                 DROP TABLE exact_dedup;
                 DROP TABLE notification_attempts;
@@ -337,7 +341,7 @@ final class ParserPersistenceTests: XCTestCase {
                 PRAGMA user_version=2;
                 """, at: url)
             let upgraded = try SQLiteDatabase(url: url)
-            XCTAssertEqual(try scalar("PRAGMA user_version", at: url), 5)
+            XCTAssertEqual(try scalar("PRAGMA user_version", at: url), 6)
             XCTAssertEqual(try upgraded.notificationEvents().count, 1)
             XCTAssertEqual(try upgraded.parserSources().count, 1)
             XCTAssertEqual(try upgraded.parserAttempts().first?.status, .setupRequired)

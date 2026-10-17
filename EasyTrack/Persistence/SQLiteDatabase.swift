@@ -38,8 +38,8 @@ final class SQLiteDatabase {
             try execute("PRAGMA query_only=ON")
             let stmt = try statement("PRAGMA user_version")
             defer { sqlite3_finalize(stmt) }
-            guard sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_int(stmt, 0) == 5 else {
-                throw DatabaseError.sqlite("Ledger schema must be version 5 before export")
+            guard sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_int(stmt, 0) == 6 else {
+                throw DatabaseError.sqlite("Ledger schema must be version 6 before export")
             }
         } catch {
             sqlite3_close(handle)
@@ -64,7 +64,7 @@ final class SQLiteDatabase {
             }
             let existingVersion = sqlite3_column_int(versionStatement, 0)
             sqlite3_finalize(versionStatement)
-            guard existingVersion <= 5 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
+            guard existingVersion <= 6 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
             try execute("""
                 CREATE TABLE IF NOT EXISTS transactions (
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL, amount_minor INTEGER NOT NULL,
@@ -231,6 +231,7 @@ final class SQLiteDatabase {
             }
             if existingVersion < 4 { try migrateToSchemaFour() }
             if existingVersion < 5 { try migrateToSchemaFive() }
+            if existingVersion < 6 { try migrateToSchemaSix() }
             try backfillSourceAccountsFromLegacyRules()
             try backfillLegacyNotificationEvents()
         } catch {
@@ -384,6 +385,13 @@ final class SQLiteDatabase {
     @discardableResult func save(_ input: Transaction, manageTransaction: Bool = true) throws -> Transaction {
         if manageTransaction { try execute("BEGIN IMMEDIATE") }
         do {
+            if input.deletedAt == nil, let occurrenceID = input.recurringOccurrenceID,
+               let occurrence = try recurringOccurrences().first(where: { $0.id == occurrenceID }),
+               occurrence.status == .confirmed,
+               let rule = try recurringRules(includeArchived: true).first(where: { $0.id == occurrence.ruleID }),
+               (input.accountID != rule.accountID || input.kind != rule.type.transactionKind) {
+                throw RecurringError.linkRequiresUnlink
+            }
             let version = try statement("SELECT revision FROM transactions WHERE id = ?")
             bind(input.id.uuidString, at: 1, to: version)
             let result = sqlite3_step(version)
@@ -466,6 +474,19 @@ final class SQLiteDatabase {
             let operationResult = sqlite3_step(operation)
             sqlite3_finalize(operation)
             guard operationResult == SQLITE_DONE else { throw error() }
+            if item.deletedAt != nil, let occurrenceID = item.recurringOccurrenceID,
+               let occurrence = try recurringOccurrences().first(where: {
+                   $0.id == occurrenceID && $0.transactionID == item.id
+               }), let rule = try recurringRules(includeArchived: true).first(where: { $0.id == occurrence.ruleID }) {
+                try setOccurrence(occurrence, status: .expected, transactionID: nil,
+                                  provisionalID: item.id,
+                                  reviewReason: "The linked transaction was deleted; review before recording.")
+                try rejectConfirmedCandidates(for: occurrenceID)
+                try appendReconciliationAudit(occurrenceID: occurrenceID, action: "delete-linked",
+                                              actor: "user", oldStatus: occurrence.status,
+                                              newStatus: .expected, oldTransactionID: item.id,
+                                              newTransactionID: nil, ruleRevision: rule.revision)
+            }
             if manageTransaction { try execute("COMMIT") }
             return item
         } catch {
@@ -596,7 +617,7 @@ final class SQLiteDatabase {
             }
         }
         let sourceChanged = try metadata("historical_import_digest").map { $0 != seed.digest } ?? false
-        return HistoricalImportPreview(movements: seed.movements.count,
+        var preview = HistoricalImportPreview(movements: seed.movements.count,
                                        newMovements: seed.movements.count - duplicate - changed,
                                        alreadyImported: duplicate, changedIdentities: changed,
                                        accounts: seed.accounts.count, trips: seed.trips.count,
@@ -605,13 +626,71 @@ final class SQLiteDatabase {
                                        unmatchedAccountLabels: seed.unmatchedAccountLabels,
                                        missingAccountLabels: seed.missingAccountLabels,
                                        sourceChanged: sourceChanged)
+        if preview.newMovements > 0 && preview.canImport {
+            preview.recurringConflicts = try historicalImportConflicts(seed)
+            preview.incomingTotals = LedgerTotals(transactions: seed.movements.map(\.transaction))
+        }
+        return preview
     }
 
-    @discardableResult func importHistoricalSeed(_ seed: ValidatedSeed) throws -> HistoricalImportPreview {
+    func historicalImportConflicts(_ seed: ValidatedSeed) throws -> [HistoricalImportConflict] {
+        let alreadyImported = Set(try transactions(includeDeleted: true).compactMap(\.sourceMovementID))
+        let actuals = seed.movements.map(\.transaction).filter {
+            $0.sourceMovementID.map { !alreadyImported.contains($0) } ?? true
+        }
+        let active = try transactions()
+        let rules = Dictionary(uniqueKeysWithValues: try recurringRules(includeArchived: true).map { ($0.id, $0) })
+        let accounts = Dictionary(uniqueKeysWithValues: try localAccounts().map { ($0.id, $0) })
+        var conflicts: [HistoricalImportConflict] = []
+        for occurrence in try recurringOccurrences() where
+            occurrence.status == .legacyCounted || occurrence.status == .recordedManual {
+            guard let rule = rules[occurrence.ruleID], let oldID = occurrence.transactionID,
+                  let old = active.first(where: { $0.id == oldID }),
+                  let account = accounts[rule.accountID] else { continue }
+            let zone = try RecurringSchedule.timeZone(for: rule)
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = zone
+            guard let due = occurrence.scheduledDay.noon(in: zone) else { continue }
+            let aliases = Set(try recurringPayeeAliases(ruleID: rule.id))
+            for actual in actuals where actual.kind == rule.type.transactionKind && !actual.isDemo {
+                if let managedID = actual.accountID, managedID != rule.accountID { continue }
+                let actualDay = LocalDay(date: actual.occurredAt, timeZone: zone)
+                guard let noon = actualDay.noon(in: zone),
+                      let distance = calendar.dateComponents([.day], from: due, to: noon).day,
+                      abs(distance) <= rule.reviewWindowDays else { continue }
+                let payee = NotificationParser.normalize(actual.merchant)
+                let amount = actual.eurMinor ?? (actual.currency == "EUR" ? actual.amountMinor : 0)
+                let exactAmount = amount == (old.eurMinor ?? old.amountMinor)
+                let named = payee == NotificationParser.normalize(rule.name) || aliases.contains(payee)
+                guard exactAmount || named else { continue }
+                let reason = actual.accountID == nil ?
+                    "Historical account label is not linked to a managed account; confirm the identity." :
+                    (exactAmount ? "Same account, kind, date window and EUR amount." :
+                     "Same approved payee with a different amount.")
+                conflicts.append(HistoricalImportConflict(occurrenceID: occurrence.id,
+                    ruleName: rule.name, managedAccountName: account.name,
+                    imported: actual, counted: old, reason: reason))
+            }
+        }
+        return conflicts.sorted { $0.id < $1.id }
+    }
+
+    @discardableResult func importHistoricalSeed(_ seed: ValidatedSeed,
+        decisions: [String: HistoricalImportDecision] = [:]) throws -> HistoricalImportPreview {
         try execute("BEGIN IMMEDIATE")
         do {
             let preview = try historicalImportPreview(seed)
             guard preview.canImport else { throw SeedImportError.changedSource(preview.changedIdentities + (preview.sourceChanged ? 1 : 0)) }
+            let conflicts = preview.recurringConflicts
+            let ids = Set(conflicts.map(\.id))
+            guard Set(decisions.keys) == ids else {
+                throw SeedImportError.database("Resolve every recurring overlap in the collective preview before importing.")
+            }
+            let same = conflicts.filter { decisions[$0.id] == .samePayment }
+            guard Set(same.map(\.occurrenceID)).count == same.count,
+                  Set(same.map { $0.imported.id }).count == same.count else {
+                throw SeedImportError.database("One payment cannot settle multiple recurring occurrences.")
+            }
             if preview.newMovements == 0 {
                 try execute("COMMIT")
                 return preview
@@ -661,13 +740,22 @@ final class SQLiteDatabase {
                            values: [.text(warning.sheet), .integer(Int64(warning.row)), .text(warning.code), .text(warning.detail)])
             }
             for movement in seed.movements {
-                let item = movement.transaction
+                var item = movement.transaction
+                if let chosen = same.first(where: { $0.imported.id == item.id }),
+                   let occurrence = try recurringOccurrences().first(where: { $0.id == chosen.occurrenceID }),
+                   let rule = try recurringRules(includeArchived: true).first(where: { $0.id == occurrence.ruleID }) {
+                    item.accountID = rule.accountID // explicit user confirmation; original label stays intact
+                }
                 try save(item, manageTransaction: false)
                 try insert(into: "historical_imported_movements",
                            columns: ["source_id", "transaction_id", "source_fingerprint", "source_sheet", "source_row", "source_payload_json"],
                            values: [.text(item.sourceMovementID), .text(item.id.uuidString),
                                     .text(movement.sourceFingerprint), .text(item.sourceSheet),
                                     .integer(item.sourceRow.map(Int64.init)), .text(movement.sourcePayloadJSON)])
+            }
+            for chosen in same {
+                try linkRecurringTransactionInTransaction(chosen.imported.id,
+                                                          to: chosen.occurrenceID, actor: "import-review")
             }
             try insert(into: "metadata", columns: ["key", "value"],
                        values: [.text("historical_import_digest"), .text(seed.digest)])
@@ -1280,6 +1368,84 @@ extension SQLiteDatabase {
             """, fingerprint: key, date: date, window: window)
     }
 
+    // Shared by ordinary parser creation and a user-confirmed held recurring notification.
+    func insertParserDedup(event: NotificationEvent, date: Date, semantic: String,
+                           parserRuleID: UUID, transactionID: UUID) throws {
+        let exact = try statement("""
+            INSERT INTO exact_dedup(id,fingerprint,occurred_at,has_payload_date,transaction_id,created_at)
+            VALUES(?,?,?,?,?,?)
+            """)
+        bind(UUID().uuidString, at: 1, to: exact)
+        bind(NotificationParser.exactFingerprint(event), at: 2, to: exact)
+        sqlite3_bind_double(exact, 3, date.timeIntervalSince1970)
+        sqlite3_bind_int(exact, 4, event.receivedAt == nil ? 0 : 1)
+        bind(transactionID.uuidString, at: 5, to: exact)
+        sqlite3_bind_double(exact, 6, Date().timeIntervalSince1970)
+        guard sqlite3_step(exact) == SQLITE_DONE else { sqlite3_finalize(exact); throw error() }
+        sqlite3_finalize(exact)
+        let semanticRow = try statement("""
+            INSERT INTO semantic_dedup(id,semantic_key,occurred_at,transaction_id,rule_id,created_at)
+            VALUES(?,?,?,?,?,?)
+            """)
+        bind(UUID().uuidString, at: 1, to: semanticRow)
+        bind(semantic, at: 2, to: semanticRow)
+        sqlite3_bind_double(semanticRow, 3, date.timeIntervalSince1970)
+        bind(transactionID.uuidString, at: 4, to: semanticRow)
+        bind(parserRuleID.uuidString, at: 5, to: semanticRow)
+        sqlite3_bind_double(semanticRow, 6, Date().timeIntervalSince1970)
+        guard sqlite3_step(semanticRow) == SQLITE_DONE else { sqlite3_finalize(semanticRow); throw error() }
+        sqlite3_finalize(semanticRow)
+    }
+
+    // The caller owns BEGIN IMMEDIATE and commits the candidate and financial edits together.
+    func confirmHeldRecurringNotification(_ candidate: RecurringCandidate) throws -> UUID {
+        guard let eventID = candidate.eventID,
+              let occurrence = try recurringOccurrences().first(where: { $0.id == candidate.occurrenceID }),
+              let oldID = occurrence.transactionID,
+              occurrence.status == .legacyCounted || occurrence.status == .recordedManual,
+              let recurringRule = try recurringRules(includeArchived: true).first(where: { $0.id == occurrence.ruleID }),
+              var old = try transactions().first(where: { $0.id == oldID }),
+              old.sourceEventID == nil, old.sourceMovementID == nil,
+              let attempt = try parserAttempts().first(where: { $0.event.id == eventID && $0.status == .recurringReview }),
+              let parserID = attempt.ruleID,
+              var parserRule = try parserRules(includeDeleted: true).first(where: { $0.id == parserID }),
+              let account = try localAccounts().first(where: { $0.id == recurringRule.accountID }) else {
+            throw RecurringError.occurrenceChanged
+        }
+        if let version = attempt.ruleVersion, version != parserRule.version {
+            guard let historical = try parserRuleHistory(parserID).first(where: { $0.version == version }) else {
+                throw RecurringError.occurrenceChanged
+            }
+            parserRule.config = historical.config
+            parserRule.version = version
+        }
+        let preview = NotificationParser.preview(attempt.event, config: parserRule.config,
+                                                 mappedAccount: account.name)
+        guard preview.ready, let amount = preview.amount, let merchant = preview.merchant,
+              parserRule.config.kind == recurringRule.type.transactionKind,
+              old.accountID == recurringRule.accountID else { throw RecurringError.occurrenceChanged }
+        let date = attempt.event.receivedAt ?? attempt.event.capturedAt
+        let values = TransactionEditPolicy.values(original: old, kind: old.kind,
+                                                  newEURMinor: amount.cents)
+        old.amountMinor = amount.cents
+        old.eurMinor = amount.cents
+        old.personalExpenseEURMinor = values.personal
+        old.recoverableEURMinor = values.recoverable
+        old.occurredAt = date
+        if old.revision == 1 { old.merchant = merchant }
+        old.sourceEventID = eventID
+        _ = try save(old, manageTransaction: false)
+        try confirmCountedOccurrence(occurrence.id, transactionID: oldID, actor: "user")
+        let semantic = NotificationParser.semanticFingerprint(amountMinor: amount.cents,
+                                                              merchant: merchant, account: account.name)
+        try insertParserDedup(event: attempt.event, date: date, semantic: semantic,
+                              parserRuleID: parserID, transactionID: oldID)
+        try markAttempt(attempt.id, status: .matchedExisting, rule: parserRule,
+                        transactionID: oldID, semantic: semantic,
+                        detail: "Confirmed as the existing recurring payment.")
+        return oldID
+    }
+
     private func commitAttempt(_ id: UUID) throws -> ParserAttempt {
         let result = try notificationAttempt(id)
         try execute("COMMIT")
@@ -1339,6 +1505,32 @@ extension SQLiteDatabase {
                                 semantic: semantic, detail: "This notification already has a transaction.")
                 return try commitAttempt(id)
             }
+            let mappedID = try mappedAccountID(for: attempt.sourceID)
+            let options = try recurringMatchOptions(accountID: mappedID, kind: rule.config.kind,
+                                                    amountMinor: amount.cents, merchant: merchant,
+                                                    at: date, eventID: event.id)
+            let activeTransactions = try transactions()
+            let competing = options.count == 1 && activeTransactions.contains { existing in
+                existing.id != options[0].occurrence.transactionID && !existing.isDemo &&
+                existing.accountID == mappedID && existing.kind == rule.config.kind &&
+                existing.amountMinor == amount.cents &&
+                NotificationParser.normalize(existing.merchant) == NotificationParser.normalize(merchant) &&
+                LocalDay(date: existing.occurredAt,
+                         timeZone: TimeZone(identifier: options[0].rule.timeZoneIdentifier) ?? .current) ==
+                    LocalDay(date: date,
+                             timeZone: TimeZone(identifier: options[0].rule.timeZoneIdentifier) ?? .current)
+            }
+            let automatic = options.count == 1 && options[0].strict && !competing
+            if options.contains(where: \.counted) && !automatic || competing {
+                for option in options {
+                    _ = try saveRecurringCandidate(occurrenceID: option.occurrence.id, eventID: event.id,
+                                                   transactionID: nil,
+                                                   reason: competing ? "A similar transaction already exists." : option.reason)
+                }
+                try markAttempt(id, status: .recurringReview, rule: rule, semantic: semantic,
+                                detail: "Review the possible recurring payment before recording this notification.")
+                return try commitAttempt(id)
+            }
             let values = TransactionEditPolicy.values(original: nil, kind: rule.config.kind,
                                                       newEURMinor: amount.cents)
             var transaction = Transaction(id: UUID(), kind: rule.config.kind, amountMinor: amount.cents,
@@ -1349,7 +1541,7 @@ extension SQLiteDatabase {
             transaction.eurMinor = amount.cents
             transaction.personalExpenseEURMinor = values.personal
             transaction.recoverableEURMinor = values.recoverable
-            transaction.accountID = try mappedAccountID(for: attempt.sourceID)
+            transaction.accountID = mappedID
 #if DEBUG
             if preferredRuleID != nil,
                let token = ProcessInfo.processInfo.environment["EASYTRACK_TEST_FAIL_PARSER_ONCE"] {
@@ -1360,7 +1552,46 @@ extension SQLiteDatabase {
                 }
             }
 #endif
-            transaction = try save(transaction, manageTransaction: false)
+            let matchedExisting = automatic && options[0].counted
+            if matchedExisting {
+                guard let oldID = options[0].occurrence.transactionID,
+                      var existing = try transactions().first(where: { $0.id == oldID }) else {
+                    throw RecurringError.occurrenceChanged
+                }
+                existing.sourceEventID = event.id
+                existing.occurredAt = date
+                existing.merchant = merchant
+                transaction = try save(existing, manageTransaction: false)
+                try confirmCountedOccurrence(options[0].occurrence.id,
+                                             transactionID: transaction.id, actor: "parser")
+                let candidate = try saveRecurringCandidate(occurrenceID: options[0].occurrence.id,
+                                                           eventID: event.id, transactionID: transaction.id,
+                                                           reason: "Exact approved match.", status: .confirmed)
+                if candidate.status != .confirmed {
+                    try setRecurringCandidateStatus(candidate.id, to: .confirmed,
+                                                    transactionID: transaction.id)
+                }
+            } else {
+                if automatic { transaction.recurringOccurrenceID = options[0].occurrence.id }
+                transaction = try save(transaction, manageTransaction: false)
+                if automatic {
+                    try confirmExpectedOccurrence(options[0].occurrence.id,
+                                                  transactionID: transaction.id, actor: "parser")
+                    let candidate = try saveRecurringCandidate(occurrenceID: options[0].occurrence.id,
+                                                               eventID: event.id, transactionID: transaction.id,
+                                                               reason: "Exact approved match.", status: .confirmed)
+                    if candidate.status != .confirmed {
+                        try setRecurringCandidateStatus(candidate.id, to: .confirmed,
+                                                        transactionID: transaction.id)
+                    }
+                } else {
+                    for option in options {
+                        _ = try saveRecurringCandidate(occurrenceID: option.occurrence.id,
+                                                       eventID: event.id, transactionID: transaction.id,
+                                                       reason: option.reason)
+                    }
+                }
+            }
             let exactRecord = try statement("""
                 INSERT INTO exact_dedup(id,fingerprint,occurred_at,has_payload_date,transaction_id,created_at)
                 VALUES(?,?,?,?,?,?)
@@ -1385,8 +1616,11 @@ extension SQLiteDatabase {
             sqlite3_bind_double(semanticRecord, 6, Date().timeIntervalSince1970)
             guard sqlite3_step(semanticRecord) == SQLITE_DONE else { sqlite3_finalize(semanticRecord); throw error() }
             sqlite3_finalize(semanticRecord)
-            try markAttempt(id, status: .created, rule: rule, transactionID: transaction.id,
-                            semantic: semantic)
+            try markAttempt(id, status: matchedExisting ? .matchedExisting :
+                            (!options.isEmpty && !automatic ? .recurringReview : .created),
+                            rule: rule, transactionID: transaction.id, semantic: semantic,
+                            detail: !options.isEmpty && !automatic ?
+                                "Transaction recorded once; review its possible recurring match." : nil)
             return try commitAttempt(id)
         } catch {
             try? execute("ROLLBACK")

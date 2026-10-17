@@ -142,10 +142,77 @@ struct RecurringRule: Identifiable, Codable, Equatable {
     var archivedAt: Date?
     var revision: Int64
     var historicalSourceID: String? = nil
+    var reviewWindowDays: Int = 3
 }
 
 enum RecurringOccurrenceStatus: String, Codable {
-    case materialized, skipped
+    case expected, legacyCounted = "legacy_counted", recordedManual = "recorded_manual"
+    case confirmed, skipped, missed, cancelled, materialized // last case decodes format-5 JSON only
+
+    var title: String {
+        switch self {
+        case .expected: "Expected"
+        case .legacyCounted: "Legacy counted"
+        case .recordedManual: "Recorded manually"
+        case .confirmed: "Paid"
+        case .skipped: "Skipped"
+        case .missed: "Missed"
+        case .cancelled: "Cancelled"
+        case .materialized: "Legacy counted"
+        }
+    }
+}
+
+extension RecurringRule {
+    private enum CodingKeys: String, CodingKey {
+        case id,name,type,amountMinor,accountID,categoryID,startDay,frequency,nextIndex,endDay
+        case timeZoneIdentifier,isActive,note,createdAt,updatedAt,archivedAt,revision
+        case historicalSourceID,reviewWindowDays
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(UUID.self, forKey: .id),
+                  name: try c.decode(String.self, forKey: .name),
+                  type: try c.decode(RecurringType.self, forKey: .type),
+                  amountMinor: try c.decode(Int64.self, forKey: .amountMinor),
+                  accountID: try c.decode(UUID.self, forKey: .accountID),
+                  categoryID: try c.decodeIfPresent(UUID.self, forKey: .categoryID),
+                  startDay: try c.decode(LocalDay.self, forKey: .startDay),
+                  frequency: try c.decode(RecurringFrequency.self, forKey: .frequency),
+                  nextIndex: try c.decode(Int.self, forKey: .nextIndex),
+                  endDay: try c.decodeIfPresent(LocalDay.self, forKey: .endDay),
+                  timeZoneIdentifier: try c.decode(String.self, forKey: .timeZoneIdentifier),
+                  isActive: try c.decode(Bool.self, forKey: .isActive),
+                  note: try c.decode(String.self, forKey: .note),
+                  createdAt: try c.decode(Date.self, forKey: .createdAt),
+                  updatedAt: try c.decode(Date.self, forKey: .updatedAt),
+                  archivedAt: try c.decodeIfPresent(Date.self, forKey: .archivedAt),
+                  revision: try c.decode(Int64.self, forKey: .revision))
+        historicalSourceID = try c.decodeIfPresent(String.self, forKey: .historicalSourceID)
+        reviewWindowDays = try c.decodeIfPresent(Int.self, forKey: .reviewWindowDays) ?? 3
+    }
+}
+
+extension RecurringOccurrence {
+    private enum CodingKeys: String, CodingKey {
+        case id,ruleID,scheduledDay,status,transactionID,createdAt
+        case provisionalTransactionID,updatedAt,revision,reviewReason
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(String.self, forKey: .id),
+                  ruleID: try c.decode(UUID.self, forKey: .ruleID),
+                  scheduledDay: try c.decode(LocalDay.self, forKey: .scheduledDay),
+                  status: try c.decode(RecurringOccurrenceStatus.self, forKey: .status),
+                  transactionID: try c.decodeIfPresent(UUID.self, forKey: .transactionID),
+                  createdAt: try c.decode(Date.self, forKey: .createdAt))
+        provisionalTransactionID = try c.decodeIfPresent(UUID.self, forKey: .provisionalTransactionID)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        revision = try c.decodeIfPresent(Int64.self, forKey: .revision) ?? 1
+        reviewReason = try c.decodeIfPresent(String.self, forKey: .reviewReason)
+    }
 }
 
 struct RecurringOccurrence: Identifiable, Codable, Equatable {
@@ -155,6 +222,35 @@ struct RecurringOccurrence: Identifiable, Codable, Equatable {
     let status: RecurringOccurrenceStatus
     let transactionID: UUID?
     let createdAt: Date
+    var provisionalTransactionID: UUID? = nil
+    var updatedAt: Date = .now
+    var revision: Int64 = 1
+    var reviewReason: String? = nil
+}
+
+enum RecurringCandidateStatus: String, Codable { case pending, rejected, confirmed }
+
+struct RecurringCandidate: Identifiable, Equatable {
+    let id: UUID
+    let occurrenceID: String
+    let eventID: UUID?
+    let transactionID: UUID?
+    let status: RecurringCandidateStatus
+    let reason: String
+    let createdAt: Date
+    let updatedAt: Date
+    let revision: Int64
+}
+
+struct RecurringMatchOption {
+    let occurrence: RecurringOccurrence
+    let rule: RecurringRule
+    let reason: String
+    let strict: Bool
+    let counted: Bool
+    let approvedPayee: Bool
+    let dayDistance: Int
+    let amountDifference: Int64
 }
 
 struct UpcomingRecurringItem: Identifiable, Equatable {
@@ -165,7 +261,7 @@ struct UpcomingRecurringItem: Identifiable, Equatable {
 }
 
 enum RecurringError: LocalizedError {
-    case invalidDate, invalidSchedule, tooManyMissed, inactive, occurrenceChanged
+    case invalidDate, invalidSchedule, tooManyMissed, inactive, occurrenceChanged, linkRequiresUnlink
     var errorDescription: String? {
         switch self {
         case .invalidDate: "Choose a valid schedule date."
@@ -173,6 +269,7 @@ enum RecurringError: LocalizedError {
         case .tooManyMissed: "This rule has too many missed dates. Edit its next date before continuing."
         case .inactive: "Resume this rule before creating its next transaction."
         case .occurrenceChanged: "This occurrence changed. Reopen the rule and try again."
+        case .linkRequiresUnlink: "Unlink the confirmed recurring payment before changing its account or movement kind."
         }
     }
 }
