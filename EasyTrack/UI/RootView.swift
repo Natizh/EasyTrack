@@ -13,18 +13,24 @@ private enum Palette {
 
 struct RootView: View {
     @EnvironmentObject private var store: FinanceStore
+    @StateObject private var navigation = AppNavigationModel()
 
     var body: some View {
-        TabView {
+        TabView(selection: $navigation.selectedTab) {
             NavigationStack { HomeView() }
                 .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(EasyTrackTab.home)
             NavigationStack { TransactionsView() }
                 .tabItem { Label("Activity", systemImage: "list.bullet.rectangle") }
+                .tag(EasyTrackTab.activity)
             NavigationStack { AutomationsView() }
                 .tabItem { Label("Automations", systemImage: "bolt.badge.clock") }
+                .tag(EasyTrackTab.automations)
             NavigationStack { SettingsView() }
                 .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(EasyTrackTab.settings)
         }
+        .environmentObject(navigation)
         .tint(Palette.teal)
         .alert("EasyTrack", isPresented: Binding(get: { store.errorMessage != nil },
                                                   set: { if !$0 { store.errorMessage = nil } })) {
@@ -234,11 +240,9 @@ private struct HomeView: View {
                             Divider().padding(.leading, 55)
                         }
                     }
-                    if uncategorized.count > 2 {
-                        NavigationLink("See all") { UncategorizedTransactionsView() }
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
-                            .padding(.top, 3)
-                    }
+                    NavigationLink("Review and categorize") { UncategorizedTransactionsView() }
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                        .padding(.top, 3)
                 }
             }
             .accessibilityIdentifier("homeUncategorizedSection")
@@ -304,7 +308,14 @@ private struct HomeView: View {
 }
 
 private struct UncategorizedTransactionsView: View {
+    private struct UndoChange {
+        let persisted: Transaction
+        let categoryID: UUID?
+        let categoryName: String
+    }
+
     @EnvironmentObject private var store: FinanceStore
+    @State private var undoChange: UndoChange?
 
     private var items: [Transaction] {
         store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -312,10 +323,59 @@ private struct UncategorizedTransactionsView: View {
 
     var body: some View {
         List(items) { item in
-            NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+            HStack {
+                NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+                Menu {
+                    ForEach(store.ledgerCategories.filter { $0.archivedAt == nil }) { category in
+                        Button {
+                            assign(category, to: item)
+                        } label: {
+                            Label(category.name, systemImage: category.symbolName)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "tag.circle.fill").font(.title2).foregroundStyle(Palette.teal)
+                }
+                .accessibilityLabel("Assign category to \(item.merchant)")
+            }
         }
         .navigationTitle("Uncategorized")
         .overlay { if items.isEmpty { ContentUnavailableView("All categorized", systemImage: "checkmark.circle") } }
+        .safeAreaInset(edge: .bottom) {
+            if undoChange != nil {
+                HStack {
+                    Text("Category saved").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("Undo") { undo() }.font(.subheadline.weight(.bold))
+                }
+                .padding()
+                .background(.bar, in: Capsule())
+                .padding(.horizontal)
+                .accessibilityIdentifier("uncategorizedUndoCategory")
+            }
+        }
+    }
+
+    private func assign(_ category: LedgerCategory, to item: Transaction) {
+        var updated = item
+        updated.categoryID = category.id
+        updated.category = category.name
+        do {
+            let persisted = try store.save(updated)
+            undoChange = UndoChange(persisted: persisted, categoryID: item.categoryID,
+                                    categoryName: item.category)
+        } catch { store.errorMessage = error.localizedDescription }
+    }
+
+    private func undo() {
+        guard let change = undoChange else { return }
+        var restored = change.persisted
+        restored.categoryID = change.categoryID
+        restored.category = change.categoryName
+        do {
+            _ = try store.save(restored)
+            undoChange = nil
+        } catch { store.errorMessage = error.localizedDescription }
     }
 }
 
@@ -326,6 +386,7 @@ private struct TransactionsView: View {
     }
 
     @EnvironmentObject private var store: FinanceStore
+    @EnvironmentObject private var navigation: AppNavigationModel
     @State private var search = ""
     @FocusState private var searchFocused: Bool
     @State private var kind: TransactionKind?
@@ -345,14 +406,33 @@ private struct TransactionsView: View {
                           category: category == "All categories" ? nil : category,
                           account: accountFilter, tripID: tripFilter, currency: currencyFilter)
     }
-    private var filtered: [Transaction] {
+    private var activityFiltered: [Transaction] {
         currentActivityFilter
             .apply(to: store.transactions,
                    tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
     }
+    private var filtered: [Transaction] {
+        guard let scope = navigation.activityChartScope else { return activityFiltered }
+        return scope.filter.apply(to: activityFiltered,
+            tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
+            if let scope = navigation.activityChartScope {
+                HStack(spacing: 10) {
+                    Label(scope.label, systemImage: "chart.bar.xaxis")
+                        .font(.subheadline.weight(.semibold)).lineLimit(2)
+                    Spacer()
+                    Button("Remove") { navigation.clearChartScope() }
+                        .font(.subheadline.weight(.semibold))
+                }
+                .padding(12)
+                .background(Palette.mint, in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 20).padding(.top, 8)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("activityChartFilter")
+            }
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search transactions", text: $search)
@@ -428,7 +508,12 @@ private struct TransactionsView: View {
             .scrollContentBackground(.hidden)
             .overlay {
                 if filtered.isEmpty {
-                    ContentUnavailableView.search(text: search)
+                    if navigation.activityChartScope != nil {
+                        ContentUnavailableView("No matching transactions", systemImage: "line.3.horizontal.decrease.circle",
+                            description: Text("The chart selection and current Activity filters do not overlap."))
+                    } else {
+                        ContentUnavailableView.search(text: search)
+                    }
                 }
             }
         }
@@ -438,7 +523,9 @@ private struct TransactionsView: View {
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
             Button {
                 searchFocused = false
-                exportRequest = ExportRequest(filter: currentActivityFilter)
+                exportRequest = ExportRequest(filter: navigation.activityChartScope == nil
+                    ? currentActivityFilter
+                    : TransactionFilter(transactionIDs: Set(filtered.map(\.id))))
             } label: { Image(systemName: "square.and.arrow.up") }
                 .accessibilityLabel("Export filtered transactions")
                 .accessibilityIdentifier("activityExportTransactions")

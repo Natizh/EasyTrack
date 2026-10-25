@@ -17,6 +17,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var historicalTrips: [HistoricalTrip] = []
     @Published private(set) var historicalRules: [HistoricalRecurringRule] = []
     @Published private(set) var dashboardWidgetPreferences: [DashboardWidgetPreference] = []
+    @Published private(set) var merchantAliasGroups: [MerchantAliasGroup] = []
     @Published var errorMessage: String?
 
     init() {
@@ -53,6 +54,7 @@ final class FinanceStore: ObservableObject {
             historicalTrips = try database.historicalTrips()
             historicalRules = try database.historicalRules()
             dashboardWidgetPreferences = try database.dashboardWidgetPreferences()
+            merchantAliasGroups = try database.merchantAliasGroups()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -102,6 +104,16 @@ final class FinanceStore: ObservableObject {
 
     func resetDashboardWidgetPreferences() throws {
         try SQLiteDatabase.open().resetDashboardWidgetPreferences()
+        reload()
+    }
+
+    func saveMerchantAliasGroup(_ group: MerchantAliasGroup) throws {
+        try SQLiteDatabase.open().saveMerchantAliasGroup(group)
+        reload()
+    }
+
+    func deleteMerchantAliasGroup(_ id: UUID) throws {
+        try SQLiteDatabase.open().deleteMerchantAliasGroup(id)
         reload()
     }
 

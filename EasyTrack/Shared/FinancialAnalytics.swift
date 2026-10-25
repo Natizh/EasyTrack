@@ -183,6 +183,24 @@ struct FinancialDailyAggregate: Equatable, Identifiable {
     var personalNetExpensesEURMinor: Int64 = 0
 }
 
+struct FinancialMerchantAggregate: Equatable, Identifiable {
+    var id: String { key }
+    let key: String
+    let name: String
+    let transactionCount: Int
+    let personalNetExpensesEURMinor: Int64
+    let transactionIDs: [UUID]
+}
+
+struct FinancialChartSelectionIndex: Equatable {
+    var monthlyExpenses: [LocalDay: Set<UUID>] = [:]
+    var monthlyIncome: [LocalDay: Set<UUID>] = [:]
+    var monthlyPAC: [LocalDay: Set<UUID>] = [:]
+    var categories: [String: Set<UUID>] = [:]
+    var dailySpending: [LocalDay: Set<UUID>] = [:]
+    var unallocated: Set<UUID> = []
+}
+
 enum FinancialMetric: String, Equatable, Hashable {
     case personalNetExpenses
     case grossExpenses
@@ -220,6 +238,8 @@ struct FinancialAnalyticsSnapshot: Equatable {
     let categories: [FinancialCategoryAggregate]
     let monthlyTrend: [FinancialMonthlyAggregate]
     let dailySpending: [FinancialDailyAggregate]
+    let merchants: [FinancialMerchantAggregate]
+    let chartSelectionIndex: FinancialChartSelectionIndex
     let unallocatedPersonalAdjustmentEURMinor: Int64
     let nonPositiveCategoryAdjustmentEURMinor: Int64
     let unconvertedTransactions: [UnconvertedFinancialTransaction]
@@ -270,6 +290,8 @@ enum FinancialAnalytics {
             categories: current.categories,
             monthlyTrend: current.monthlyTrend,
             dailySpending: current.dailySpending,
+            merchants: current.merchants,
+            chartSelectionIndex: current.chartSelectionIndex,
             unallocatedPersonalAdjustmentEURMinor: current.unallocated,
             nonPositiveCategoryAdjustmentEURMinor: current.nonPositiveCategories,
             unconvertedTransactions: current.unconverted,
@@ -285,6 +307,8 @@ enum FinancialAnalytics {
         let categories: [FinancialCategoryAggregate]
         let monthlyTrend: [FinancialMonthlyAggregate]
         let dailySpending: [FinancialDailyAggregate]
+        let merchants: [FinancialMerchantAggregate]
+        let chartSelectionIndex: FinancialChartSelectionIndex
         let unallocated: Int64
         let nonPositiveCategories: Int64
         let unconverted: [UnconvertedFinancialTransaction]
@@ -296,12 +320,21 @@ enum FinancialAnalytics {
         var amount: Int64
     }
 
+    private struct MutableMerchant {
+        let name: String
+        var count: Int
+        var amount: Int64
+        var transactionIDs: Set<UUID>
+    }
+
     private static func aggregate(_ transactions: [Transaction], interval: LedgerDateInterval,
                                   categoryNames: [UUID: String], timeZone: TimeZone) throws -> Aggregation {
         var totals = FinancialTotals()
         var categoryValues: [String: MutableCategory] = [:]
         var unallocated: Int64 = 0
         var unconverted: [UnconvertedFinancialTransaction] = []
+        var selectionIndex = FinancialChartSelectionIndex()
+        var merchantValues: [String: MutableMerchant] = [:]
         let intervalDays = try days(in: interval, timeZone: timeZone)
         var dailyValues = Dictionary(uniqueKeysWithValues: intervalDays.map {
             ($0, FinancialDailyAggregate(day: $0))
@@ -325,9 +358,11 @@ enum FinancialAnalytics {
                     try addChecked(personal, to: &daily.personalNetExpensesEURMinor)
                     dailyValues[localDay] = daily
                 }
+                selectionIndex.dailySpending[localDay, default: []].insert(item.id)
                 let trimmed = item.category.trimmingCharacters(in: .whitespacesAndNewlines)
                 if item.categoryID == nil && trimmed.isEmpty {
                     try addChecked(personal, to: &unallocated)
+                    selectionIndex.unallocated.insert(item.id)
                 } else {
                     let name = item.categoryID.flatMap { categoryNames[$0] } ??
                         (trimmed.isEmpty ? "Uncategorized" : trimmed)
@@ -336,6 +371,16 @@ enum FinancialAnalytics {
                                                                         name: name, amount: 0)
                     try addChecked(personal, to: &value.amount)
                     categoryValues[key] = value
+                    selectionIndex.categories[key, default: []].insert(item.id)
+                }
+                let merchantKey = NotificationParser.normalize(item.merchant)
+                if !merchantKey.isEmpty {
+                    var merchant = merchantValues[merchantKey] ?? MutableMerchant(
+                        name: item.merchant, count: 0, amount: 0, transactionIDs: [])
+                    merchant.count += 1
+                    try addChecked(personal, to: &merchant.amount)
+                    merchant.transactionIDs.insert(item.id)
+                    merchantValues[merchantKey] = merchant
                 }
             } else if item.kind == .expense && eur == nil {
                 unavailable.insert(.personalNetExpenses)
@@ -351,6 +396,7 @@ enum FinancialAnalytics {
                         try addChecked(eur, to: &monthly.grossExpensesEURMinor)
                         monthlyValues[month] = monthly
                     }
+                    selectionIndex.monthlyExpenses[month, default: []].insert(item.id)
                 }
                 else { unavailable.insert(.grossExpenses) }
             case .income:
@@ -360,6 +406,7 @@ enum FinancialAnalytics {
                         try addChecked(eur, to: &monthly.incomeEURMinor)
                         monthlyValues[month] = monthly
                     }
+                    selectionIndex.monthlyIncome[month, default: []].insert(item.id)
                 }
                 else { unavailable.insert(.income) }
             case .pacInvestment:
@@ -369,6 +416,7 @@ enum FinancialAnalytics {
                         try addChecked(eur, to: &monthly.pacInvestedEURMinor)
                         monthlyValues[month] = monthly
                     }
+                    selectionIndex.monthlyPAC[month, default: []].insert(item.id)
                 }
                 else { unavailable.insert(.pacInvestment) }
             case .advanceForOthers, .reimbursement, .deposit, .depositRefund:
@@ -402,9 +450,20 @@ enum FinancialAnalytics {
             }
         }
         precondition(reconciled == totals.personalNetExpensesEURMinor)
+        let merchants = merchantValues.map { key, value in
+            FinancialMerchantAggregate(key: key, name: value.name, transactionCount: value.count,
+                personalNetExpensesEURMinor: value.amount,
+                transactionIDs: value.transactionIDs.sorted { $0.uuidString < $1.uuidString })
+        }.sorted {
+            if $0.personalNetExpensesEURMinor != $1.personalNetExpensesEURMinor {
+                return $0.personalNetExpensesEURMinor > $1.personalNetExpensesEURMinor
+            }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
         return Aggregation(totals: totals, categories: categories,
                            monthlyTrend: monthlyValues.values.sorted { $0.month < $1.month },
                            dailySpending: dailyValues.values.sorted { $0.day < $1.day },
+                           merchants: merchants, chartSelectionIndex: selectionIndex,
                            unallocated: unallocated,
                            nonPositiveCategories: nonPositiveCategories, unconverted: unconverted)
     }

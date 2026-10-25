@@ -39,6 +39,8 @@
 		F1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift */; };
 		F4A5B6C7D8E9012A3B4C5D6E /* DashboardPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A5B6C7D8E9012A3B4C5D6E /* DashboardPreferences.swift */; };
 		F5A6B7C8D9E0123A4B5C6D7E /* SQLiteDatabase+Dashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5A6B7C8D9E0123A4B5C6D7E /* SQLiteDatabase+Dashboard.swift */; };
+		F6A7B8C9D0E1234A5B6C7D8E /* MerchantAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A7B8C9D0E1234A5B6C7D8E /* MerchantAnalytics.swift */; };
+		F7A8B9C0D1E2345A6B7C8D9E /* SQLiteDatabase+MerchantAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A8B9C0D1E2345A6B7C8D9E /* SQLiteDatabase+MerchantAnalytics.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* NotificationParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */; };
 		A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */; };
 		A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */; };
@@ -77,6 +79,8 @@
 		E1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FinancialAnalytics.swift; sourceTree = "<group>"; };
 		E4A5B6C7D8E9012A3B4C5D6E /* DashboardPreferences.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashboardPreferences.swift; sourceTree = "<group>"; };
 		E5A6B7C8D9E0123A4B5C6D7E /* SQLiteDatabase+Dashboard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SQLiteDatabase+Dashboard.swift"; sourceTree = "<group>"; };
+		E6A7B8C9D0E1234A5B6C7D8E /* MerchantAnalytics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MerchantAnalytics.swift; sourceTree = "<group>"; };
+		E7A8B9C0D1E2345A6B7C8D9E /* SQLiteDatabase+MerchantAnalytics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SQLiteDatabase+MerchantAnalytics.swift"; sourceTree = "<group>"; };
 		B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationParser.swift; sourceTree = "<group>"; };
 		B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DailyModels.swift; sourceTree = "<group>"; };
 		B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecurringSchedule.swift; sourceTree = "<group>"; };
@@ -144,6 +148,7 @@
 			children = (
 				DF2B12A9D4543CDC906ECF61 /* FinanceStore.swift */,
 				E5A6B7C8D9E0123A4B5C6D7E /* SQLiteDatabase+Dashboard.swift */,
+				E7A8B9C0D1E2345A6B7C8D9E /* SQLiteDatabase+MerchantAnalytics.swift */,
 				73DEACB48A2F3A61EF2789DA /* SQLiteDatabase.swift */,
 				B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */,
 				B9C0D1E2F3A4B5C6D7E8F901 /* SQLiteDatabase+Reconciliation.swift */,
@@ -236,6 +241,7 @@
 				81A18BE776B20AE51FF239E7 /* Models.swift */,
 				E1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift */,
 				E4A5B6C7D8E9012A3B4C5D6E /* DashboardPreferences.swift */,
+				E6A7B8C9D0E1234A5B6C7D8E /* MerchantAnalytics.swift */,
 				B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */,
 				B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */,
 				B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */,
@@ -387,6 +393,7 @@
 				B6E8ED92FB2C4C4C38C1FBC3 /* SQLiteDatabase.swift in Sources */,
 				A4B5C6D7E8F9012A3B4C5D6E /* SQLiteDatabase+Daily.swift in Sources */,
 				F5A6B7C8D9E0123A4B5C6D7E /* SQLiteDatabase+Dashboard.swift in Sources */,
+				F7A8B9C0D1E2345A6B7C8D9E /* SQLiteDatabase+MerchantAnalytics.swift in Sources */,
 				A9C0D1E2F3A4B5C6D7E8F901 /* SQLiteDatabase+Reconciliation.swift in Sources */,
 				D2E3F40516273849A5B6C7D8 /* SQLiteDatabase+Backup.swift in Sources */,
 				F40516273849A5B6C7D8E9F0 /* LegacyBackupConverter.swift in Sources */,
@@ -397,6 +404,7 @@
 				D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */,
 				F1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift in Sources */,
 				F4A5B6C7D8E9012A3B4C5D6E /* DashboardPreferences.swift in Sources */,
+				F6A7B8C9D0E1234A5B6C7D8E /* MerchantAnalytics.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* NotificationParser.swift in Sources */,
 				A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */,
 				A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */,

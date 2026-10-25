@@ -54,7 +54,7 @@ final class DashboardPreferencesTests: XCTestCase {
         }
     }
 
-    func testSchemaSixMigratesAtomicallyToSeven() throws {
+    func testSchemaSixMigratesAtomicallyToCurrent() throws {
         try withDatabase { database, url in
             try database.execute("DROP TABLE dashboard_widget_preferences")
             try database.execute("PRAGMA user_version=6")
@@ -63,7 +63,7 @@ final class DashboardPreferencesTests: XCTestCase {
             let version = try reopened.statement("PRAGMA user_version")
             defer { sqlite3_finalize(version) }
             XCTAssertEqual(sqlite3_step(version), SQLITE_ROW)
-            XCTAssertEqual(sqlite3_column_int(version, 0), 7)
+            XCTAssertEqual(sqlite3_column_int(version, 0), 8)
         }
     }
 
@@ -80,8 +80,8 @@ final class DashboardPreferencesTests: XCTestCase {
         let sourcePreferences = [preference("monthlyTrend", 0, false), preference("recurring", 1, true)]
         try source.saveDashboardWidgetPreferences(sourcePreferences)
         let backup = try source.exportBackup()
-        XCTAssertEqual(backup.schemaVersion, 8)
-        XCTAssertEqual(backup.databaseSchemaVersion, 7)
+        XCTAssertEqual(backup.schemaVersion, 9)
+        XCTAssertEqual(backup.databaseSchemaVersion, 8)
 
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
         XCTAssertEqual(try target.dashboardWidgetPreferences(), sourcePreferences)
@@ -92,13 +92,13 @@ final class DashboardPreferencesTests: XCTestCase {
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
         XCTAssertEqual(try target.dashboardWidgetPreferences(), localPreferences)
 
-        let oldTables = Array(backup.tables.dropLast())
+        let oldTables = Array(backup.tables.dropLast(2))
         let old = BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
             exportID: UUID(), exportedAt: .now,
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,
             sourceFormatVersion: nil)
         let upgraded = try BackupArchive.decode(JSONEncoder().encode(old))
-        XCTAssertEqual(upgraded.schemaVersion, 8)
+        XCTAssertEqual(upgraded.schemaVersion, 9)
         XCTAssertEqual(upgraded.sourceFormatVersion, 7)
         let legacyTargetURL = folder.appendingPathComponent("legacy-target.sqlite")
         let legacyTarget = try SQLiteDatabase(url: legacyTargetURL)

@@ -78,6 +78,12 @@ final class FinancialAnalyticsTests: XCTestCase {
                        -7_000)
         XCTAssertEqual(snapshot.dailySpending.first { $0.day == day("2026-10-11") }?.personalNetExpensesEURMinor,
                        0)
+        XCTAssertEqual(snapshot.chartSelectionIndex.categories["id:\(foodID.uuidString)"],
+                       [foodExpense.id, foodRefund.id])
+        XCTAssertEqual(snapshot.chartSelectionIndex.unallocated, [unallocatedRefund.id])
+        XCTAssertEqual(snapshot.chartSelectionIndex.monthlyExpenses[day("2026-10-01")],
+                       [foodExpense.id, travelExpense.id])
+        XCTAssertEqual(snapshot.chartSelectionIndex.dailySpending[day("2026-10-04")], [foodRefund.id])
         XCTAssertEqual(snapshot.categories.map(\.personalNetExpensesEURMinor), [2_000, -1_000])
         XCTAssertEqual(snapshot.positiveCategories.map(\.name), ["Travel"])
         XCTAssertEqual(snapshot.nonPositiveCategoryAdjustmentEURMinor, -1_000)

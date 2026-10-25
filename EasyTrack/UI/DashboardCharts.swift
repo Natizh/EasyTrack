@@ -1,6 +1,26 @@
 import Charts
 import SwiftUI
 
+enum EasyTrackTab: Hashable { case home, activity, automations, settings }
+
+struct ActivityChartScope: Equatable {
+    let label: String
+    let filter: TransactionFilter
+}
+
+@MainActor
+final class AppNavigationModel: ObservableObject {
+    @Published var selectedTab: EasyTrackTab = .home
+    @Published var activityChartScope: ActivityChartScope?
+
+    func showActivity(label: String, filter: TransactionFilter) {
+        activityChartScope = ActivityChartScope(label: label, filter: filter)
+        selectedTab = .activity
+    }
+
+    func clearChartScope() { activityChartScope = nil }
+}
+
 struct DashboardWidgetID: RawRepresentable, Codable, Hashable, Identifiable {
     let rawValue: String
     var id: String { rawValue }
@@ -9,6 +29,7 @@ struct DashboardWidgetID: RawRepresentable, Codable, Hashable, Identifiable {
     static let categoryBreakdown = DashboardWidgetID(rawValue: "categoryBreakdown")
     static let recurring = DashboardWidgetID(rawValue: "recurring")
     static let dailySpending = DashboardWidgetID(rawValue: "dailySpending")
+    static let topMerchants = DashboardWidgetID(rawValue: "topMerchants")
     static let uncategorized = DashboardWidgetID(rawValue: "uncategorized")
 }
 
@@ -25,7 +46,8 @@ enum DashboardWidgetRegistry {
         .init(id: .categoryBreakdown, title: "Categories", systemImage: "chart.pie", defaultOrder: 1),
         .init(id: .recurring, title: "Upcoming", systemImage: "calendar", defaultOrder: 2),
         .init(id: .dailySpending, title: "Daily spending", systemImage: "chart.bar", defaultOrder: 3),
-        .init(id: .uncategorized, title: "Uncategorized", systemImage: "tag", defaultOrder: 4)
+        .init(id: .topMerchants, title: "Top merchants", systemImage: "building.2", defaultOrder: 4),
+        .init(id: .uncategorized, title: "Uncategorized", systemImage: "tag", defaultOrder: 5)
     ].sorted { $0.defaultOrder < $1.defaultOrder }
 
     static func resolved(preferences: [DashboardWidgetPreference]) -> [(DashboardWidgetDescriptor, Bool)] {
@@ -160,6 +182,8 @@ struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {
             recurring
         } else if id == .dailySpending {
             DailySpendingWidget(snapshot: snapshot)
+        } else if id == .topMerchants {
+            TopMerchantsWidget(snapshot: snapshot)
         } else if id == .uncategorized {
             uncategorized
         }
@@ -168,6 +192,8 @@ struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {
 
 struct MonthlyTrendWidget: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @EnvironmentObject private var navigation: AppNavigationModel
+    @State private var selectedDate: Date?
     let snapshot: FinancialAnalyticsSnapshot?
 
     private var points: [FinancialMonthlyAggregate] { snapshot?.monthlyTrend ?? [] }
@@ -207,8 +233,22 @@ struct MonthlyTrendWidget: View {
                     }
                     .chartXAxis { dateAxisMarks() }
                     .chartYAxis { currencyAxisMarks() }
+                    .chartXSelection(value: $selectedDate)
                     .frame(height: dynamicTypeSize.isAccessibilitySize ? 250 : 205)
                     .accessibilityRepresentation { monthlyAccessibility }
+                    .onChange(of: selectedDate) { _, value in
+                        guard let value, let snapshot else { return }
+                        let selected = LocalDay(date: value, timeZone: .current)
+                        let month = LocalDay(isoString: String(format: "%04d-%02d-01",
+                                                              selected.year, selected.month))!
+                        let index = snapshot.chartSelectionIndex
+                        let ids = (index.monthlyExpenses[month] ?? [])
+                            .union(index.monthlyIncome[month] ?? [])
+                            .union(index.monthlyPAC[month] ?? [])
+                        openActivity(ids: ids, label: "Monthly trend · \(monthLabel(month))",
+                                     snapshot: snapshot, navigation: navigation)
+                        selectedDate = nil
+                    }
 
                     HStack(spacing: 14) {
                         ChartLegendKey(title: "Expenses", color: EasyTrackTheme.coral)
@@ -247,7 +287,10 @@ private struct CategoryChartValue: Identifiable {
 
 struct CategoryBreakdownWidget: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @EnvironmentObject private var navigation: AppNavigationModel
     @State private var mode: CategoryChartMode = .ring
+    @State private var selectedAngle: Double?
+    @State private var selectedCategory: String?
     let snapshot: FinancialAnalyticsSnapshot?
 
     private var positive: [FinancialCategoryAggregate] { snapshot?.positiveCategories ?? [] }
@@ -321,11 +364,24 @@ struct CategoryBreakdownWidget: View {
             }
             .chartForegroundStyleScale(domain: positive.map(\.name), range: colors)
             .chartLegend(.hidden)
+            .chartAngleSelection(value: $selectedAngle)
             .frame(height: dynamicTypeSize.isAccessibilitySize ? 260 : 210)
             .accessibilityRepresentation { categoryAccessibility(positive.map {
                 CategoryChartValue(id: $0.key, name: $0.name,
                                    amountMinor: $0.personalNetExpensesEURMinor)
             }) }
+            .onChange(of: selectedAngle) { _, value in
+                guard let value, let snapshot else { return }
+                var cumulative = 0.0
+                guard let category = positive.first(where: {
+                    cumulative += plotAmount($0.personalNetExpensesEURMinor)
+                    return value <= cumulative
+                }) else { return }
+                let ids = snapshot.chartSelectionIndex.categories[category.key] ?? []
+                openActivity(ids: ids, label: "Category · \(category.name)",
+                             snapshot: snapshot, navigation: navigation)
+                selectedAngle = nil
+            }
 
             VStack(spacing: 8) {
                 ForEach(Array(positive.enumerated()), id: \.element.key) { index, category in
@@ -355,8 +411,19 @@ struct CategoryBreakdownWidget: View {
             }
             .chartXAxis { currencyAxisMarks() }
             .chartYAxis { AxisMarks(position: .leading) }
+            .chartYSelection(value: $selectedCategory)
             .frame(height: height)
             .accessibilityRepresentation { categoryAccessibility(bars) }
+            .onChange(of: selectedCategory) { _, value in
+                guard let value, let snapshot,
+                      let category = bars.first(where: { $0.name == value }) else { return }
+                let ids = category.id == "unallocated"
+                    ? snapshot.chartSelectionIndex.unallocated
+                    : snapshot.chartSelectionIndex.categories[category.id] ?? []
+                openActivity(ids: ids, label: "Category · \(category.name)",
+                             snapshot: snapshot, navigation: navigation)
+                selectedCategory = nil
+            }
         }
         .frame(height: min(height, 285))
     }
@@ -373,6 +440,8 @@ struct CategoryBreakdownWidget: View {
 
 struct DailySpendingWidget: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @EnvironmentObject private var navigation: AppNavigationModel
+    @State private var selectedDate: Date?
     let snapshot: FinancialAnalyticsSnapshot?
 
     private var points: [FinancialDailyAggregate] { snapshot?.dailySpending ?? [] }
@@ -396,8 +465,17 @@ struct DailySpendingWidget: View {
                     }
                     .chartXAxis { dateAxisMarks() }
                     .chartYAxis { currencyAxisMarks() }
+                    .chartXSelection(value: $selectedDate)
                     .frame(height: dynamicTypeSize.isAccessibilitySize ? 260 : 210)
                     .accessibilityRepresentation { dailyAccessibility }
+                    .onChange(of: selectedDate) { _, value in
+                        guard let value, let snapshot else { return }
+                        let day = LocalDay(date: value, timeZone: .current)
+                        let ids = snapshot.chartSelectionIndex.dailySpending[day] ?? []
+                        openActivity(ids: ids, label: "Daily spending · \(day.isoString)",
+                                     snapshot: snapshot, navigation: navigation)
+                        selectedDate = nil
+                    }
                     Text("Includes zero-spend days and signed personal adjustments.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -416,6 +494,105 @@ struct DailySpendingWidget: View {
                 Text("\(point.day.isoString): \(Money.format(point.personalNetExpensesEURMinor))")
             }
         }
+    }
+}
+
+struct TopMerchantsWidget: View {
+    @EnvironmentObject private var store: FinanceStore
+    @EnvironmentObject private var navigation: AppNavigationModel
+    @State private var selectedMerchant: String?
+    @State private var rejectedSuggestions: Set<String> = []
+    let snapshot: FinancialAnalyticsSnapshot?
+
+    private var merchants: [FinancialMerchantAggregate] {
+        guard let snapshot else { return [] }
+        return (try? MerchantAnalytics.grouped(snapshot.merchants, aliases: store.merchantAliasGroups))
+            ?? snapshot.merchants
+    }
+    private var displayed: [FinancialMerchantAggregate] { Array(merchants.prefix(5)) }
+    private var suggestion: MerchantGroupingSuggestion? {
+        guard let snapshot else { return nil }
+        return MerchantAnalytics.suggestions(from: snapshot.merchants, aliases: store.merchantAliasGroups)
+            .first { !rejectedSuggestions.contains($0.id) }
+    }
+
+    var body: some View {
+        DashboardModuleCard {
+            VStack(alignment: .leading, spacing: 15) {
+                WidgetHeader(title: "Top merchants", systemImage: "building.2")
+                if displayed.isEmpty {
+                    ChartEmptyState("No personal spending descriptions in this period.")
+                } else {
+                    Chart(displayed) { merchant in
+                        BarMark(x: .value("Net amount", plotAmount(merchant.personalNetExpensesEURMinor)),
+                                y: .value("Merchant", merchant.name))
+                            .foregroundStyle(merchant.personalNetExpensesEURMinor < 0
+                                ? EasyTrackTheme.coral : EasyTrackTheme.accent)
+                            .cornerRadius(4)
+                    }
+                    .chartXAxis { currencyAxisMarks() }
+                    .chartYAxis { AxisMarks(position: .leading) }
+                    .chartYSelection(value: $selectedMerchant)
+                    .frame(height: max(170, CGFloat(displayed.count) * 38))
+                    .accessibilityRepresentation { merchantAccessibility }
+                    .onChange(of: selectedMerchant) { _, value in
+                        guard let value, let snapshot,
+                              let merchant = displayed.first(where: { $0.name == value }) else { return }
+                        openActivity(ids: Set(merchant.transactionIDs), label: "Merchant · \(merchant.name)",
+                                     snapshot: snapshot, navigation: navigation)
+                        selectedMerchant = nil
+                    }
+                }
+
+                if let suggestion {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Suggested group: \(suggestion.canonicalName)").font(.subheadline.weight(.semibold))
+                        Text(suggestion.memberNames.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Button("Group") { approve(suggestion) }.buttonStyle(.borderedProminent)
+                            Button("Not now") { rejectedSuggestions.insert(suggestion.id) }.buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(12)
+                    .background(EasyTrackTheme.jadeWash,
+                                in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                }
+
+                ForEach(store.merchantAliasGroups) { group in
+                    HStack {
+                        Label(group.canonicalName, systemImage: "link")
+                            .font(.caption.weight(.semibold))
+                        Spacer()
+                        Button("Undo") { undo(group) }.font(.caption.weight(.semibold))
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("homeTopMerchantsWidget")
+    }
+
+    private var merchantAccessibility: some View {
+        VStack(alignment: .leading) {
+            Text("Top merchants")
+            ForEach(displayed) { merchant in
+                Text("\(merchant.name): \(Money.format(merchant.personalNetExpensesEURMinor)), \(merchant.transactionCount) movements")
+            }
+        }
+    }
+
+    private func approve(_ suggestion: MerchantGroupingSuggestion) {
+        let now = Date()
+        do {
+            try store.saveMerchantAliasGroup(MerchantAliasGroup(id: UUID(),
+                canonicalName: suggestion.canonicalName, memberKeys: suggestion.memberKeys,
+                createdAt: now, updatedAt: now))
+        } catch { store.errorMessage = error.localizedDescription }
+    }
+
+    private func undo(_ group: MerchantAliasGroup) {
+        do { try store.deleteMerchantAliasGroup(group.id) }
+        catch { store.errorMessage = error.localizedDescription }
     }
 }
 
@@ -467,6 +644,13 @@ private func chartDate(_ day: LocalDay) -> Date {
 
 private func monthLabel(_ day: LocalDay) -> String {
     chartDate(day).formatted(.dateTime.month(.wide).year())
+}
+
+private func openActivity(ids: Set<UUID>, label: String, snapshot: FinancialAnalyticsSnapshot,
+                          navigation: AppNavigationModel) {
+    var filter = snapshot.appliedFilter
+    filter.transactionIDs = ids
+    navigation.showActivity(label: label, filter: filter)
 }
 
 @AxisContentBuilder

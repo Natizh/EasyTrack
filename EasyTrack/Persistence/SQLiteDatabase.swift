@@ -38,8 +38,8 @@ final class SQLiteDatabase {
             try execute("PRAGMA query_only=ON")
             let stmt = try statement("PRAGMA user_version")
             defer { sqlite3_finalize(stmt) }
-            guard sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_int(stmt, 0) == 7 else {
-                throw DatabaseError.sqlite("Ledger schema must be version 7 before export")
+            guard sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_int(stmt, 0) == 8 else {
+                throw DatabaseError.sqlite("Ledger schema must be version 8 before export")
             }
         } catch {
             sqlite3_close(handle)
@@ -64,7 +64,7 @@ final class SQLiteDatabase {
             }
             let existingVersion = sqlite3_column_int(versionStatement, 0)
             sqlite3_finalize(versionStatement)
-            guard existingVersion <= 7 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
+            guard existingVersion <= 8 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
             try execute("""
                 CREATE TABLE IF NOT EXISTS transactions (
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL, amount_minor INTEGER NOT NULL,
@@ -233,6 +233,7 @@ final class SQLiteDatabase {
             if existingVersion < 5 { try migrateToSchemaFive() }
             if existingVersion < 6 { try migrateToSchemaSix() }
             if existingVersion < 7 { try migrateToSchemaSeven() }
+            if existingVersion < 8 { try migrateToSchemaEight() }
             try backfillSourceAccountsFromLegacyRules()
             try backfillLegacyNotificationEvents()
         } catch {
