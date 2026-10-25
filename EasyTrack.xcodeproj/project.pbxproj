@@ -34,6 +34,7 @@
 		C67F480188BCCBB544FD3118 /* SystemDocumentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B213F8546319D3AE8F801F /* SystemDocumentPicker.swift */; };
 		D740139540BF108F7F9EDCA7 /* Icon-60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = 3D24BCD975ADF170B117F140 /* Icon-60@3x.png */; };
 		D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A18BE776B20AE51FF239E7 /* Models.swift */; };
+		F1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* NotificationParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */; };
 		A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */; };
 		A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */; };
@@ -69,6 +70,7 @@
 		76B767246820AD0774018D33 /* EasyTrackUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EasyTrackUITests.swift; sourceTree = "<group>"; };
 		7C322502569D2F1686527961 /* CaptureNotificationIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureNotificationIntent.swift; sourceTree = "<group>"; };
 		81A18BE776B20AE51FF239E7 /* Models.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		E1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FinancialAnalytics.swift; sourceTree = "<group>"; };
 		B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationParser.swift; sourceTree = "<group>"; };
 		B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DailyModels.swift; sourceTree = "<group>"; };
 		B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecurringSchedule.swift; sourceTree = "<group>"; };
@@ -221,6 +223,7 @@
 			isa = PBXGroup;
 			children = (
 				81A18BE776B20AE51FF239E7 /* Models.swift */,
+				E1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift */,
 				B1C2D3E4F5061728394A5B6C /* NotificationParser.swift */,
 				B2C3D4E5F60718293A4B5C6D /* DailyModels.swift */,
 				B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */,
@@ -379,6 +382,7 @@
 				6EE87AB06EE7478AA75F75CA /* XLSXWriter.swift in Sources */,
 				23EC4C354E1F428182BC6B44 /* TransactionExportView.swift in Sources */,
 				D7BEDDB94ADC57D4CE1732D4 /* Models.swift in Sources */,
+				F1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* NotificationParser.swift in Sources */,
 				A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */,
 				A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */,

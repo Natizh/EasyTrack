@@ -279,15 +279,33 @@ struct LedgerTotals: Equatable {
     }
 }
 
-struct TransactionFilter {
+struct TransactionFilter: Equatable {
     var query = ""
     var kind: TransactionKind?
     var category: String?
     var account: String?
     var tripID: String?
     var currency: String?
+    var dateInterval: LedgerDateInterval?
+    var transactionIDs: Set<UUID>?
+    var accountKeys: Set<String>?
+    var categoryKeys: Set<String>?
+    var kindKeys: Set<String>?
+    var tripIDs: Set<String>?
+    var currencies: Set<String>?
 
-    func apply(to transactions: [Transaction], tripNames: [String: String] = [:]) -> [Transaction] {
+    static func accountKey(_ item: Transaction) -> String {
+        item.accountID.map { "id:\($0.uuidString)" } ?? "label:\(item.account)"
+    }
+
+    static func categoryKey(_ item: Transaction) -> String {
+        if let id = item.categoryID { return "id:\(id.uuidString)" }
+        return item.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "uncategorized" : "label:\(item.category)"
+    }
+
+    func apply(to transactions: [Transaction], tripNames: [String: String] = [:],
+               timeZone: TimeZone = .current) -> [Transaction] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return transactions.filter { item in
             guard item.deletedAt == nil,
@@ -295,7 +313,14 @@ struct TransactionFilter {
                   category == nil || item.category == category,
                   account == nil || item.account == account,
                   tripID == nil || item.tripID == tripID,
-                  currency == nil || item.currency == currency else { return false }
+                  currency == nil || item.currency == currency,
+                  dateInterval?.contains(item.occurredAt, timeZone: timeZone) != false,
+                  transactionIDs?.contains(item.id) != false,
+                  accountKeys?.contains(Self.accountKey(item)) != false,
+                  categoryKeys?.contains(Self.categoryKey(item)) != false,
+                  kindKeys?.contains(item.kind.rawValue) != false,
+                  tripIDs?.contains(item.tripID ?? "") != false,
+                  currencies?.contains(item.currency) != false else { return false }
             guard !needle.isEmpty else { return true }
             return [item.merchant, item.account, item.category, item.subcategory ?? "", item.note,
                     item.paidBy ?? "", tripNames[item.tripID ?? ""] ?? "", item.kind.title]
