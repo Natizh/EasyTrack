@@ -27,6 +27,103 @@ enum DashboardWidgetRegistry {
         .init(id: .dailySpending, title: "Daily spending", systemImage: "chart.bar", defaultOrder: 3),
         .init(id: .uncategorized, title: "Uncategorized", systemImage: "tag", defaultOrder: 4)
     ].sorted { $0.defaultOrder < $1.defaultOrder }
+
+    static func resolved(preferences: [DashboardWidgetPreference]) -> [(DashboardWidgetDescriptor, Bool)] {
+        let byID = Dictionary(uniqueKeysWithValues: available.map { ($0.id.rawValue, $0) })
+        return DashboardWidgetPreferenceResolver.resolve(
+            availableIDs: available.map { $0.id.rawValue },
+            defaultOrder: available.map { $0.id.rawValue },
+            preferences: preferences
+        ).compactMap { item in
+            byID[item.widgetID].map { ($0, item.isVisible) }
+        }
+    }
+
+    static func visible(preferences: [DashboardWidgetPreference]) -> [DashboardWidgetDescriptor] {
+        resolved(preferences: preferences).compactMap { descriptor, isVisible in
+            isVisible ? descriptor : nil
+        }
+    }
+}
+
+private struct EditableDashboardWidget: Identifiable {
+    let descriptor: DashboardWidgetDescriptor
+    var isVisible: Bool
+    var id: DashboardWidgetID { descriptor.id }
+}
+
+struct DashboardWidgetEditorView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var items: [EditableDashboardWidget] = []
+    @State private var confirmingReset = false
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(items) { item in
+                    Toggle(isOn: visibilityBinding(for: item.id)) {
+                        Label(item.descriptor.title, systemImage: item.descriptor.systemImage)
+                    }
+                    .accessibilityHint("Controls whether this module appears on Home")
+                }
+                .onMove(perform: move)
+            } footer: {
+                Text("The financial hero and recent activity always remain first.")
+            }
+            Section {
+                Button("Restore default layout", role: .destructive) { confirmingReset = true }
+            }
+        }
+        .navigationTitle("Customize Home")
+        .environment(\.editMode, .constant(.active))
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+        }
+        .onAppear {
+            items = DashboardWidgetRegistry.resolved(preferences: store.dashboardWidgetPreferences)
+                .map { EditableDashboardWidget(descriptor: $0.0, isVisible: $0.1) }
+        }
+        .confirmationDialog("Restore the default widget order and visibility?",
+                            isPresented: $confirmingReset, titleVisibility: .visible) {
+            Button("Restore defaults", role: .destructive) { reset() }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func visibilityBinding(for id: DashboardWidgetID) -> Binding<Bool> {
+        Binding {
+            items.first { $0.id == id }?.isVisible ?? true
+        } set: { value in
+            guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+            items[index].isVisible = value
+            persist()
+        }
+    }
+
+    private func move(from source: IndexSet, to destination: Int) {
+        items.move(fromOffsets: source, toOffset: destination)
+        persist()
+    }
+
+    private func persist() {
+        do {
+            let now = Date()
+            try store.saveDashboardWidgetPreferences(items.enumerated().map { index, item in
+                DashboardWidgetPreference(widgetID: item.id.rawValue, position: index,
+                                          isVisible: item.isVisible, updatedAt: now)
+            })
+        } catch { store.errorMessage = error.localizedDescription }
+    }
+
+    private func reset() {
+        do {
+            try store.resetDashboardWidgetPreferences()
+            items = DashboardWidgetRegistry.available.map {
+                EditableDashboardWidget(descriptor: $0, isVisible: true)
+            }
+        } catch { store.errorMessage = error.localizedDescription }
+    }
 }
 
 struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {

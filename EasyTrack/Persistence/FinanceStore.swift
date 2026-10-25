@@ -16,6 +16,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var historicalAccounts: [HistoricalAccount] = []
     @Published private(set) var historicalTrips: [HistoricalTrip] = []
     @Published private(set) var historicalRules: [HistoricalRecurringRule] = []
+    @Published private(set) var dashboardWidgetPreferences: [DashboardWidgetPreference] = []
     @Published var errorMessage: String?
 
     init() {
@@ -51,6 +52,7 @@ final class FinanceStore: ObservableObject {
             historicalAccounts = try database.historicalAccounts()
             historicalTrips = try database.historicalTrips()
             historicalRules = try database.historicalRules()
+            dashboardWidgetPreferences = try database.dashboardWidgetPreferences()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -80,6 +82,26 @@ final class FinanceStore: ObservableObject {
 
     func swapCategoryOrder(_ first: LedgerCategory, _ second: LedgerCategory) throws {
         try SQLiteDatabase.open().swapCategoryOrder(first, second)
+        reload()
+    }
+
+    func saveDashboardWidgetPreferences(_ knownPreferences: [DashboardWidgetPreference]) throws {
+        let incoming = Set(knownPreferences.map(\.widgetID))
+        let unknown = dashboardWidgetPreferences.filter { !incoming.contains($0.widgetID) }
+        let combined = knownPreferences.enumerated().map { index, item in
+            DashboardWidgetPreference(widgetID: item.widgetID, position: index,
+                                      isVisible: item.isVisible, updatedAt: item.updatedAt)
+        } + unknown.enumerated().map { offset, item in
+            DashboardWidgetPreference(widgetID: item.widgetID,
+                                      position: knownPreferences.count + offset,
+                                      isVisible: item.isVisible, updatedAt: item.updatedAt)
+        }
+        try SQLiteDatabase.open().saveDashboardWidgetPreferences(combined)
+        reload()
+    }
+
+    func resetDashboardWidgetPreferences() throws {
+        try SQLiteDatabase.open().resetDashboardWidgetPreferences()
         reload()
     }
 

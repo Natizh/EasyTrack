@@ -99,7 +99,7 @@ final class BackupRestoreTests: XCTestCase {
         }
     }
 
-    func testVersionSixBackupUpgradesToSevenWithoutChangingLegacyTotals() throws {
+    func testVersionSixBackupUpgradesToCurrentWithoutChangingLegacyTotals() throws {
         try withDatabases { source, target, targetURL in
             _ = try populate(source)
             let before = LedgerTotals(transactions: try source.transactions())
@@ -128,7 +128,7 @@ final class BackupRestoreTests: XCTestCase {
                 contentSHA256: try SQLiteDatabase.digest(olderTables),
                 tables: olderTables, sourceFormatVersion: nil)
             let converted = try BackupArchive.decode(JSONEncoder().encode(older))
-            XCTAssertEqual(converted.schemaVersion, 7)
+            XCTAssertEqual(converted.schemaVersion, 8)
             XCTAssertEqual(converted.sourceFormatVersion, 6)
             let preview = try target.previewBackup(converted)
             XCTAssertEqual(preview.sourceFormatVersion, 6)
@@ -136,7 +136,7 @@ final class BackupRestoreTests: XCTestCase {
             let reopened = try SQLiteDatabase(url: targetURL)
             XCTAssertEqual(LedgerTotals(transactions: try reopened.transactions()), before)
             XCTAssertEqual(try reopened.recurringOccurrences().first?.status, .legacyCounted)
-            XCTAssertEqual(try reopened.exportBackup().schemaVersion, 7)
+            XCTAssertEqual(try reopened.exportBackup().schemaVersion, 8)
             try reopened.checkDatabase()
         }
     }
@@ -205,11 +205,11 @@ final class BackupRestoreTests: XCTestCase {
             let backup = try source.exportBackup()
             let original = try target.backupTables()
             XCTAssertThrowsError(try BackupArchive.decode(Data("{".utf8)))
-            for version in [2, 3, 4, 8] {
+            for version in [2, 3, 4, 9] {
                 XCTAssertThrowsError(try BackupArchive.decode(Data("{\"schemaVersion\":\(version)}".utf8)))
             }
             XCTAssertThrowsError(try BackupArchive.decode(Data("{\"schemaVersion\":5}".utf8)))
-            let incomplete = BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
+            let incomplete = BackupArchive(schemaVersion: 8, databaseSchemaVersion: 7,
                 exportID: backup.exportID, exportedAt: backup.exportedAt,
                 contentSHA256: backup.contentSHA256, tables: Array(backup.tables.dropLast()),
                 sourceFormatVersion: nil)
@@ -221,7 +221,7 @@ final class BackupRestoreTests: XCTestCase {
                 let index = try XCTUnwrap(changed[position].columns.firstIndex(of: column))
                 rows[0][index] = value
                 changed[position] = BackupTable(name: "transactions", columns: changed[position].columns, rows: rows)
-                let damaged = BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
+                let damaged = BackupArchive(schemaVersion: 8, databaseSchemaVersion: 7,
                     exportID: backup.exportID, exportedAt: backup.exportedAt,
                     contentSHA256: try SQLiteDatabase.digest(changed), tables: changed,
                     sourceFormatVersion: nil)

@@ -119,6 +119,7 @@ private struct TransactionRow: View {
 private struct HomeView: View {
     @EnvironmentObject private var store: FinanceStore
     @State private var showingNew = false
+    @State private var showingDashboardEditor = false
 
     private var homeTransactions: [Transaction] {
         let active = store.transactions.filter { $0.deletedAt == nil }
@@ -276,7 +277,8 @@ private struct HomeView: View {
                     }
                 }
 
-                DashboardWidgetLayout(snapshot: currentMonthSnapshot) {
+                DashboardWidgetLayout(snapshot: currentMonthSnapshot,
+                    widgets: DashboardWidgetRegistry.visible(preferences: store.dashboardWidgetPreferences)) {
                     recurringWidget
                 } uncategorized: {
                     uncategorizedWidget
@@ -286,12 +288,18 @@ private struct HomeView: View {
         }
         .background(Palette.canvas)
         .navigationTitle("EasyTrack")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) {
+        .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
+            Button { showingDashboardEditor = true } label: { Image(systemName: "slider.horizontal.3") }
+                .accessibilityLabel("Customize Home")
+                .accessibilityIdentifier("customizeHomeButton")
             Button { showingNew = true } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add transaction")
                 .accessibilityIdentifier("homeAddTransactionButton")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
+        .sheet(isPresented: $showingDashboardEditor) {
+            NavigationStack { DashboardWidgetEditorView() }
+        }
     }
 }
 
