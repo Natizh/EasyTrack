@@ -161,11 +161,26 @@ struct FinancialDailyAverage: Equatable {
     }
 }
 
-struct FinancialCategoryAggregate: Equatable {
+struct FinancialCategoryAggregate: Equatable, Identifiable {
+    var id: String { key }
     let key: String
     let categoryID: UUID?
     let name: String
     let personalNetExpensesEURMinor: Int64
+}
+
+struct FinancialMonthlyAggregate: Equatable, Identifiable {
+    var id: LocalDay { month }
+    let month: LocalDay
+    var grossExpensesEURMinor: Int64 = 0
+    var incomeEURMinor: Int64 = 0
+    var pacInvestedEURMinor: Int64 = 0
+}
+
+struct FinancialDailyAggregate: Equatable, Identifiable {
+    var id: LocalDay { day }
+    let day: LocalDay
+    var personalNetExpensesEURMinor: Int64 = 0
 }
 
 enum FinancialMetric: String, Equatable, Hashable {
@@ -203,6 +218,8 @@ struct FinancialAnalyticsSnapshot: Equatable {
     let totals: FinancialTotals
     let dailyAverage: FinancialDailyAverage
     let categories: [FinancialCategoryAggregate]
+    let monthlyTrend: [FinancialMonthlyAggregate]
+    let dailySpending: [FinancialDailyAggregate]
     let unallocatedPersonalAdjustmentEURMinor: Int64
     let nonPositiveCategoryAdjustmentEURMinor: Int64
     let unconvertedTransactions: [UnconvertedFinancialTransaction]
@@ -225,12 +242,14 @@ enum FinancialAnalytics {
         var currentFilter = baseFilter
         currentFilter.dateInterval = selection.effective
         let currentItems = currentFilter.apply(to: transactions, tripNames: tripNames, timeZone: timeZone)
-        let current = try aggregate(currentItems, categoryNames: categoryNames)
+        let current = try aggregate(currentItems, interval: selection.effective,
+                                    categoryNames: categoryNames, timeZone: timeZone)
 
         var comparisonFilter = baseFilter
         comparisonFilter.dateInterval = selection.comparison
         let comparisonItems = comparisonFilter.apply(to: transactions, tripNames: tripNames, timeZone: timeZone)
-        let previous = try aggregate(comparisonItems, categoryNames: categoryNames)
+        let previous = try aggregate(comparisonItems, interval: selection.comparison,
+                                     categoryNames: categoryNames, timeZone: timeZone)
         let change: FinancialPercentageChange?
         if previous.totals.personalNetExpensesEURMinor == 0 {
             change = nil
@@ -249,6 +268,8 @@ enum FinancialAnalytics {
                 personalNetExpensesEURMinor: current.totals.personalNetExpensesEURMinor,
                 elapsedDayCount: try selection.effective.dayCount(timeZone: timeZone)),
             categories: current.categories,
+            monthlyTrend: current.monthlyTrend,
+            dailySpending: current.dailySpending,
             unallocatedPersonalAdjustmentEURMinor: current.unallocated,
             nonPositiveCategoryAdjustmentEURMinor: current.nonPositiveCategories,
             unconvertedTransactions: current.unconverted,
@@ -262,6 +283,8 @@ enum FinancialAnalytics {
     private struct Aggregation {
         let totals: FinancialTotals
         let categories: [FinancialCategoryAggregate]
+        let monthlyTrend: [FinancialMonthlyAggregate]
+        let dailySpending: [FinancialDailyAggregate]
         let unallocated: Int64
         let nonPositiveCategories: Int64
         let unconverted: [UnconvertedFinancialTransaction]
@@ -273,14 +296,24 @@ enum FinancialAnalytics {
         var amount: Int64
     }
 
-    private static func aggregate(_ transactions: [Transaction],
-                                  categoryNames: [UUID: String]) throws -> Aggregation {
+    private static func aggregate(_ transactions: [Transaction], interval: LedgerDateInterval,
+                                  categoryNames: [UUID: String], timeZone: TimeZone) throws -> Aggregation {
         var totals = FinancialTotals()
         var categoryValues: [String: MutableCategory] = [:]
         var unallocated: Int64 = 0
         var unconverted: [UnconvertedFinancialTransaction] = []
+        let intervalDays = try days(in: interval, timeZone: timeZone)
+        var dailyValues = Dictionary(uniqueKeysWithValues: intervalDays.map {
+            ($0, FinancialDailyAggregate(day: $0))
+        })
+        let months = Set(intervalDays.map { LocalDay(year: $0.year, month: $0.month, day: 1) })
+        var monthlyValues = Dictionary(uniqueKeysWithValues: months.map {
+            ($0, FinancialMonthlyAggregate(month: $0))
+        })
 
         for item in transactions {
+            let localDay = LocalDay(date: item.occurredAt, timeZone: timeZone)
+            let month = LocalDay(year: localDay.year, month: localDay.month, day: 1)
             let eur = item.eurMinor ?? (item.currency == "EUR" ? item.amountMinor : nil)
             let personal = item.personalExpenseEURMinor ??
                 (item.kind == .expense && item.currency == "EUR" ? item.amountMinor : nil)
@@ -288,6 +321,10 @@ enum FinancialAnalytics {
 
             if let personal {
                 try addChecked(personal, to: &totals.personalNetExpensesEURMinor)
+                if var daily = dailyValues[localDay] {
+                    try addChecked(personal, to: &daily.personalNetExpensesEURMinor)
+                    dailyValues[localDay] = daily
+                }
                 let trimmed = item.category.trimmingCharacters(in: .whitespacesAndNewlines)
                 if item.categoryID == nil && trimmed.isEmpty {
                     try addChecked(personal, to: &unallocated)
@@ -308,13 +345,31 @@ enum FinancialAnalytics {
 
             switch item.kind {
             case .expense:
-                if let eur { try addChecked(eur, to: &totals.grossExpensesEURMinor) }
+                if let eur {
+                    try addChecked(eur, to: &totals.grossExpensesEURMinor)
+                    if var monthly = monthlyValues[month] {
+                        try addChecked(eur, to: &monthly.grossExpensesEURMinor)
+                        monthlyValues[month] = monthly
+                    }
+                }
                 else { unavailable.insert(.grossExpenses) }
             case .income:
-                if let eur { try addChecked(eur, to: &totals.incomeEURMinor) }
+                if let eur {
+                    try addChecked(eur, to: &totals.incomeEURMinor)
+                    if var monthly = monthlyValues[month] {
+                        try addChecked(eur, to: &monthly.incomeEURMinor)
+                        monthlyValues[month] = monthly
+                    }
+                }
                 else { unavailable.insert(.income) }
             case .pacInvestment:
-                if let eur { try addChecked(eur, to: &totals.pacInvestedEURMinor) }
+                if let eur {
+                    try addChecked(eur, to: &totals.pacInvestedEURMinor)
+                    if var monthly = monthlyValues[month] {
+                        try addChecked(eur, to: &monthly.pacInvestedEURMinor)
+                        monthlyValues[month] = monthly
+                    }
+                }
                 else { unavailable.insert(.pacInvestment) }
             case .advanceForOthers, .reimbursement, .deposit, .depositRefund:
                 break
@@ -347,8 +402,25 @@ enum FinancialAnalytics {
             }
         }
         precondition(reconciled == totals.personalNetExpensesEURMinor)
-        return Aggregation(totals: totals, categories: categories, unallocated: unallocated,
+        return Aggregation(totals: totals, categories: categories,
+                           monthlyTrend: monthlyValues.values.sorted { $0.month < $1.month },
+                           dailySpending: dailyValues.values.sorted { $0.day < $1.day },
+                           unallocated: unallocated,
                            nonPositiveCategories: nonPositiveCategories, unconverted: unconverted)
+    }
+
+    private static func days(in interval: LedgerDateInterval, timeZone: TimeZone) throws -> [LocalDay] {
+        guard let start = interval.start.noon(in: timeZone) else {
+            throw FinancialAnalyticsError.invalidPeriod
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return try (0..<interval.dayCount(timeZone: timeZone)).map { offset in
+            guard let date = calendar.date(byAdding: .day, value: offset, to: start) else {
+                throw FinancialAnalyticsError.invalidPeriod
+            }
+            return LocalDay(date: date, timeZone: timeZone)
+        }
     }
 
     private static func addChecked(_ amount: Int64, to total: inout Int64) throws {

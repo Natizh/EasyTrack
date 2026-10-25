@@ -149,6 +149,101 @@ private struct HomeView: View {
         store.recurringOccurrences.first { $0.status == .confirmed && $0.transactionID != nil }
     }
 
+    private var recurringWidget: some View {
+        DashboardModuleCard {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    Label("Upcoming", systemImage: "calendar")
+                        .font(.title3.bold()).foregroundStyle(Palette.ink)
+                    Spacer()
+                    NavigationLink("Manage") { RecurringListView() }
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                }
+                if upcoming.isEmpty {
+                    Text("No repeating payments expected in the next 30 days.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    ForEach(upcoming.prefix(1)) { item in
+                        UpcomingRecurringRow(item: item)
+                    }
+                    if upcoming.count > 1 {
+                        Text("\(upcoming.count - 1) more expected in the next 30 days")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if !dueExpected.isEmpty {
+                    if let due = dueExpected.first,
+                       let rule = store.recurringRules.first(where: { $0.id == due.ruleID }) {
+                        let today = LocalDay(date: .now,
+                            timeZone: TimeZone(identifier: rule.timeZoneIdentifier) ?? .current)
+                        let dueStatus = due.scheduledDay < today ? "Overdue" : "Expected today"
+                        NavigationLink { RecurringOccurrenceDetailView(occurrenceID: due.id) } label: {
+                            Label("\(dueStatus) · \(rule.name)", systemImage: "clock")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .accessibilityIdentifier("homeRecurringDueStatus")
+                    }
+                    Text("\(dueExpected.count) expected payment(s) are not included in totals.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let paid = recentPaid, let id = paid.transactionID,
+                   let transaction = store.transactions.first(where: { $0.id == id }),
+                   let rule = store.recurringRules.first(where: { $0.id == paid.ruleID }) {
+                    NavigationLink { TransactionEditor(item: transaction) } label: {
+                        Label("Paid · \(rule.name) · \(Money.format(transaction.eurMinor ?? transaction.amountMinor))",
+                              systemImage: "checkmark.circle")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .accessibilityIdentifier("homeRecurringPaidStatus")
+                }
+                if needsReview > 0 {
+                    NavigationLink { RecurringListView() } label: {
+                        Label("\(needsReview) recurring match(es) need review",
+                              systemImage: "exclamationmark.circle")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("homeRecurringNeedsReview")
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("homeUpcomingSection")
+    }
+
+    @ViewBuilder
+    private var uncategorizedWidget: some View {
+        if !uncategorized.isEmpty {
+            DashboardModuleCard {
+                VStack(alignment: .leading, spacing: 11) {
+                    HStack {
+                        Label("Uncategorized", systemImage: "tag")
+                            .font(.title3.bold()).foregroundStyle(Palette.ink)
+                        Spacer()
+                        Text("\(uncategorized.count)")
+                            .font(.caption.weight(.bold)).foregroundStyle(Palette.teal)
+                            .padding(.horizontal, 9).padding(.vertical, 5)
+                            .background(Palette.mint, in: Capsule())
+                    }
+                    Text("Complete transactions waiting for an optional category.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(uncategorized.prefix(2)) { item in
+                        NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+                            .buttonStyle(.plain)
+                        if item.id != uncategorized.prefix(2).last?.id {
+                            Divider().padding(.leading, 55)
+                        }
+                    }
+                    if uncategorized.count > 2 {
+                        NavigationLink("See all") { UncategorizedTransactionsView() }
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                            .padding(.top, 3)
+                    }
+                }
+            }
+            .accessibilityIdentifier("homeUncategorizedSection")
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -181,93 +276,10 @@ private struct HomeView: View {
                     }
                 }
 
-                DashboardModuleCard {
-                    VStack(alignment: .leading, spacing: 11) {
-                    HStack {
-                        Label("Upcoming", systemImage: "calendar")
-                            .font(.title3.bold()).foregroundStyle(Palette.ink)
-                        Spacer()
-                        NavigationLink("Manage") { RecurringListView() }
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
-                    }
-                    if upcoming.isEmpty {
-                        Text("No repeating payments expected in the next 30 days.")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    } else {
-                        ForEach(upcoming.prefix(1)) { item in
-                            UpcomingRecurringRow(item: item)
-                        }
-                        if upcoming.count > 1 {
-                            Text("\(upcoming.count - 1) more expected in the next 30 days")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    if !dueExpected.isEmpty {
-                        if let due = dueExpected.first,
-                           let rule = store.recurringRules.first(where: { $0.id == due.ruleID }) {
-                            let today = LocalDay(date: .now,
-                                timeZone: TimeZone(identifier: rule.timeZoneIdentifier) ?? .current)
-                            let dueStatus = due.scheduledDay < today ? "Overdue" : "Expected today"
-                            NavigationLink { RecurringOccurrenceDetailView(occurrenceID: due.id) } label: {
-                                Label("\(dueStatus) · \(rule.name)",
-                                      systemImage: "clock")
-                            }
-                            .font(.subheadline.weight(.medium))
-                            .accessibilityIdentifier("homeRecurringDueStatus")
-                        }
-                        Text("\(dueExpected.count) expected payment(s) are not included in totals.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let paid = recentPaid, let id = paid.transactionID,
-                       let transaction = store.transactions.first(where: { $0.id == id }),
-                       let rule = store.recurringRules.first(where: { $0.id == paid.ruleID }) {
-                        NavigationLink { TransactionEditor(item: transaction) } label: {
-                            Label("Paid · \(rule.name) · \(Money.format(transaction.eurMinor ?? transaction.amountMinor))",
-                                  systemImage: "checkmark.circle")
-                        }
-                        .font(.subheadline.weight(.medium))
-                        .accessibilityIdentifier("homeRecurringPaidStatus")
-                    }
-                    if needsReview > 0 {
-                        NavigationLink { RecurringListView() } label: {
-                            Label("\(needsReview) recurring match(es) need review",
-                                  systemImage: "exclamationmark.circle")
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .accessibilityIdentifier("homeRecurringNeedsReview")
-                    }
-                    }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("homeUpcomingSection")
-
-                if !uncategorized.isEmpty {
-                    DashboardModuleCard {
-                        VStack(alignment: .leading, spacing: 11) {
-                        HStack {
-                            Label("Uncategorized", systemImage: "tag")
-                                .font(.title3.bold()).foregroundStyle(Palette.ink)
-                            Spacer()
-                            Text("\(uncategorized.count)")
-                                .font(.caption.weight(.bold)).foregroundStyle(Palette.teal)
-                                .padding(.horizontal, 9).padding(.vertical, 5)
-                                .background(Palette.mint, in: Capsule())
-                        }
-                        Text("Complete transactions waiting for an optional category.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        ForEach(uncategorized.prefix(2)) { item in
-                            NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
-                                .buttonStyle(.plain)
-                            if item.id != uncategorized.prefix(2).last?.id { Divider().padding(.leading, 55) }
-                        }
-                        if uncategorized.count > 2 {
-                            NavigationLink("See all") { UncategorizedTransactionsView() }
-                                .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
-                                .padding(.top, 3)
-                        }
-                        }
-                    }
-                    .accessibilityIdentifier("homeUncategorizedSection")
+                DashboardWidgetLayout(snapshot: currentMonthSnapshot) {
+                    recurringWidget
+                } uncategorized: {
+                    uncategorizedWidget
                 }
             }
             .padding(20)

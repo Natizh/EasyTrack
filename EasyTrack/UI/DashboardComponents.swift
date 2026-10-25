@@ -34,6 +34,7 @@ struct MetricTile: View {
     let title: String
     let value: String
     let symbol: String
+    var accessibilityTitle: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -52,6 +53,7 @@ struct MetricTile: View {
         .padding(12)
         .background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(accessibilityTitle ?? title), \(value)")
     }
 }
 
@@ -76,7 +78,8 @@ struct FinancialHeroCard: View {
                        symbol: "arrow.down.left")
             MetricTile(title: "PAC", value: snapshot.map { Money.format($0.totals.pacInvestedEURMinor) } ?? "—",
                        symbol: "chart.line.uptrend.xyaxis")
-            MetricTile(title: "Daily average", value: dailyAverage, symbol: "calendar.day.timeline.left")
+            MetricTile(title: "Daily avg", value: dailyAverage, symbol: "calendar.day.timeline.left",
+                       accessibilityTitle: "Daily average")
         }
     }
 

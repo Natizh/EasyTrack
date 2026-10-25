@@ -68,6 +68,16 @@ final class FinancialAnalyticsTests: XCTestCase {
         XCTAssertEqual(snapshot.totals.pacInvestedEURMinor, 3_000)
         XCTAssertEqual(snapshot.dailyAverage,
                        FinancialDailyAverage(personalNetExpensesEURMinor: 500, elapsedDayCount: 15))
+        XCTAssertEqual(snapshot.monthlyTrend, [FinancialMonthlyAggregate(
+            month: day("2026-10-01"), grossExpensesEURMinor: 12_000,
+            incomeEURMinor: 50_000, pacInvestedEURMinor: 3_000)])
+        XCTAssertEqual(snapshot.dailySpending.count, 15)
+        XCTAssertEqual(snapshot.dailySpending.first { $0.day == day("2026-10-02") }?.personalNetExpensesEURMinor,
+                       6_000)
+        XCTAssertEqual(snapshot.dailySpending.first { $0.day == day("2026-10-04") }?.personalNetExpensesEURMinor,
+                       -7_000)
+        XCTAssertEqual(snapshot.dailySpending.first { $0.day == day("2026-10-11") }?.personalNetExpensesEURMinor,
+                       0)
         XCTAssertEqual(snapshot.categories.map(\.personalNetExpensesEURMinor), [2_000, -1_000])
         XCTAssertEqual(snapshot.positiveCategories.map(\.name), ["Travel"])
         XCTAssertEqual(snapshot.nonPositiveCategoryAdjustmentEURMinor, -1_000)
@@ -83,6 +93,34 @@ final class FinancialAnalyticsTests: XCTestCase {
         XCTAssertEqual(snapshot.unconvertedTransactions.first { $0.currency == "GBP" }?.unavailableMetrics,
                        [.pacInvestment])
         XCTAssertNil(snapshot.comparison.personalNetExpensesChange)
+    }
+
+    func testChartSeriesSpanMonthsIncludeEmptyDaysAndKeepSignedPersonalAmounts() throws {
+        var septemberExpense = item(10, kind: .expense, cents: 1_200, day: "2026-09-29", category: "Food")
+        septemberExpense.eurMinor = 1_200
+        septemberExpense.personalExpenseEURMinor = 1_000
+        var octoberRefund = item(11, kind: .reimbursement, cents: 250, day: "2026-10-01")
+        octoberRefund.eurMinor = 250
+        octoberRefund.personalExpenseEURMinor = -250
+        var octoberIncome = item(12, kind: .income, cents: 5_000, day: "2026-10-02")
+        octoberIncome.eurMinor = 5_000
+        var octoberPAC = item(13, kind: .pacInvestment, cents: 700, day: "2026-10-02")
+        octoberPAC.eurMinor = 700
+
+        let snapshot = try FinancialAnalytics.snapshot(
+            transactions: [septemberExpense, octoberRefund, octoberIncome, octoberPAC],
+            period: .custom(start: day("2026-09-29"), end: day("2026-10-02")),
+            zone: zone, now: date("2026-10-10"))
+
+        XCTAssertEqual(snapshot.monthlyTrend, [
+            FinancialMonthlyAggregate(month: day("2026-09-01"), grossExpensesEURMinor: 1_200),
+            FinancialMonthlyAggregate(month: day("2026-10-01"), incomeEURMinor: 5_000,
+                                      pacInvestedEURMinor: 700)
+        ])
+        XCTAssertEqual(snapshot.dailySpending.map(\.personalNetExpensesEURMinor), [1_000, 0, -250, 0])
+        XCTAssertEqual(snapshot.dailySpending.map(\.day),
+                       [day("2026-09-29"), day("2026-09-30"), day("2026-10-01"), day("2026-10-02")])
+        XCTAssertEqual(snapshot.unallocatedPersonalAdjustmentEURMinor, -250)
     }
 
     func testIncompleteCalendarPeriodsAndEquivalentComparisons() throws {
