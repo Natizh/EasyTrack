@@ -16,6 +16,7 @@
 		56C2FA802360149DC48B50F9 /* FinanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2B12A9D4543CDC906ECF61 /* FinanceStore.swift */; };
 		725EF60B29211DEBF3F2DD7F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0929DFA64B2D17F75F079643 /* Foundation.framework */; };
 		7636361A00ADD880A96E4D27 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE8E4F1FD7BCBFD928729DD8 /* RootView.swift */; };
+		F2A3B4C5D6E708192A3B4C5D /* DashboardComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2A3B4C5D6E708192A3B4C5D /* DashboardComponents.swift */; };
 		C1D2E3F40516273849A5B6C7 /* AutomationBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F30415263748A9B5C6D7 /* AutomationBuilder.swift */; };
 		A5B6C7D8E9F0123A4B5C6D7E /* FinanceManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C6D7E8F9012A3B4C5D6E7F /* FinanceManagementViews.swift */; };
 		A6B7C8D9E0F1234A5B6C7D8E /* RecurringViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C7D8E9F0123A4B5C6D7E8F /* RecurringViews.swift */; };
@@ -77,6 +78,7 @@
 		897736F4E2C9255993032DC1 /* EasyTrackApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EasyTrackApp.swift; sourceTree = "<group>"; };
 		9E059E5133108C94975B5E0E /* SeedImportCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SeedImportCoordinator.swift; sourceTree = "<group>"; };
 		BE8E4F1FD7BCBFD928729DD8 /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		E2A3B4C5D6E708192A3B4C5D /* DashboardComponents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DashboardComponents.swift; sourceTree = "<group>"; };
 		D1E2F30415263748A9B5C6D7 /* AutomationBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AutomationBuilder.swift; sourceTree = "<group>"; };
 		B5C6D7E8F9012A3B4C5D6E7F /* FinanceManagementViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FinanceManagementViews.swift; sourceTree = "<group>"; };
 		B6C7D8E9F0123A4B5C6D7E8F /* RecurringViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecurringViews.swift; sourceTree = "<group>"; };
@@ -118,6 +120,7 @@
 			isa = PBXGroup;
 			children = (
 				C784201ED5514D2C84B7BEBF /* HistoricalImportSection.swift */,
+				E2A3B4C5D6E708192A3B4C5D /* DashboardComponents.swift */,
 				BE8E4F1FD7BCBFD928729DD8 /* RootView.swift */,
 				D1E2F30415263748A9B5C6D7 /* AutomationBuilder.swift */,
 				B5C6D7E8F9012A3B4C5D6E7F /* FinanceManagementViews.swift */,
@@ -387,6 +390,7 @@
 				A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */,
 				A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */,
 				3D0A0EE3BDEDE8678AC3D94D /* HistoricalImportSection.swift in Sources */,
+				F2A3B4C5D6E708192A3B4C5D /* DashboardComponents.swift in Sources */,
 				7636361A00ADD880A96E4D27 /* RootView.swift in Sources */,
 				C1D2E3F40516273849A5B6C7 /* AutomationBuilder.swift in Sources */,
 				A5B6C7D8E9F0123A4B5C6D7E /* FinanceManagementViews.swift in Sources */,

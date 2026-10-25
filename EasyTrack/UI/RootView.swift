@@ -2,17 +2,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum Palette {
-    static let ink = Color.primary
-    static let heroInk = Color(red: 0.10, green: 0.17, blue: 0.20)
-    static let heroTeal = Color(red: 0.08, green: 0.45, blue: 0.43)
-    static let teal = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.38, green: 0.84, blue: 0.80, alpha: 1)
-            : UIColor(red: 0.08, green: 0.45, blue: 0.43, alpha: 1)
-    })
-    static let mint = Color.teal.opacity(0.12)
-    static let canvas = Color(uiColor: .systemGroupedBackground)
-    static let surface = Color(uiColor: .secondarySystemGroupedBackground)
+    static let ink = EasyTrackTheme.primaryText
+    static let heroInk = EasyTrackTheme.midnightPine
+    static let heroTeal = EasyTrackTheme.deepTeal
+    static let teal = EasyTrackTheme.accent
+    static let mint = EasyTrackTheme.jadeWash
+    static let canvas = EasyTrackTheme.canvas
+    static let surface = EasyTrackTheme.surface
 }
 
 struct RootView: View {
@@ -124,7 +120,18 @@ private struct HomeView: View {
     @EnvironmentObject private var store: FinanceStore
     @State private var showingNew = false
 
-    private var totals: LedgerTotals { LedgerTotals(transactions: store.transactions) }
+    private var homeTransactions: [Transaction] {
+        let active = store.transactions.filter { $0.deletedAt == nil }
+        let real = active.filter { !$0.isDemo }
+        return real.isEmpty ? active : real
+    }
+    private var currentMonthSnapshot: FinancialAnalyticsSnapshot? {
+        try? FinancialAnalytics.snapshot(transactions: homeTransactions,
+            period: .month(containing: .now, timeZone: .current),
+            categoryNames: Dictionary(uniqueKeysWithValues: store.ledgerCategories.map { ($0.id, $0.name) }),
+            tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
+    }
+    private var recentTransactions: ArraySlice<Transaction> { homeTransactions.prefix(3) }
     private var uncategorized: [Transaction] {
         store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
@@ -145,26 +152,37 @@ private struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                if !store.hasHistoricalImport { DemoBanner(hasDemo: store.transactions.contains { $0.isDemo }) }
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("ALL-TIME PERSONAL SPENDING · EUR").font(.caption.weight(.bold)).tracking(1.2).foregroundStyle(.white.opacity(0.72))
-                    Text(Money.format(totals.personalSpendingEURMinor))
-                        .font(.system(size: 40, weight: .bold, design: .rounded)).monospacedDigit()
-                        .minimumScaleFactor(0.7).lineLimit(1)
-                        .accessibilityIdentifier("homePersonalSpendingTotal")
-                    HStack(spacing: 22) {
-                        metric("All expenses", value: totals.totalExpensesEURMinor, symbol: "arrow.up.right")
-                        metric("Income", value: totals.incomeEURMinor, symbol: "arrow.down.left")
-                    }
-                    if totals.pacInvestedEURMinor > 0 { Text("PAC invested: \(Money.format(totals.pacInvestedEURMinor))").font(.caption).foregroundStyle(.white.opacity(0.75)) }
-                }
-                .foregroundStyle(.white)
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(LinearGradient(colors: [Palette.heroInk, Palette.heroTeal], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 26))
+                FinancialHeroCard(snapshot: currentMonthSnapshot, periodTitle: "Current month")
 
                 VStack(alignment: .leading, spacing: 11) {
+                    HStack {
+                        Text("Recent activity").font(.title3.bold()).foregroundStyle(Palette.ink)
+                        Spacer()
+                        NavigationLink("See all") { TransactionsView() }
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                    }
+                    if recentTransactions.isEmpty {
+                        ContentUnavailableView("No transactions", systemImage: "tray")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    } else {
+                        ForEach(recentTransactions) { item in
+                            NavigationLink { TransactionEditor(item: item) } label: {
+                                RecentTransactionCard(item: item,
+                                    category: item.categoryID.flatMap { id in
+                                        store.ledgerCategories.first { $0.id == id }
+                                    })
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    if !store.hasHistoricalImport {
+                        DemoBanner(hasDemo: store.transactions.contains { $0.isDemo })
+                    }
+                }
+
+                DashboardModuleCard {
+                    VStack(alignment: .leading, spacing: 11) {
                     HStack {
                         Label("Upcoming", systemImage: "calendar")
                             .font(.title3.bold()).foregroundStyle(Palette.ink)
@@ -218,31 +236,14 @@ private struct HomeView: View {
                         .font(.subheadline.weight(.semibold))
                         .accessibilityIdentifier("homeRecurringNeedsReview")
                     }
+                    }
                 }
-                .padding(17)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("homeUpcomingSection")
 
-                HStack {
-                    Text("Recent activity").font(.title3.bold()).foregroundStyle(Palette.ink)
-                    Spacer()
-                    NavigationLink("See all") { TransactionsView() }
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
-                }
-                VStack(spacing: 0) {
-                    ForEach(store.transactions.prefix(3)) { item in
-                        NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
-                            .buttonStyle(.plain)
-                        if item.id != store.transactions.prefix(3).last?.id { Divider().padding(.leading, 55) }
-                    }
-                }
-                .padding(.horizontal, 16).padding(.vertical, 6)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
-                if store.transactions.isEmpty { ContentUnavailableView("No transactions", systemImage: "tray") }
-
                 if !uncategorized.isEmpty {
-                    VStack(alignment: .leading, spacing: 11) {
+                    DashboardModuleCard {
+                        VStack(alignment: .leading, spacing: 11) {
                         HStack {
                             Label("Uncategorized", systemImage: "tag")
                                 .font(.title3.bold()).foregroundStyle(Palette.ink)
@@ -264,9 +265,8 @@ private struct HomeView: View {
                                 .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
                                 .padding(.top, 3)
                         }
+                        }
                     }
-                    .padding(17)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
                     .accessibilityIdentifier("homeUncategorizedSection")
                 }
             }
@@ -280,13 +280,6 @@ private struct HomeView: View {
                 .accessibilityIdentifier("homeAddTransactionButton")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
-    }
-
-    private func metric(_ title: String, value: Int64, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(title, systemImage: symbol).font(.caption).foregroundStyle(.white.opacity(0.75))
-            Text(Money.format(value)).font(.headline).monospacedDigit()
-        }
     }
 }
 
