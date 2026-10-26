@@ -15,6 +15,43 @@ enum LedgerColor {
     }
 }
 
+private struct LedgerColorPalette: View {
+    @Binding var selection: String
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(LedgerAppearance.colors, id: \.self) { value in
+                let selected = selection == value
+                Button { selection = value } label: {
+                    VStack(spacing: 6) {
+                        ZStack {
+                            Circle()
+                                .fill(LedgerColor.color(value))
+                                .frame(width: 30, height: 30)
+                            Circle()
+                                .strokeBorder(selected ? Color.primary : Color.clear, lineWidth: 2)
+                                .frame(width: 38, height: 38)
+                            if selected {
+                                Image(systemName: "checkmark")
+                                    .font(.caption.bold()).foregroundStyle(.white)
+                            }
+                        }
+                        Text(value.capitalized)
+                            .font(.caption2).foregroundStyle(.primary).lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 58)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(value.capitalized) color")
+                .accessibilityValue(selected ? "Selected" : "Not selected")
+            }
+        }
+        .accessibilityIdentifier("ledgerColorPalette")
+    }
+}
+
 struct AccountsView: View {
     @EnvironmentObject private var store: FinanceStore
     @State private var selected: LocalAccount?
@@ -114,12 +151,7 @@ private struct AccountEditorView: View {
                 }
                 .accessibilityIdentifier("accountIconPicker")
                 .accessibilityValue(LedgerAppearance.symbolTitle(symbol))
-                Picker("Color", selection: $color) {
-                    ForEach(LedgerAppearance.colors, id: \.self) { value in
-                        Label(value.capitalized, systemImage: "circle.fill")
-                            .foregroundStyle(LedgerColor.color(value)).tag(value)
-                    }
-                }
+                LedgerColorPalette(selection: $color)
                 .accessibilityIdentifier("accountColorPicker")
                 .accessibilityValue(color.capitalized)
             }
@@ -275,12 +307,7 @@ private struct CategoryEditorView: View {
                 }
                 .accessibilityIdentifier("categoryIconPicker")
                 .accessibilityValue(LedgerAppearance.symbolTitle(symbol))
-                Picker("Color", selection: $color) {
-                    ForEach(LedgerAppearance.colors, id: \.self) { value in
-                        Label(value.capitalized, systemImage: "circle.fill")
-                            .foregroundStyle(LedgerColor.color(value)).tag(value)
-                    }
-                }
+                LedgerColorPalette(selection: $color)
                 .accessibilityIdentifier("categoryColorPicker")
                 .accessibilityValue(color.capitalized)
             }

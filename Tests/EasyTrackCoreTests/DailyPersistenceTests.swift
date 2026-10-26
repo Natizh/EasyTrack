@@ -102,6 +102,24 @@ final class DailyPersistenceTests: XCTestCase {
         }
     }
 
+    func testEveryAccountPaletteColorPersistsIndependently() throws {
+        try withDatabase { url, database in
+            for color in LedgerAppearance.colors {
+                var account = LocalAccount(id: UUID(), name: "Palette \(color)", createdAt: .now)
+                account.colorName = color
+                let saved = try database.saveLocalAccount(account)
+                XCTAssertEqual(saved.colorName, color)
+            }
+            let reopened = try SQLiteDatabase(url: url)
+            let colorsByName = Dictionary(uniqueKeysWithValues: try reopened.localAccounts().map {
+                ($0.name, $0.colorName)
+            })
+            for color in LedgerAppearance.colors {
+                XCTAssertEqual(colorsByName["Palette \(color)"], color)
+            }
+        }
+    }
+
     func testMonthlyCatchUpIsAtomicIdempotentAndSurvivesReopen() throws {
         try withDatabase { url, database in
             let account = try self.account(database)
