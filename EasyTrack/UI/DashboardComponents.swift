@@ -1,36 +1,130 @@
 import SwiftUI
 
-enum EasyTrackTheme {
-    static let midnightPine = Color(red: 20 / 255, green: 43 / 255, blue: 50 / 255)
-    static let deepTeal = Color(red: 20 / 255, green: 115 / 255, blue: 110 / 255)
-    static let softJade = Color(red: 217 / 255, green: 242 / 255, blue: 237 / 255)
-    static let champagne = Color(red: 196 / 255, green: 154 / 255, blue: 93 / 255)
-    static let coral = Color(red: 180 / 255, green: 92 / 255, blue: 85 / 255)
+extension AppAccentChoice {
+    var color: Color {
+        switch self {
+        case .jade:
+            Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.38, green: 0.84, blue: 0.80, alpha: 1)
+                    : UIColor(red: 20 / 255, green: 115 / 255, blue: 110 / 255, alpha: 1)
+            })
+        case .blue: .blue
+        case .violet: .purple
+        case .amber: .orange
+        case .graphite:
+            Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .lightGray : .darkGray })
+        }
+    }
+}
 
-    static let accent = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.38, green: 0.84, blue: 0.80, alpha: 1)
-            : UIColor(red: 20 / 255, green: 115 / 255, blue: 110 / 255, alpha: 1)
-    })
-    static let canvas = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 12 / 255, green: 23 / 255, blue: 26 / 255, alpha: 1)
-            : UIColor(red: 245 / 255, green: 247 / 255, blue: 246 / 255, alpha: 1)
-    })
-    static let surface = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 23 / 255, green: 43 / 255, blue: 48 / 255, alpha: 1)
-            : .white
-    })
-    static let primaryText = Color.primary
-    static let jadeWash = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 20 / 255, green: 115 / 255, blue: 110 / 255, alpha: 0.22)
-            : UIColor(red: 217 / 255, green: 242 / 255, blue: 237 / 255, alpha: 1)
-    })
+extension AppColorSchemePreference {
+    var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+struct EasyTrackTheme {
+    let preferences: AppearancePreferences
+
+    private var effectiveAccent: AppAccentChoice {
+        preferences.theme == .graphite ? .graphite : preferences.accent
+    }
+
+    var accent: Color { effectiveAccent.color }
+    var primaryText: Color { .primary }
+    let champagne = Color(red: 196 / 255, green: 154 / 255, blue: 93 / 255)
+    let coral = Color(red: 180 / 255, green: 92 / 255, blue: 85 / 255)
+
+    var canvas: Color {
+        switch preferences.theme {
+        case .classic:
+            Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 12 / 255, green: 23 / 255, blue: 26 / 255, alpha: 1)
+                    : UIColor(red: 245 / 255, green: 247 / 255, blue: 246 / 255, alpha: 1)
+            })
+        case .neutral: Color(uiColor: .systemGroupedBackground)
+        case .graphite:
+            Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 14 / 255, green: 14 / 255, blue: 15 / 255, alpha: 1)
+                    : UIColor(red: 242 / 255, green: 242 / 255, blue: 244 / 255, alpha: 1)
+            })
+        }
+    }
+
+    var surface: Color {
+        switch preferences.theme {
+        case .classic:
+            Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 23 / 255, green: 43 / 255, blue: 48 / 255, alpha: 1)
+                    : .white
+            })
+        case .neutral: Color(uiColor: .secondarySystemGroupedBackground)
+        case .graphite:
+            Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 30 / 255, green: 30 / 255, blue: 32 / 255, alpha: 1)
+                    : .white
+            })
+        }
+    }
+
+    var accentWash: Color {
+        switch preferences.theme {
+        case .classic where effectiveAccent == .jade:
+            Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark
+                    ? UIColor(red: 20 / 255, green: 115 / 255, blue: 110 / 255, alpha: 0.22)
+                    : UIColor(red: 217 / 255, green: 242 / 255, blue: 237 / 255, alpha: 1)
+            })
+        default: accent.opacity(preferences.theme == .neutral ? 0.10 : 0.16)
+        }
+    }
+
+    var heroColors: [Color] {
+        switch preferences.theme {
+        case .classic:
+            [Color(red: 20 / 255, green: 43 / 255, blue: 50 / 255), accent]
+        case .neutral:
+            [surface, Color(uiColor: .tertiarySystemGroupedBackground)]
+        case .graphite:
+            [Color(red: 28 / 255, green: 29 / 255, blue: 31 / 255),
+             Color(red: 65 / 255, green: 66 / 255, blue: 70 / 255)]
+        }
+    }
+
+    var heroText: Color { preferences.theme == .neutral ? .primary : .white }
+    var heroSecondaryText: Color { heroText.opacity(0.72) }
+    var heroMetricBackground: Color {
+        preferences.theme == .neutral ? accent.opacity(0.08) : .white.opacity(0.09)
+    }
+    var heroBorder: Color {
+        preferences.theme == .neutral ? accent.opacity(0.18) : .white.opacity(0.11)
+    }
+
+    static let classic = EasyTrackTheme(preferences: .default)
+}
+
+private struct EasyTrackThemeKey: EnvironmentKey {
+    static let defaultValue = EasyTrackTheme.classic
+}
+
+extension EnvironmentValues {
+    var easyTrackTheme: EasyTrackTheme {
+        get { self[EasyTrackThemeKey.self] }
+        set { self[EasyTrackThemeKey.self] = newValue }
+    }
 }
 
 struct MetricTile: View {
+    @Environment(\.easyTrackTheme) private var theme
     let title: String
     let value: String
     let symbol: String
@@ -40,18 +134,18 @@ struct MetricTile: View {
         VStack(alignment: .leading, spacing: 7) {
             Label(title, systemImage: symbol)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(theme.heroSecondaryText)
                 .lineLimit(1)
             Text(value)
                 .font(.subheadline.weight(.bold))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.heroText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(theme.heroMetricBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(accessibilityTitle ?? title), \(value)")
     }
@@ -59,6 +153,7 @@ struct MetricTile: View {
 
 struct FinancialHeroCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.easyTrackTheme) private var theme
     let snapshot: FinancialAnalyticsSnapshot?
     let periodTitle: String
 
@@ -89,13 +184,13 @@ struct FinancialHeroCard: View {
                 Text("\(periodTitle.uppercased()) · NET PERSONAL SPENDING")
                     .font(.caption.weight(.bold))
                     .tracking(1.05)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .foregroundStyle(theme.heroSecondaryText)
                 Text(snapshot.map { Money.format($0.totals.personalNetExpensesEURMinor) } ?? "—")
                     .font(.system(size: 43, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .minimumScaleFactor(0.65)
                     .lineLimit(1)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.heroText)
                     .accessibilityIdentifier("homePersonalSpendingTotal")
             }
 
@@ -109,19 +204,19 @@ struct FinancialHeroCard: View {
                 Label("\(snapshot.unconvertedTransactions.count) movement(s) excluded where EUR value is unavailable",
                       systemImage: "exclamationmark.circle")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.78))
+                    .foregroundStyle(theme.heroSecondaryText)
             }
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            LinearGradient(colors: [EasyTrackTheme.midnightPine, EasyTrackTheme.deepTeal],
+            LinearGradient(colors: theme.heroColors,
                            startPoint: .topLeading, endPoint: .bottomTrailing)
         }
         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .stroke(.white.opacity(0.11), lineWidth: 1)
+                .stroke(theme.heroBorder, lineWidth: 1)
         }
         .accessibilityElement(children: .contain)
     }
@@ -129,6 +224,7 @@ struct FinancialHeroCard: View {
 
 struct RecentTransactionCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.easyTrackTheme) private var theme
     let item: Transaction
     let category: LedgerCategory?
 
@@ -160,7 +256,7 @@ struct RecentTransactionCard: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(item.merchant)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(EasyTrackTheme.primaryText)
+                .foregroundStyle(theme.primaryText)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
             Text(categoryName)
                 .font(.caption)
@@ -174,7 +270,7 @@ struct RecentTransactionCard: View {
             Text(amountText)
                 .font(.subheadline.weight(.bold))
                 .monospacedDigit()
-                .foregroundStyle(item.kind.isOutflow ? EasyTrackTheme.primaryText : EasyTrackTheme.accent)
+                .foregroundStyle(item.kind.isOutflow ? theme.primaryText : theme.accent)
                 .lineLimit(1)
             Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated)))
                 .font(.caption2)
@@ -199,10 +295,10 @@ struct RecentTransactionCard: View {
             }
         }
         .padding(15)
-        .background(EasyTrackTheme.surface, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+        .background(theme.surface, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 21, style: .continuous)
-                .stroke(EasyTrackTheme.accent.opacity(0.08), lineWidth: 1)
+                .stroke(theme.accent.opacity(0.08), lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
         .accessibilityElement(children: .combine)
@@ -222,6 +318,7 @@ struct RecentTransactionCard: View {
 }
 
 struct DashboardModuleCard<Content: View>: View {
+    @Environment(\.easyTrackTheme) private var theme
     let content: Content
 
     init(@ViewBuilder content: () -> Content) {
@@ -232,7 +329,7 @@ struct DashboardModuleCard<Content: View>: View {
         content
             .padding(17)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(EasyTrackTheme.surface,
+            .background(theme.surface,
                         in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }

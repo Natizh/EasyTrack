@@ -2,36 +2,36 @@ import SwiftUI
 import UIKit
 
 private enum AutomationStyle {
-    static let accent = Color.teal
     static let background = Color(uiColor: .systemGroupedBackground)
     static let card = Color(uiColor: .secondarySystemGroupedBackground)
 }
 
 struct AutomationsView: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 12) {
                     Image(systemName: "bell.and.waves.left.and.right.fill")
-                        .font(.title2).foregroundStyle(.white)
-                        .padding(12).background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 14))
+                        .font(.title2).foregroundStyle(theme.heroText)
+                        .padding(12).background(theme.heroMetricBackground, in: RoundedRectangle(cornerRadius: 14))
                     Text("Make each notification useful").font(.title2.bold())
                     Text("Capture a payment notification with Shortcuts. Build a local rule from its words, test it, then choose when it creates a transaction.")
-                        .font(.subheadline).foregroundStyle(.white.opacity(0.85))
+                        .font(.subheadline).foregroundStyle(theme.heroSecondaryText)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(22)
-                .foregroundStyle(.white)
-                .background(LinearGradient(colors: [.teal, .blue], startPoint: .topLeading,
+                .foregroundStyle(theme.heroText)
+                .background(LinearGradient(colors: theme.heroColors, startPoint: .topLeading,
                                            endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 24))
 
                 NavigationLink { NotificationSetupGuideView() } label: {
                     HStack(spacing: 14) {
                         Image(systemName: "list.number")
                             .font(.title2).frame(width: 44, height: 44)
-                            .background(AutomationStyle.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 13))
+                            .background(theme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 13))
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Set up automatic notifications").font(.headline)
                             Text("Account, Shortcuts, field mapping, safe test and diagnostics")
@@ -54,7 +54,7 @@ struct AutomationsView: View {
                     Button("Harbor Wallet sample") { store.captureSyntheticExample(2) }
                     Button("Send a demo test payload") { store.captureDemoEvent() }
                 } label: { Label("Try fictional notification", systemImage: "sparkles") }
-                    .buttonStyle(.bordered).tint(AutomationStyle.accent)
+                    .buttonStyle(.bordered).tint(theme.accent)
 #endif
 
                 Text("Sources").font(.title3.bold())
@@ -122,6 +122,7 @@ struct AutomationsView: View {
 struct NotificationSetupGuideView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.openURL) private var openURL
+    @Environment(\.easyTrackTheme) private var theme
     @State private var selectedAccountID: UUID?
     @State private var sourceLabel = ""
     @State private var openStep = 0
@@ -267,7 +268,7 @@ struct NotificationSetupGuideView: View {
             } label: {
                 HStack {
                     Image(systemName: symbols[step]).frame(width: 28)
-                        .foregroundStyle(AutomationStyle.accent)
+                        .foregroundStyle(theme.accent)
                     Text("\(step + 1). \(titles[step])").font(.headline).foregroundStyle(.primary)
                     Spacer()
                     Image(systemName: openStep == step ? "chevron.up" : "chevron.down")
@@ -497,13 +498,18 @@ struct NotificationSetupGuideView: View {
 private extension View {
     func guideCard(accent: Color? = nil) -> some View {
         padding(17).frame(maxWidth: .infinity, alignment: .leading)
-            .background(accent?.opacity(0.10) ?? AutomationStyle.card,
-                        in: RoundedRectangle(cornerRadius: 20))
+            .background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 20))
+            .overlay {
+                if let accent {
+                    RoundedRectangle(cornerRadius: 20).stroke(accent.opacity(0.28), lineWidth: 1)
+                }
+            }
     }
 }
 
 private struct AutomationSourceView: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     let source: ParserSource
     @State private var setupAttempt: ParserAttempt?
     @State private var editingRule: ParserRule?
@@ -535,7 +541,7 @@ private struct AutomationSourceView: View {
                     Button(currentSource.accountName == nil ? "Map account" : "Change account") {
                         showingAccountMapping = true
                     }
-                    .buttonStyle(.bordered).tint(AutomationStyle.accent)
+                    .buttonStyle(.bordered).tint(theme.accent)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(17).background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 20))
@@ -545,7 +551,7 @@ private struct AutomationSourceView: View {
                 ForEach(rules) { rule in ruleCard(rule) }
                 if let sample = attempts.first {
                     Button { setupAttempt = sample } label: { Label("Add another format", systemImage: "plus.circle.fill") }
-                        .buttonStyle(.bordered).tint(AutomationStyle.accent)
+                        .buttonStyle(.bordered).tint(theme.accent)
                 }
                 sectionHeader("Captured notifications", symbol: "tray.full")
                 if attempts.isEmpty { hint("A Shortcuts capture will appear here.") }
@@ -628,7 +634,7 @@ private struct AutomationSourceView: View {
                     .accessibilityLabel("Delete \(rule.name)")
             }
             .buttonStyle(.borderless)
-            .tint(AutomationStyle.accent)
+            .tint(theme.accent)
             Text("Version \(rule.version) · Earlier transactions keep their original rule version")
                 .font(.caption2).foregroundStyle(.tertiary)
         }
@@ -679,7 +685,7 @@ private struct AutomationSourceView: View {
                     Button(attempt.status == .unmatched ? "Add notification format" : "Set up format") {
                         setupAttempt = attempt
                     }
-                        .buttonStyle(.borderedProminent).tint(AutomationStyle.accent)
+                        .buttonStyle(.borderedProminent).tint(theme.accent)
                 }
                 if [.failed, .unmatched, .ready, .setupRequired].contains(attempt.status) && !rules.isEmpty {
                     Button("Retry") {
@@ -718,7 +724,7 @@ private struct AutomationSourceView: View {
         case .rejected: .orange
         case .failed: .red
         case .setupRequired, .unmatched: .orange
-        case .duplicateIgnored, .captured, .ready: .teal
+        case .duplicateIgnored, .captured, .ready: theme.accent
         }
     }
 }
@@ -726,6 +732,7 @@ private struct AutomationSourceView: View {
 private struct SourceAccountMappingView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.easyTrackTheme) private var theme
     let source: ParserSource
     @State private var accountName: String
     @State private var errorMessage: String?
@@ -745,7 +752,7 @@ private struct SourceAccountMappingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Image(systemName: "building.columns.circle.fill")
-                    .font(.largeTitle).foregroundStyle(AutomationStyle.accent)
+                    .font(.largeTitle).foregroundStyle(theme.accent)
                 Text("One account for this source").font(.title2.bold())
                 Text("All notification formats from \(source.name) will use this EasyTrack account. Existing transactions keep their account if you change this later.")
                     .font(.subheadline).foregroundStyle(.secondary)
@@ -791,6 +798,7 @@ private struct SourceAccountMappingView: View {
 private struct ParserBuilderView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.easyTrackTheme) private var theme
     let source: ParserSource
     let sample: ParserAttempt
     let existingRule: ParserRule?
@@ -990,7 +998,7 @@ private struct ParserBuilderView: View {
             } label: {
                 HStack(spacing: 11) {
                     Image(systemName: symbol).font(.title3)
-                        .foregroundStyle(index <= animatedStep ? .green : AutomationStyle.accent)
+                        .foregroundStyle(index <= animatedStep ? .green : theme.accent)
                         .frame(width: 32)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)

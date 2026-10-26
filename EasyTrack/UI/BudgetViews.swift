@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BudgetHomeWidget: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     let financial: FinancialAnalyticsSnapshot?
 
     private var budgetSnapshot: MonthlyBudgetSnapshot? {
@@ -19,7 +20,7 @@ struct BudgetHomeWidget: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Label("Budgets & goals", systemImage: "target")
-                            .font(.title3.bold()).foregroundStyle(EasyTrackTheme.primaryText)
+                            .font(.title3.bold()).foregroundStyle(theme.primaryText)
                         Spacer()
                         Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }
@@ -54,6 +55,7 @@ struct BudgetHomeWidget: View {
 }
 
 private struct BudgetProgressContent: View {
+    @Environment(\.easyTrackTheme) private var theme
     let progress: BudgetProgress
 
     var body: some View {
@@ -62,12 +64,12 @@ private struct BudgetProgressContent: View {
                 Text(progress.title).font(.subheadline.weight(.semibold))
                 Spacer()
                 Image(systemName: progress.isOverLimit ? "exclamationmark.triangle.fill" : "checkmark.circle")
-                    .foregroundStyle(progress.isOverLimit ? EasyTrackTheme.coral : EasyTrackTheme.accent)
+                    .foregroundStyle(progress.isOverLimit ? theme.coral : theme.accent)
                     .accessibilityHidden(true)
             }
             ProgressView(value: min(max(Double(progress.spentEURMinor) /
                 max(Double(progress.budget.limitEURMinor), 1), 0), 1))
-                .tint(progress.isOverLimit ? EasyTrackTheme.coral : EasyTrackTheme.accent)
+                .tint(progress.isOverLimit ? theme.coral : theme.accent)
             Text(progress.isOverLimit
                  ? "Over by \(Money.format(-progress.remainingEURMinor))"
                  : "Remaining \(Money.format(progress.remainingEURMinor))")

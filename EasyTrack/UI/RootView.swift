@@ -1,19 +1,10 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum Palette {
-    static let ink = EasyTrackTheme.primaryText
-    static let heroInk = EasyTrackTheme.midnightPine
-    static let heroTeal = EasyTrackTheme.deepTeal
-    static let teal = EasyTrackTheme.accent
-    static let mint = EasyTrackTheme.jadeWash
-    static let canvas = EasyTrackTheme.canvas
-    static let surface = EasyTrackTheme.surface
-}
-
 struct RootView: View {
     @EnvironmentObject private var store: FinanceStore
     @StateObject private var navigation = AppNavigationModel()
+    private var theme: EasyTrackTheme { EasyTrackTheme(preferences: store.appearancePreferences) }
 
     var body: some View {
         TabView(selection: $navigation.selectedTab) {
@@ -31,7 +22,9 @@ struct RootView: View {
                 .tag(EasyTrackTab.settings)
         }
         .environmentObject(navigation)
-        .tint(Palette.teal)
+        .environment(\.easyTrackTheme, theme)
+        .tint(theme.accent)
+        .preferredColorScheme(store.appearancePreferences.colorScheme.preferredColorScheme)
         .alert("EasyTrack", isPresented: Binding(get: { store.errorMessage != nil },
                                                   set: { if !$0 { store.errorMessage = nil } })) {
             Button("OK") { store.errorMessage = nil }
@@ -40,21 +33,23 @@ struct RootView: View {
 }
 
 private struct DemoBanner: View {
+    @Environment(\.easyTrackTheme) private var theme
     let hasDemo: Bool
     var body: some View {
         Label(hasDemo ? "Demo entries are marked · History not imported" : "Historical seed not imported",
               systemImage: "info.circle")
             .font(.caption.weight(.medium))
-            .foregroundStyle(Palette.teal)
+            .foregroundStyle(theme.accent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(Palette.mint, in: RoundedRectangle(cornerRadius: 14))
+            .background(theme.accentWash, in: RoundedRectangle(cornerRadius: 14))
     }
 }
 
 private struct TransactionRow: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.easyTrackTheme) private var theme
     let item: Transaction
 
     private var displayedEURMinor: Int64? {
@@ -86,7 +81,7 @@ private struct TransactionRow: View {
 
     private var movementLabels: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(item.merchant).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.ink)
+            Text(item.merchant).font(.subheadline.weight(.semibold)).foregroundStyle(theme.primaryText)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
             Text("\(item.kind.title) · \(categoryName)")
                 .font(.caption).foregroundStyle(.secondary)
@@ -94,7 +89,7 @@ private struct TransactionRow: View {
             if let reimbursementStatus {
                 Text(reimbursementStatus.title)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(reimbursementStatus.outstandingEURMinor > 0 ? Palette.teal : .secondary)
+                    .foregroundStyle(reimbursementStatus.outstandingEURMinor > 0 ? theme.accent : .secondary)
             }
         }
     }
@@ -103,7 +98,7 @@ private struct TransactionRow: View {
         VStack(alignment: .trailing, spacing: 3) {
             Text(displayedEURMinor.map { "\(item.kind.isOutflow ? "−" : "+")\(Money.format($0))" } ?? "EUR amount unavailable")
                 .font(.subheadline.weight(.semibold)).monospacedDigit()
-                .foregroundStyle(item.kind.isOutflow ? Palette.ink : Palette.teal)
+                .foregroundStyle(item.kind.isOutflow ? theme.primaryText : theme.accent)
             Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated)))
                 .font(.caption2).foregroundStyle(.secondary)
         }
@@ -138,6 +133,7 @@ private struct TransactionRow: View {
 
 private struct HomeView: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     @State private var showingNew = false
     @State private var showingDashboardEditor = false
 
@@ -175,10 +171,10 @@ private struct HomeView: View {
             VStack(alignment: .leading, spacing: 11) {
                 HStack {
                     Label("Upcoming", systemImage: "calendar")
-                        .font(.title3.bold()).foregroundStyle(Palette.ink)
+                        .font(.title3.bold()).foregroundStyle(theme.primaryText)
                     Spacer()
                     NavigationLink("Manage") { RecurringListView() }
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(theme.accent)
                 }
                 if upcoming.isEmpty {
                     Text("No repeating payments expected in the next 30 days.")
@@ -238,12 +234,12 @@ private struct HomeView: View {
                 VStack(alignment: .leading, spacing: 11) {
                     HStack {
                         Label("Uncategorized", systemImage: "tag")
-                            .font(.title3.bold()).foregroundStyle(Palette.ink)
+                            .font(.title3.bold()).foregroundStyle(theme.primaryText)
                         Spacer()
                         Text("\(uncategorized.count)")
-                            .font(.caption.weight(.bold)).foregroundStyle(Palette.teal)
+                            .font(.caption.weight(.bold)).foregroundStyle(theme.accent)
                             .padding(.horizontal, 9).padding(.vertical, 5)
-                            .background(Palette.mint, in: Capsule())
+                            .background(theme.accentWash, in: Capsule())
                     }
                     Text("Complete transactions waiting for an optional category.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -255,7 +251,7 @@ private struct HomeView: View {
                         }
                     }
                     NavigationLink("Review and categorize") { UncategorizedTransactionsView() }
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(theme.accent)
                         .padding(.top, 3)
                 }
             }
@@ -270,10 +266,10 @@ private struct HomeView: View {
 
                 VStack(alignment: .leading, spacing: 11) {
                     HStack {
-                        Text("Recent activity").font(.title3.bold()).foregroundStyle(Palette.ink)
+                        Text("Recent activity").font(.title3.bold()).foregroundStyle(theme.primaryText)
                         Spacer()
                         NavigationLink("See all") { TransactionsView() }
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.teal)
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(theme.accent)
                     }
                     if recentTransactions.isEmpty {
                         ContentUnavailableView("No transactions", systemImage: "tray")
@@ -304,7 +300,7 @@ private struct HomeView: View {
             }
             .padding(20)
         }
-        .background(Palette.canvas)
+        .background(theme.canvas)
         .navigationTitle("EasyTrack")
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
             Button { showingDashboardEditor = true } label: { Image(systemName: "slider.horizontal.3") }
@@ -441,6 +437,7 @@ private struct TransactionsView: View {
 
     @EnvironmentObject private var store: FinanceStore
     @EnvironmentObject private var navigation: AppNavigationModel
+    @Environment(\.easyTrackTheme) private var theme
     @State private var search = ""
     @FocusState private var searchFocused: Bool
     @State private var kind: TransactionKind?
@@ -488,7 +485,7 @@ private struct TransactionsView: View {
                         .font(.subheadline.weight(.semibold))
                 }
                 .padding(12)
-                .background(Palette.mint, in: RoundedRectangle(cornerRadius: 14))
+                .background(theme.accentWash, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 20).padding(.top, 8)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("activityChartFilter")
@@ -508,7 +505,7 @@ private struct TransactionsView: View {
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 11)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 14))
+            .background(theme.surface, in: RoundedRectangle(cornerRadius: 14))
             .padding(.horizontal, 20).padding(.top, 8)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -527,7 +524,7 @@ private struct TransactionsView: View {
                         Label(category.isEmpty ? "Uncategorized" : category,
                               systemImage: "line.3.horizontal.decrease")
                             .font(.subheadline.weight(.medium)).padding(.horizontal, 14).padding(.vertical, 9)
-                            .background(Palette.surface, in: Capsule())
+                            .background(theme.surface, in: Capsule())
                     }
                     Menu {
                         Button("All accounts") { accountFilter = nil }
@@ -580,7 +577,7 @@ private struct TransactionsView: View {
                 }
             }
         }
-        .background(Palette.canvas)
+        .background(theme.canvas)
         .navigationTitle("Activity")
         .onDisappear { searchFocused = false }
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
@@ -608,20 +605,21 @@ private struct TransactionsView: View {
 
     private func filterChip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(title).font(.subheadline.weight(.medium)).padding(.horizontal, 15).padding(.vertical, 9) }
-            .foregroundStyle(selected ? .white : Palette.ink)
-            .background(selected ? Palette.heroTeal : Palette.surface, in: Capsule())
+            .foregroundStyle(selected ? .white : theme.primaryText)
+            .background(selected ? theme.accent : theme.surface, in: Capsule())
     }
 
     private func filterMenuLabel(_ title: String) -> some View {
         Label(title, systemImage: "line.3.horizontal.decrease")
             .font(.subheadline.weight(.medium)).padding(.horizontal, 14).padding(.vertical, 9)
-            .background(Palette.surface, in: Capsule())
+            .background(theme.surface, in: Capsule())
     }
 }
 
 struct TransactionEditor: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.easyTrackTheme) private var theme
     private let original: Transaction?
     private let sourceEventID: UUID?
     @State private var kind: TransactionKind
@@ -685,7 +683,7 @@ struct TransactionEditor: View {
 
     var body: some View {
         Form {
-            if original?.isDemo == true { Section { Label("Demonstration record", systemImage: "info.circle").foregroundStyle(Palette.teal) } }
+            if original?.isDemo == true { Section { Label("Demonstration record", systemImage: "info.circle").foregroundStyle(theme.accent) } }
             if sourceEventID != nil && original == nil {
                 Section { Text("Only the notification text was prefilled as a note. Enter and verify every transaction field before saving.")
                     .font(.footnote).foregroundStyle(.secondary) }
@@ -732,7 +730,7 @@ struct TransactionEditor: View {
                         HStack {
                             Text(store.localAccounts.first(where: { $0.id == accountID })?.name ??
                                  (account.isEmpty ? "Choose account" : account))
-                                .lineLimit(1).foregroundStyle(Palette.teal)
+                                .lineLimit(1).foregroundStyle(theme.accent)
                             Image(systemName: "chevron.up.chevron.down").font(.caption)
                         }
                     }
@@ -743,7 +741,7 @@ struct TransactionEditor: View {
                         TextField("Uncategorized", text: $category).multilineTextAlignment(.trailing)
                             .accessibilityIdentifier("transactionCategoryField")
                         Button { choosingCategory = true } label: {
-                            Image(systemName: "chevron.down.circle").foregroundStyle(Palette.teal)
+                            Image(systemName: "chevron.down.circle").foregroundStyle(theme.accent)
                         }
                             .accessibilityLabel("Choose category")
                             .accessibilityIdentifier("transactionCategoryPicker")
@@ -1101,6 +1099,7 @@ private struct ReimbursementSettlementView: View {
 struct AccountSelectionView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.easyTrackTheme) private var theme
     let selectedID: UUID?
     let onSelect: (LocalAccount) -> Void
 
@@ -1115,7 +1114,7 @@ struct AccountSelectionView: View {
                         HStack {
                             Label(option.name, systemImage: option.symbolName)
                             Spacer()
-                            if selectedID == option.id { Image(systemName: "checkmark").foregroundStyle(Palette.teal) }
+                            if selectedID == option.id { Image(systemName: "checkmark").foregroundStyle(theme.accent) }
                         }
                     }
                     .foregroundStyle(.primary)
@@ -1134,6 +1133,7 @@ struct AccountSelectionView: View {
 struct CategorySelectionView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.easyTrackTheme) private var theme
     let selectedID: UUID?
     let onSelect: (LedgerCategory?) -> Void
 
@@ -1149,7 +1149,7 @@ struct CategorySelectionView: View {
                         HStack {
                             Label(option.name, systemImage: option.symbolName)
                             Spacer()
-                            if selectedID == option.id { Image(systemName: "checkmark").foregroundStyle(Palette.teal) }
+                            if selectedID == option.id { Image(systemName: "checkmark").foregroundStyle(theme.accent) }
                         }
                     }
                     .foregroundStyle(.primary)
@@ -1162,6 +1162,118 @@ struct CategorySelectionView: View {
         .navigationTitle("Choose category")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+    }
+}
+
+private struct AppearanceSettingsView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
+    @State private var statusMessage: String?
+
+    var body: some View {
+        Form {
+            Section("Preview") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Monthly overview").font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.heroSecondaryText)
+                    Text(Money.format(123_456)).font(.title.bold()).monospacedDigit()
+                        .foregroundStyle(theme.heroText)
+                    HStack {
+                        Label("Income", systemImage: "arrow.down.left")
+                        Spacer()
+                        Text(Money.format(250_000)).monospacedDigit()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.heroText)
+                    .padding(10).background(theme.heroMetricBackground,
+                                            in: RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(LinearGradient(colors: theme.heroColors,
+                                           startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: 22))
+                .overlay { RoundedRectangle(cornerRadius: 22).stroke(theme.heroBorder) }
+            }
+
+            Section("Theme") {
+                ForEach(AppThemeStyle.allCases) { option in
+                    Button { update { $0.theme = option } } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(option.title).foregroundStyle(.primary)
+                                Text(themeDescription(option)).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if store.appearancePreferences.theme == option {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.accent)
+                            }
+                        }
+                    }
+                    .accessibilityValue(store.appearancePreferences.theme == option ? "Selected" : "Not selected")
+                }
+            }
+
+            Section("Primary accent") {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
+                    ForEach(AppAccentChoice.allCases) { option in
+                        let selected = store.appearancePreferences.accent == option
+                        Button { update { $0.accent = option } } label: {
+                            VStack(spacing: 6) {
+                                ZStack {
+                                    Circle().fill(option.color).frame(width: 30, height: 30)
+                                    Circle().strokeBorder(selected ? Color.primary : Color.clear, lineWidth: 2)
+                                        .frame(width: 38, height: 38)
+                                    if selected { Image(systemName: "checkmark").font(.caption.bold()).foregroundStyle(.white) }
+                                }
+                                Text(option.title).font(.caption2).foregroundStyle(.primary).lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(option.title) primary accent")
+                        .accessibilityValue(selected ? "Selected" : "Not selected")
+                    }
+                }
+                if store.appearancePreferences.theme == .graphite {
+                    Text("Graphite stays monochrome. Your chosen accent is retained and becomes active again in Classic or Neutral.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Light and dark mode") {
+                Picker("Appearance", selection: Binding(
+                    get: { store.appearancePreferences.colorScheme },
+                    set: { option in update { $0.colorScheme = option } })) {
+                    ForEach(AppColorSchemePreference.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section {
+                Text("Theme and accent update immediately and are included in Replace backups. Account colors, category colors, income/expense meaning and chart distinctions remain independent.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if let statusMessage { Text(statusMessage).font(.footnote).foregroundStyle(.red) }
+            }
+        }
+        .navigationTitle("Appearance")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func update(_ change: (inout AppearancePreferences) -> Void) {
+        var preferences = store.appearancePreferences
+        change(&preferences)
+        do {
+            try store.saveAppearancePreferences(preferences)
+            statusMessage = nil
+        } catch { statusMessage = error.localizedDescription }
+    }
+
+    private func themeDescription(_ option: AppThemeStyle) -> String {
+        switch option {
+        case .classic: "The original Pine & Jade surfaces and hero."
+        case .neutral: "System-like neutral surfaces with color only in details."
+        case .graphite: "A restrained monochrome interface."
+        }
     }
 }
 
@@ -1203,6 +1315,10 @@ private struct SettingsView: View {
     var body: some View {
         Form {
             Section("Everyday") {
+                NavigationLink { AppearanceSettingsView() } label: {
+                    Label("Appearance", systemImage: "circle.lefthalf.filled")
+                }
+                .accessibilityIdentifier("settingsAppearanceLink")
                 NavigationLink { AccountsView() } label: {
                     Label("Accounts", systemImage: "creditcard")
                 }

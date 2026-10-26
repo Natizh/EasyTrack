@@ -10,6 +10,7 @@ private func recurringLinkEffect(actual: Transaction, replacing old: Transaction
 
 struct UpcomingRecurringRow: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     let item: UpcomingRecurringItem
 
     private var accountName: String {
@@ -20,9 +21,9 @@ struct UpcomingRecurringRow: View {
         HStack(spacing: 12) {
             Image(systemName: item.rule.type.symbolName)
                 .font(.headline)
-                .foregroundStyle(item.rule.type == .income ? .green : .teal)
+                .foregroundStyle(item.rule.type == .income ? .green : theme.accent)
                 .frame(width: 42, height: 42)
-                .background((item.rule.type == .income ? Color.green : Color.teal).opacity(0.11),
+                .background((item.rule.type == .income ? Color.green : theme.accent).opacity(0.11),
                             in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.rule.name).font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -47,6 +48,7 @@ struct UpcomingRecurringRow: View {
 
 struct RecurringListView: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     @State private var showingNew = false
     @State private var selected: RecurringRule?
     @State private var adopting: HistoricalRecurringRule?
@@ -207,9 +209,9 @@ struct RecurringListView: View {
         let account = store.localAccounts.first(where: { $0.id == rule.accountID })?.name ?? "Account unavailable"
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Image(systemName: rule.type.symbolName).font(.title3).foregroundStyle(.teal)
+                Image(systemName: rule.type.symbolName).font(.title3).foregroundStyle(theme.accent)
                     .frame(width: 42, height: 42)
-                    .background(Color.teal.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
+                    .background(theme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(rule.name).font(.headline).lineLimit(1)
                     Text("\(rule.type.title) · \(rule.frequency.title)")
@@ -249,7 +251,7 @@ struct RecurringListView: View {
             }
             .font(.subheadline.weight(.medium))
             .buttonStyle(.borderless)
-            .tint(.teal)
+            .tint(theme.accent)
         }
         .padding(16)
         .background(Color(uiColor: .secondarySystemGroupedBackground),

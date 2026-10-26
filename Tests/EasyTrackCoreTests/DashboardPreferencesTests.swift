@@ -54,6 +54,33 @@ final class DashboardPreferencesTests: XCTestCase {
         }
     }
 
+    func testAppearanceDefaultsPersistenceAndBackupSemantics() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-appearance-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let sourceURL = folder.appendingPathComponent("source.sqlite")
+        let source = try SQLiteDatabase(url: sourceURL)
+        try source.seedDemoIfNeeded()
+        XCTAssertEqual(try source.appearancePreferences(), .default)
+        let chosen = AppearancePreferences(theme: .neutral, accent: .violet, colorScheme: .dark)
+        try source.saveAppearancePreferences(chosen)
+        XCTAssertEqual(try SQLiteDatabase(url: sourceURL).appearancePreferences(), chosen)
+        let backup = try source.exportBackup()
+
+        let targetURL = folder.appendingPathComponent("target.sqlite")
+        let target = try SQLiteDatabase(url: targetURL)
+        try target.seedDemoIfNeeded()
+        _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
+        XCTAssertEqual(try SQLiteDatabase(url: targetURL).appearancePreferences(), chosen)
+
+        let local = AppearancePreferences(theme: .graphite, accent: .amber, colorScheme: .system)
+        try target.saveAppearancePreferences(local)
+        _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
+        XCTAssertEqual(try SQLiteDatabase(url: targetURL).appearancePreferences(), local)
+    }
+
     func testSchemaSixMigratesAtomicallyToCurrent() throws {
         try withDatabase { database, url in
             try database.execute("DROP TABLE dashboard_widget_preferences")

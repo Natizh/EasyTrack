@@ -25,6 +25,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var savingsGoals: [SavingsGoal] = []
     @Published private(set) var notificationRetentionDays = NotificationRetentionPolicy.defaultDays
     @Published private(set) var automationSetupMilestones: Set<AutomationSetupMilestone> = []
+    @Published private(set) var appearancePreferences = AppearancePreferences.default
     @Published var errorMessage: String?
 
     init() {
@@ -74,6 +75,7 @@ final class FinanceStore: ObservableObject {
             savingsGoals = try database.savingsGoals()
             notificationRetentionDays = try database.notificationRetentionDays()
             automationSetupMilestones = try database.automationSetupMilestones()
+            appearancePreferences = try database.appearancePreferences()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -365,6 +367,11 @@ final class FinanceStore: ObservableObject {
         let changed = try SQLiteDatabase.open().clearNotificationDiagnosticContents()
         reload()
         return changed
+    }
+
+    func saveAppearancePreferences(_ preferences: AppearancePreferences) throws {
+        try SQLiteDatabase.open().saveAppearancePreferences(preferences)
+        appearancePreferences = preferences
     }
 
     var availableAccountNames: [String] {

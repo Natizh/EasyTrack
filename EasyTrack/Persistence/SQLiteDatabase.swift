@@ -396,6 +396,23 @@ final class SQLiteDatabase {
         try setAppPreference(value, for: "automationSetupMilestones")
     }
 
+    func appearancePreferences() throws -> AppearancePreferences {
+        guard let value = try appPreference("appearance"),
+              let data = value.data(using: .utf8),
+              let preferences = try? JSONDecoder().decode(AppearancePreferences.self, from: data) else {
+            return .default
+        }
+        return preferences
+    }
+
+    func saveAppearancePreferences(_ preferences: AppearancePreferences) throws {
+        let data = try JSONEncoder().encode(preferences)
+        guard let value = String(data: data, encoding: .utf8) else {
+            throw DatabaseError.sqlite("Could not save appearance settings")
+        }
+        try setAppPreference(value, for: "appearance")
+    }
+
     func seedDemoIfNeeded() throws {
         let check = try statement("SELECT value FROM metadata WHERE key = 'demo_seeded'")
         defer { sqlite3_finalize(check) }

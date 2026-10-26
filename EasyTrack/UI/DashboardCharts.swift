@@ -201,6 +201,7 @@ struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {
 struct PendingReimbursementsWidget: View {
     @EnvironmentObject private var store: FinanceStore
     @EnvironmentObject private var navigation: AppNavigationModel
+    @Environment(\.easyTrackTheme) private var theme
 
     private var pending: [ExpenseReimbursementStatus] {
         store.reimbursementStatuses.filter { $0.outstandingEURMinor > 0 }
@@ -221,7 +222,7 @@ struct PendingReimbursementsWidget: View {
             } label: {
                 HStack(spacing: 13) {
                     Image(systemName: "arrow.uturn.backward.circle.fill")
-                        .font(.title2).foregroundStyle(EasyTrackTheme.accent)
+                        .font(.title2).foregroundStyle(theme.accent)
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Expected reimbursements").font(.subheadline.weight(.semibold))
                         Text(pending.isEmpty ? "Nothing pending" : "\(pending.count) pending")
@@ -242,6 +243,7 @@ struct PendingReimbursementsWidget: View {
 
 struct MonthlyTrendWidget: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.easyTrackTheme) private var theme
     @EnvironmentObject private var navigation: AppNavigationModel
     @State private var selectedDate: Date?
     let snapshot: FinancialAnalyticsSnapshot?
@@ -260,25 +262,25 @@ struct MonthlyTrendWidget: View {
                         ForEach(points) { point in
                             LineMark(x: .value("Month", chartDate(point.month)),
                                      y: .value("Expenses", plotAmount(point.grossExpensesEURMinor)))
-                                .foregroundStyle(EasyTrackTheme.coral)
+                                .foregroundStyle(theme.coral)
                                 .interpolationMethod(.monotone)
                             PointMark(x: .value("Month", chartDate(point.month)),
                                       y: .value("Expenses", plotAmount(point.grossExpensesEURMinor)))
-                                .foregroundStyle(EasyTrackTheme.coral)
+                                .foregroundStyle(theme.coral)
                             LineMark(x: .value("Month", chartDate(point.month)),
                                      y: .value("Income", plotAmount(point.incomeEURMinor)))
-                                .foregroundStyle(EasyTrackTheme.accent)
+                                .foregroundStyle(theme.accent)
                                 .interpolationMethod(.monotone)
                             PointMark(x: .value("Month", chartDate(point.month)),
                                       y: .value("Income", plotAmount(point.incomeEURMinor)))
-                                .foregroundStyle(EasyTrackTheme.accent)
+                                .foregroundStyle(theme.accent)
                             LineMark(x: .value("Month", chartDate(point.month)),
                                      y: .value("PAC", plotAmount(point.pacInvestedEURMinor)))
-                                .foregroundStyle(EasyTrackTheme.champagne)
+                                .foregroundStyle(theme.champagne)
                                 .interpolationMethod(.monotone)
                             PointMark(x: .value("Month", chartDate(point.month)),
                                       y: .value("PAC", plotAmount(point.pacInvestedEURMinor)))
-                                .foregroundStyle(EasyTrackTheme.champagne)
+                                .foregroundStyle(theme.champagne)
                         }
                     }
                     .chartXAxis { dateAxisMarks() }
@@ -301,9 +303,9 @@ struct MonthlyTrendWidget: View {
                     }
 
                     HStack(spacing: 14) {
-                        ChartLegendKey(title: "Expenses", color: EasyTrackTheme.coral)
-                        ChartLegendKey(title: "Income", color: EasyTrackTheme.accent)
-                        ChartLegendKey(title: "PAC", color: EasyTrackTheme.champagne)
+                        ChartLegendKey(title: "Expenses", color: theme.coral)
+                        ChartLegendKey(title: "Income", color: theme.accent)
+                        ChartLegendKey(title: "PAC", color: theme.champagne)
                     }
                 } else {
                     ChartEmptyState("No expenses, income or PAC in this period.")
@@ -337,6 +339,7 @@ private struct CategoryChartValue: Identifiable {
 
 struct CategoryBreakdownWidget: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.easyTrackTheme) private var theme
     @EnvironmentObject private var navigation: AppNavigationModel
     @State private var mode: CategoryChartMode = .ring
     @State private var selectedAngle: Double?
@@ -364,7 +367,7 @@ struct CategoryBreakdownWidget: View {
             snapshot.unallocatedPersonalAdjustmentEURMinor != 0
     }
     private var colors: [Color] {
-        let palette = [EasyTrackTheme.accent, EasyTrackTheme.champagne, EasyTrackTheme.coral,
+        let palette = [theme.accent, theme.champagne, theme.coral,
                        Color.indigo, Color.orange, Color.mint, Color.purple, Color.blue]
         return positive.indices.map { palette[$0 % palette.count] }
     }
@@ -455,7 +458,7 @@ struct CategoryBreakdownWidget: View {
                 ForEach(bars) { category in
                     BarMark(x: .value("Net amount", plotAmount(category.amountMinor)),
                             y: .value("Category", category.name))
-                        .foregroundStyle(category.amountMinor < 0 ? EasyTrackTheme.coral : EasyTrackTheme.accent)
+                        .foregroundStyle(category.amountMinor < 0 ? theme.coral : theme.accent)
                         .cornerRadius(4)
                 }
             }
@@ -490,6 +493,7 @@ struct CategoryBreakdownWidget: View {
 
 struct DailySpendingWidget: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.easyTrackTheme) private var theme
     @EnvironmentObject private var navigation: AppNavigationModel
     @State private var selectedDate: Date?
     let snapshot: FinancialAnalyticsSnapshot?
@@ -509,7 +513,7 @@ struct DailySpendingWidget: View {
                                     y: .value("Net personal spending",
                                               plotAmount(point.personalNetExpensesEURMinor)))
                                 .foregroundStyle(point.personalNetExpensesEURMinor < 0
-                                    ? EasyTrackTheme.coral : EasyTrackTheme.accent)
+                                    ? theme.coral : theme.accent)
                                 .cornerRadius(3)
                         }
                     }
@@ -550,6 +554,7 @@ struct DailySpendingWidget: View {
 struct TopMerchantsWidget: View {
     @EnvironmentObject private var store: FinanceStore
     @EnvironmentObject private var navigation: AppNavigationModel
+    @Environment(\.easyTrackTheme) private var theme
     @State private var selectedMerchant: String?
     @State private var rejectedSuggestions: Set<String> = []
     let snapshot: FinancialAnalyticsSnapshot?
@@ -577,7 +582,7 @@ struct TopMerchantsWidget: View {
                         BarMark(x: .value("Net amount", plotAmount(merchant.personalNetExpensesEURMinor)),
                                 y: .value("Merchant", merchant.name))
                             .foregroundStyle(merchant.personalNetExpensesEURMinor < 0
-                                ? EasyTrackTheme.coral : EasyTrackTheme.accent)
+                                ? theme.coral : theme.accent)
                             .cornerRadius(4)
                     }
                     .chartXAxis { currencyAxisMarks() }
@@ -605,7 +610,7 @@ struct TopMerchantsWidget: View {
                         }
                     }
                     .padding(12)
-                    .background(EasyTrackTheme.jadeWash,
+                    .background(theme.accentWash,
                                 in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 }
 
@@ -647,13 +652,14 @@ struct TopMerchantsWidget: View {
 }
 
 private struct WidgetHeader: View {
+    @Environment(\.easyTrackTheme) private var theme
     let title: String
     let systemImage: String
 
     var body: some View {
         Label(title, systemImage: systemImage)
             .font(.title3.bold())
-            .foregroundStyle(EasyTrackTheme.primaryText)
+            .foregroundStyle(theme.primaryText)
     }
 }
 
