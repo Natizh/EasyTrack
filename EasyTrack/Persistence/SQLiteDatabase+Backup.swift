@@ -13,7 +13,7 @@ enum BackupError: LocalizedError {
         switch self {
         case .unsupportedVersion(let version):
             version < 5
-                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 9 backup."
+                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 10 backup."
                 : "Backup format \(version) is newer than this app supports. Update EasyTrack before restoring it."
         case .invalid(let reason): "Backup is incomplete or damaged: \(reason)"
         case .changedSincePreview: "Local data changed after the preview. Choose the backup again."
@@ -44,12 +44,13 @@ struct BackupArchive: Codable {
             throw BackupError.invalid("Missing format version or invalid JSON.")
         }
         if version == 5 { return try LegacyBackupConverter.convert(data) }
-        guard (6...9).contains(version) else { throw BackupError.unsupportedVersion(version) }
+        guard (6...10).contains(version) else { throw BackupError.unsupportedVersion(version) }
         do {
             let archive = try JSONDecoder().decode(BackupArchive.self, from: data)
-            if version == 6 { return try archive.upgradedFromSix().upgradedFromSeven().upgradedFromEight() }
-            if version == 7 { return try archive.upgradedFromSeven().upgradedFromEight() }
-            if version == 8 { return try archive.upgradedFromEight() }
+            if version == 6 { return try archive.upgradedFromSix().upgradedFromSeven().upgradedFromEight().upgradedFromNine() }
+            if version == 7 { return try archive.upgradedFromSeven().upgradedFromEight().upgradedFromNine() }
+            if version == 8 { return try archive.upgradedFromEight().upgradedFromNine() }
+            if version == 9 { return try archive.upgradedFromNine() }
             return archive
         }
         catch { throw BackupError.invalid("Required fields could not be decoded.") }
@@ -66,7 +67,7 @@ extension BackupArchive {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
         let schema = try SQLiteDatabase(url: file)
-        let targetTables = Array(try schema.backupTables().dropLast(2))
+        let targetTables = Array(try schema.backupTables().prefix(25))
         let transactionTable = tables.first { $0.name == "transactions" }!
         guard let idIndex = transactionTable.columns.firstIndex(of: "id"),
               let deletedIndex = transactionTable.columns.firstIndex(of: "deleted_at") else {
@@ -121,7 +122,7 @@ extension BackupArchive {
 
 extension BackupArchive {
     func upgradedFromSeven() throws -> BackupArchive {
-        let legacyNames = Array(SQLiteDatabase.backupTableNames.dropLast(2))
+        let legacyNames = Array(SQLiteDatabase.backupTableNames.prefix(25))
         guard schemaVersion == 7, databaseSchemaVersion == 6,
               tables.map(\.name) == legacyNames,
               try SQLiteDatabase.digest(tables) == contentSHA256 else {
@@ -131,13 +132,13 @@ extension BackupArchive {
             .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
         let targetTables = try SQLiteDatabase(url: file).backupTables()
-        guard Array(targetTables.dropLast(2)).enumerated().allSatisfy({ index, target in
+        guard Array(targetTables.prefix(25)).enumerated().allSatisfy({ index, target in
             tables[index].columns == target.columns &&
                 tables[index].rows.allSatisfy { $0.count == target.columns.count }
         }) else {
             throw BackupError.invalid("Version 7 table columns are incomplete.")
         }
-        let upgraded = tables + [targetTables[targetTables.count - 2]]
+        let upgraded = tables + [targetTables[25]]
         return BackupArchive(schemaVersion: 8, databaseSchemaVersion: 7,
                              exportID: exportID, exportedAt: exportedAt,
                              contentSHA256: try SQLiteDatabase.digest(upgraded), tables: upgraded,
@@ -147,7 +148,7 @@ extension BackupArchive {
 
 extension BackupArchive {
     func upgradedFromEight() throws -> BackupArchive {
-        let legacyNames = Array(SQLiteDatabase.backupTableNames.dropLast())
+        let legacyNames = Array(SQLiteDatabase.backupTableNames.prefix(26))
         guard schemaVersion == 8, databaseSchemaVersion == 7,
               tables.map(\.name) == legacyNames,
               try SQLiteDatabase.digest(tables) == contentSHA256 else {
@@ -157,17 +158,43 @@ extension BackupArchive {
             .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
         let targetTables = try SQLiteDatabase(url: file).backupTables()
-        guard Array(targetTables.dropLast()).enumerated().allSatisfy({ index, target in
+        guard Array(targetTables.prefix(26)).enumerated().allSatisfy({ index, target in
             tables[index].columns == target.columns &&
                 tables[index].rows.allSatisfy { $0.count == target.columns.count }
         }) else {
             throw BackupError.invalid("Version 8 table columns are incomplete.")
         }
-        let upgraded = tables + [targetTables.last!]
+        let upgraded = tables + [targetTables[26]]
         return BackupArchive(schemaVersion: 9, databaseSchemaVersion: 8,
                              exportID: exportID, exportedAt: exportedAt,
                              contentSHA256: try SQLiteDatabase.digest(upgraded), tables: upgraded,
                              sourceFormatVersion: sourceFormatVersion ?? 8)
+    }
+}
+
+extension BackupArchive {
+    func upgradedFromNine() throws -> BackupArchive {
+        let legacyNames = Array(SQLiteDatabase.backupTableNames.prefix(27))
+        guard schemaVersion == 9, databaseSchemaVersion == 8,
+              tables.map(\.name) == legacyNames,
+              try SQLiteDatabase.digest(tables) == contentSHA256 else {
+            throw BackupError.invalid("The version 9 table list or checksum is invalid.")
+        }
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
+        defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
+        let targetTables = try SQLiteDatabase(url: file).backupTables()
+        guard Array(targetTables.prefix(27)).enumerated().allSatisfy({ index, target in
+            tables[index].columns == target.columns &&
+                tables[index].rows.allSatisfy { $0.count == target.columns.count }
+        }) else {
+            throw BackupError.invalid("Version 9 table columns are incomplete.")
+        }
+        let upgraded = tables + Array(targetTables.suffix(2))
+        return BackupArchive(schemaVersion: 10, databaseSchemaVersion: 9,
+                             exportID: exportID, exportedAt: exportedAt,
+                             contentSHA256: try SQLiteDatabase.digest(upgraded), tables: upgraded,
+                             sourceFormatVersion: sourceFormatVersion ?? 9)
     }
 }
 
@@ -205,7 +232,8 @@ extension SQLiteDatabase {
         "historical_imported_movements", "expected_occurrences", "recurring_rules_local",
         "recurring_occurrences_local", "operations", "recurring_candidates",
         "recurring_payee_aliases", "recurring_reconciliation_audit",
-        "dashboard_widget_preferences", "merchant_alias_groups"
+        "dashboard_widget_preferences", "merchant_alias_groups",
+        "expense_reimbursement_plans", "expense_reimbursement_links"
     ]
 
     private func backupColumns(_ table: String) throws -> (columns: [String], primary: [String]) {
@@ -262,7 +290,7 @@ extension SQLiteDatabase {
             try checkDatabase()
             let tables = try backupTables()
             try checkReadableRows(tables)
-            let archive = BackupArchive(schemaVersion: 9, databaseSchemaVersion: 8,
+            let archive = BackupArchive(schemaVersion: 10, databaseSchemaVersion: 9,
                                         exportID: UUID(), exportedAt: .now,
                                         contentSHA256: try Self.digest(tables), tables: tables,
                                         sourceFormatVersion: nil)
@@ -369,10 +397,31 @@ extension SQLiteDatabase {
             WHERE t.source_event_id IS NOT NULL AND e.id IS NULL
             """)
         guard orphanEvents == 0 else { throw BackupError.invalid("A transaction has a missing notification event.") }
+        let brokenReimbursements = try countBackupRows("""
+            SELECT COUNT(*) FROM expense_reimbursement_plans p
+            JOIN transactions e ON e.id=p.expense_id
+            LEFT JOIN (SELECT expense_id,SUM(amount_eur_minor) received
+                       FROM expense_reimbursement_links GROUP BY expense_id) s ON s.expense_id=p.expense_id
+            WHERE e.deleted_at IS NOT NULL OR e.kind!='expense' OR
+                  p.expected_eur_minor>(CASE WHEN e.currency='EUR' THEN e.amount_minor ELSE e.eur_minor END) OR
+                  p.written_off_eur_minor+COALESCE(s.received,0)>p.expected_eur_minor OR
+                  e.personal_expense_eur_minor!=(CASE WHEN e.currency='EUR' THEN e.amount_minor ELSE e.eur_minor END)
+                    -p.expected_eur_minor+p.written_off_eur_minor OR
+                  e.recoverable_eur_minor!=p.expected_eur_minor-p.written_off_eur_minor-COALESCE(s.received,0)
+            """)
+        guard brokenReimbursements == 0 else { throw BackupError.invalid("Expected reimbursement totals are inconsistent.") }
+        let brokenReceipts = try countBackupRows("""
+            SELECT COUNT(*) FROM expense_reimbursement_links l
+            JOIN transactions r ON r.id=l.reimbursement_id
+            WHERE r.deleted_at IS NOT NULL OR r.kind!='reimbursement' OR
+                  l.amount_eur_minor!=(CASE WHEN r.currency='EUR' THEN r.amount_minor ELSE r.eur_minor END) OR
+                  r.personal_expense_eur_minor!=0
+            """)
+        guard brokenReceipts == 0 else { throw BackupError.invalid("A linked reimbursement is inconsistent.") }
     }
 
     private func validate(_ archive: BackupArchive) throws {
-        guard archive.schemaVersion == 9, archive.databaseSchemaVersion == 8 else {
+        guard archive.schemaVersion == 10, archive.databaseSchemaVersion == 9 else {
             throw BackupError.unsupportedVersion(archive.schemaVersion)
         }
         guard archive.tables.map(\.name) == Self.backupTableNames else {

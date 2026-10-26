@@ -18,6 +18,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var historicalRules: [HistoricalRecurringRule] = []
     @Published private(set) var dashboardWidgetPreferences: [DashboardWidgetPreference] = []
     @Published private(set) var merchantAliasGroups: [MerchantAliasGroup] = []
+    @Published private(set) var reimbursementStatuses: [ExpenseReimbursementStatus] = []
     @Published var errorMessage: String?
 
     init() {
@@ -55,6 +56,7 @@ final class FinanceStore: ObservableObject {
             historicalRules = try database.historicalRules()
             dashboardWidgetPreferences = try database.dashboardWidgetPreferences()
             merchantAliasGroups = try database.merchantAliasGroups()
+            reimbursementStatuses = try database.reimbursementStatuses()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -62,6 +64,43 @@ final class FinanceStore: ObservableObject {
         let persisted = try SQLiteDatabase.open().save(item)
         reload()
         return persisted
+    }
+
+    @discardableResult
+    func save(_ item: Transaction, expectedReimbursementEURMinor: Int64?) throws -> Transaction {
+        let persisted = try SQLiteDatabase.open().save(item,
+            expectedReimbursementEURMinor: expectedReimbursementEURMinor)
+        reload()
+        return persisted
+    }
+
+    func linkReimbursement(expenseID: UUID, reimbursementID: UUID) throws {
+        try SQLiteDatabase.open().linkReimbursement(expenseID: expenseID,
+                                                    reimbursementID: reimbursementID)
+        reload()
+    }
+
+    @discardableResult
+    func createAndLinkReimbursement(expenseID: UUID, reimbursement: Transaction) throws -> Transaction {
+        let result = try SQLiteDatabase.open().createAndLinkReimbursement(
+            expenseID: expenseID, reimbursement: reimbursement)
+        reload()
+        return result
+    }
+
+    func unlinkReimbursement(_ reimbursementID: UUID) throws {
+        try SQLiteDatabase.open().unlinkReimbursement(reimbursementID)
+        reload()
+    }
+
+    func writeOffOutstandingReimbursement(_ expenseID: UUID) throws {
+        try SQLiteDatabase.open().writeOffOutstandingReimbursement(expenseID)
+        reload()
+    }
+
+    func undoReimbursementWriteOff(_ expenseID: UUID) throws {
+        try SQLiteDatabase.open().undoReimbursementWriteOff(expenseID)
+        reload()
     }
 
     func delete(_ item: Transaction) throws {

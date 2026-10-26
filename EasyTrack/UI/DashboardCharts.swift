@@ -28,6 +28,7 @@ struct DashboardWidgetID: RawRepresentable, Codable, Hashable, Identifiable {
     static let monthlyTrend = DashboardWidgetID(rawValue: "monthlyTrend")
     static let categoryBreakdown = DashboardWidgetID(rawValue: "categoryBreakdown")
     static let recurring = DashboardWidgetID(rawValue: "recurring")
+    static let pendingReimbursements = DashboardWidgetID(rawValue: "pendingReimbursements")
     static let dailySpending = DashboardWidgetID(rawValue: "dailySpending")
     static let topMerchants = DashboardWidgetID(rawValue: "topMerchants")
     static let uncategorized = DashboardWidgetID(rawValue: "uncategorized")
@@ -45,9 +46,10 @@ enum DashboardWidgetRegistry {
         .init(id: .monthlyTrend, title: "Monthly trend", systemImage: "chart.xyaxis.line", defaultOrder: 0),
         .init(id: .categoryBreakdown, title: "Categories", systemImage: "chart.pie", defaultOrder: 1),
         .init(id: .recurring, title: "Upcoming", systemImage: "calendar", defaultOrder: 2),
-        .init(id: .dailySpending, title: "Daily spending", systemImage: "chart.bar", defaultOrder: 3),
-        .init(id: .topMerchants, title: "Top merchants", systemImage: "building.2", defaultOrder: 4),
-        .init(id: .uncategorized, title: "Uncategorized", systemImage: "tag", defaultOrder: 5)
+        .init(id: .pendingReimbursements, title: "Expected reimbursements", systemImage: "arrow.uturn.backward.circle", defaultOrder: 3),
+        .init(id: .dailySpending, title: "Daily spending", systemImage: "chart.bar", defaultOrder: 4),
+        .init(id: .topMerchants, title: "Top merchants", systemImage: "building.2", defaultOrder: 5),
+        .init(id: .uncategorized, title: "Uncategorized", systemImage: "tag", defaultOrder: 6)
     ].sorted { $0.defaultOrder < $1.defaultOrder }
 
     static func resolved(preferences: [DashboardWidgetPreference]) -> [(DashboardWidgetDescriptor, Bool)] {
@@ -180,6 +182,8 @@ struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {
             CategoryBreakdownWidget(snapshot: snapshot)
         } else if id == .recurring {
             recurring
+        } else if id == .pendingReimbursements {
+            PendingReimbursementsWidget()
         } else if id == .dailySpending {
             DailySpendingWidget(snapshot: snapshot)
         } else if id == .topMerchants {
@@ -187,6 +191,48 @@ struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {
         } else if id == .uncategorized {
             uncategorized
         }
+    }
+}
+
+struct PendingReimbursementsWidget: View {
+    @EnvironmentObject private var store: FinanceStore
+    @EnvironmentObject private var navigation: AppNavigationModel
+
+    private var pending: [ExpenseReimbursementStatus] {
+        store.reimbursementStatuses.filter { $0.outstandingEURMinor > 0 }
+    }
+    private var total: Int64 {
+        pending.reduce(0) { result, status in
+            let (value, overflow) = result.addingReportingOverflow(status.outstandingEURMinor)
+            return overflow ? result : value
+        }
+    }
+
+    var body: some View {
+        DashboardModuleCard {
+            Button {
+                let ids = Set(pending.map(\.expenseID))
+                navigation.showActivity(label: "Pending reimbursements",
+                    filter: TransactionFilter(transactionIDs: ids))
+            } label: {
+                HStack(spacing: 13) {
+                    Image(systemName: "arrow.uturn.backward.circle.fill")
+                        .font(.title2).foregroundStyle(EasyTrackTheme.accent)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Expected reimbursements").font(.subheadline.weight(.semibold))
+                        Text(pending.isEmpty ? "Nothing pending" : "\(pending.count) pending")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(Money.format(total)).font(.headline).monospacedDigit()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(pending.isEmpty)
+        }
+        .accessibilityIdentifier("homePendingReimbursementsWidget")
     }
 }
 

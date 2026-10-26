@@ -56,7 +56,7 @@ final class DailyPersistenceTests: XCTestCase {
 
     func testAccountsAndCategoriesKeepStableReferencesThroughRenameAndArchive() throws {
         try withDatabase { url, database in
-            XCTAssertEqual(try scalar("PRAGMA user_version", url: url), 8)
+            XCTAssertEqual(try scalar("PRAGMA user_version", url: url), 9)
             XCTAssertEqual(try database.ledgerCategories().count, 12)
             var account = try self.account(database)
             var category = try self.category(database)
@@ -203,7 +203,7 @@ final class DailyPersistenceTests: XCTestCase {
             ] { try self.sql(command, url: url) }
             XCTAssertEqual(try self.scalar("PRAGMA user_version", url: url), 4)
             let upgraded = try SQLiteDatabase(url: url)
-            XCTAssertEqual(try self.scalar("PRAGMA user_version", url: url), 8)
+            XCTAssertEqual(try self.scalar("PRAGMA user_version", url: url), 9)
             XCTAssertEqual(try upgraded.transactions().first?.id, original.id)
             XCTAssertEqual(try upgraded.transactions().first?.amountMinor, 1_234)
             XCTAssertEqual(try upgraded.notificationEvents().first?.id, event.id)

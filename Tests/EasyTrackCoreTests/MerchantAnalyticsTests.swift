@@ -48,8 +48,8 @@ final class MerchantAnalyticsTests: XCTestCase {
         XCTAssertEqual(try SQLiteDatabase(url: sourceURL).merchantAliasGroups(), [sourceGroup])
 
         let backup = try source.exportBackup()
-        XCTAssertEqual(backup.schemaVersion, 9)
-        XCTAssertEqual(backup.databaseSchemaVersion, 8)
+        XCTAssertEqual(backup.schemaVersion, 10)
+        XCTAssertEqual(backup.databaseSchemaVersion, 9)
         let targetURL = folder.appendingPathComponent("target.sqlite")
         let target = try SQLiteDatabase(url: targetURL)
         try target.seedDemoIfNeeded()
@@ -65,13 +65,13 @@ final class MerchantAnalyticsTests: XCTestCase {
         try target.deleteMerchantAliasGroup(localGroup.id)
         XCTAssertTrue(try target.merchantAliasGroups().isEmpty)
 
-        let oldTables = Array(backup.tables.dropLast())
+        let oldTables = Array(backup.tables.prefix(26))
         let old = BackupArchive(schemaVersion: 8, databaseSchemaVersion: 7,
             exportID: UUID(), exportedAt: .now,
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,
             sourceFormatVersion: nil)
         let upgraded = try BackupArchive.decode(JSONEncoder().encode(old))
-        XCTAssertEqual(upgraded.schemaVersion, 9)
+        XCTAssertEqual(upgraded.schemaVersion, 10)
         XCTAssertEqual(upgraded.sourceFormatVersion, 8)
         XCTAssertTrue(upgraded.tables.last?.rows.isEmpty == true)
 

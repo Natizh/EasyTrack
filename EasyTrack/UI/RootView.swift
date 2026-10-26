@@ -65,6 +65,9 @@ private struct TransactionRow: View {
            let managed = store.ledgerCategories.first(where: { $0.id == id }) { return managed.name }
         return item.category.isEmpty ? "Uncategorized" : item.category
     }
+    private var reimbursementStatus: ExpenseReimbursementStatus? {
+        store.reimbursementStatuses.first { $0.expenseID == item.id }
+    }
 
     private var movementIcon: some View {
         Image(systemName: item.kind.isOutflow ? "arrow.up.right" : "arrow.down.left")
@@ -82,6 +85,11 @@ private struct TransactionRow: View {
             Text("\(item.kind.title) · \(categoryName)")
                 .font(.caption).foregroundStyle(.secondary)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
+            if let reimbursementStatus {
+                Text(reimbursementStatus.title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(reimbursementStatus.outstandingEURMinor > 0 ? Palette.teal : .secondary)
+            }
         }
     }
 
@@ -394,6 +402,7 @@ private struct TransactionsView: View {
     @State private var accountFilter: String?
     @State private var tripFilter: String?
     @State private var currencyFilter: String?
+    @State private var pendingReimbursementsOnly = false
     @State private var showingNew = false
     @State private var exportRequest: ExportRequest?
     @State private var selectedTransactionID: UUID?
@@ -402,9 +411,14 @@ private struct TransactionsView: View {
     private var accounts: [String] { Array(Set(store.transactions.map(\.account))).sorted() }
     private var currencies: [String] { Array(Set(store.transactions.map(\.currency))).sorted() }
     private var currentActivityFilter: TransactionFilter {
-        TransactionFilter(query: search, kind: kind,
-                          category: category == "All categories" ? nil : category,
-                          account: accountFilter, tripID: tripFilter, currency: currencyFilter)
+        var filter = TransactionFilter(query: search, kind: kind,
+                                       category: category == "All categories" ? nil : category,
+                                       account: accountFilter, tripID: tripFilter, currency: currencyFilter)
+        if pendingReimbursementsOnly {
+            filter.transactionIDs = Set(store.reimbursementStatuses
+                .filter { $0.outstandingEURMinor > 0 }.map(\.expenseID))
+        }
+        return filter
     }
     private var activityFiltered: [Transaction] {
         currentActivityFilter
@@ -453,6 +467,9 @@ private struct TransactionsView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     filterChip("All", selected: kind == nil) { kind = nil }
+                    filterChip("Pending reimbursements", selected: pendingReimbursementsOnly) {
+                        pendingReimbursementsOnly.toggle()
+                    }
                     ForEach(TransactionKind.allCases) { option in
                         filterChip(option.title, selected: kind == option) { kind = option }
                     }
@@ -580,6 +597,10 @@ struct TransactionEditor: View {
     @State private var validation: String?
     @State private var choosingAccount = false
     @State private var choosingCategory = false
+    @State private var expectsReimbursement: Bool
+    @State private var expectedReimbursementAmount: String
+    @State private var showingReimbursementSettlement = false
+    @State private var confirmingReimbursementWriteOff = false
 
     init(item: Transaction? = nil, prefillEvent: NotificationEvent? = nil) {
         original = item
@@ -598,6 +619,15 @@ struct TransactionEditor: View {
         _affectsMyAccounts = State(initialValue: item?.affectsMyAccounts ?? true)
         _note = State(initialValue: item?.note ?? prefillEvent.map { [$0.title, $0.subtitle, $0.message].filter { !$0.isEmpty }.joined(separator: " · ") } ?? "")
         _occurredAt = State(initialValue: item?.occurredAt ?? prefillEvent?.receivedAt ?? .now)
+        let pending = item?.kind == .expense && (item?.recoverableEURMinor ?? 0) > 0
+        _expectsReimbursement = State(initialValue: pending)
+        _expectedReimbursementAmount = State(initialValue: pending
+            ? Money.editString(item?.recoverableEURMinor ?? 0) : "")
+    }
+
+    private var reimbursementStatus: ExpenseReimbursementStatus? {
+        guard let id = original?.id else { return nil }
+        return store.reimbursementStatuses.first { $0.expenseID == id }
     }
 
     var body: some View {
@@ -677,6 +707,42 @@ struct TransactionEditor: View {
                     TextField("Optional note", text: $note, axis: .vertical).lineLimit(2...5)
                 }
             }
+            if kind == .expense {
+                Section("Reimbursement") {
+                    Toggle("Mi aspetto un rimborso", isOn: $expectsReimbursement)
+                        .disabled(reimbursementStatus != nil)
+                        .accessibilityIdentifier("expectsReimbursementToggle")
+                    if expectsReimbursement {
+                        DisclosureGroup("Partial expected amount") {
+                            LabeledContent("Expected (EUR)") {
+                                TextField("0,00", text: $expectedReimbursementAmount)
+                                    .keyboardType(.numbersAndPunctuation)
+                                    .multilineTextAlignment(.trailing)
+                                    .accessibilityIdentifier("expectedReimbursementAmountField")
+                            }
+                        }
+                    }
+                    if let status = reimbursementStatus {
+                        LabeledContent("Status", value: status.title)
+                        LabeledContent("Still expected", value: Money.format(status.outstandingEURMinor))
+                        if status.outstandingEURMinor > 0 {
+                            Button("Rimborso ricevuto") { showingReimbursementSettlement = true }
+                                .accessibilityIdentifier("receiveReimbursementButton")
+                            Button("Non riceverò il rimborso", role: .destructive) {
+                                confirmingReimbursementWriteOff = true
+                            }
+                        }
+                        if status.writtenOffEURMinor > 0 {
+                            Button("Undo not-received adjustment") { undoReimbursementWriteOff() }
+                        }
+                        ForEach(status.linkedTransactionIDs, id: \.self) { reimbursementID in
+                            Button("Unlink reimbursement \(shortID(reimbursementID))", role: .destructive) {
+                                unlinkReimbursement(reimbursementID)
+                            }
+                        }
+                    }
+                }
+            }
             if let original, !original.isDemo {
                 Section("Recurring payment") {
                     if let occurrenceID = original.recurringOccurrenceID,
@@ -719,7 +785,18 @@ struct TransactionEditor: View {
                 catch { validation = error.localizedDescription }
             }
         } message: { Text("The actual transaction remains counted. The scheduled occurrence becomes expected; no old estimate is restored.") }
+        .confirmationDialog("Mark the outstanding reimbursement as not received?",
+                            isPresented: $confirmingReimbursementWriteOff,
+                            titleVisibility: .visible) {
+            Button("Mark as not received", role: .destructive) { writeOffReimbursement() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The unpaid amount becomes personal spending on the original expense date. No bank movement is created.")
+        }
         .onChange(of: amount) { _, _ in validation = nil }
+        .onChange(of: expectsReimbursement) { _, enabled in
+            if enabled && expectedReimbursementAmount.isEmpty { expectedReimbursementAmount = amount }
+        }
         .onChange(of: category) { _, value in
             categoryID = store.ledgerCategories.first {
                 ($0.archivedAt == nil || $0.id == categoryID) &&
@@ -740,6 +817,17 @@ struct TransactionEditor: View {
                     categoryID = selected?.id
                     category = selected?.name ?? ""
                 }
+            }
+        }
+        .sheet(isPresented: $showingReimbursementSettlement) {
+            if let id = original?.id {
+                NavigationStack { ReimbursementSettlementView(expenseID: id) }
+            }
+        }
+        .onAppear {
+            if let status = reimbursementStatus {
+                expectsReimbursement = true
+                expectedReimbursementAmount = Money.editString(status.expectedEURMinor)
             }
         }
     }
@@ -786,9 +874,22 @@ struct TransactionEditor: View {
         item.affectsMyAccounts = affectsMyAccounts
         item.note = note
         item.occurredAt = occurredAt
+        let expectedReimbursement: Int64?
+        if kind == .expense && expectsReimbursement {
+            let text = expectedReimbursementAmount.isEmpty ? amount : expectedReimbursementAmount
+            switch Money.validatedPositiveAmount(text) {
+            case .success(let expected) where expected <= cents: expectedReimbursement = expected
+            case .success: validation = "Expected reimbursement cannot exceed the expense."; return
+            case .failure(let error): validation = error.message; return
+            }
+        } else { expectedReimbursement = nil }
         isSaving = true
         do {
-            try store.save(item)
+            if let expectedReimbursement {
+                try store.save(item, expectedReimbursementEURMinor: expectedReimbursement)
+            } else {
+                try store.save(item)
+            }
             dismiss()
         } catch {
             validation = "Couldn’t save transaction. \(error.localizedDescription)"
@@ -806,6 +907,117 @@ struct TransactionEditor: View {
             validation = "Couldn’t delete transaction. \(error.localizedDescription)"
             isSaving = false
         }
+    }
+
+    private func writeOffReimbursement() {
+        guard let id = original?.id else { return }
+        do { try store.writeOffOutstandingReimbursement(id) }
+        catch { validation = error.localizedDescription }
+    }
+
+    private func undoReimbursementWriteOff() {
+        guard let id = original?.id else { return }
+        do { try store.undoReimbursementWriteOff(id) }
+        catch { validation = error.localizedDescription }
+    }
+
+    private func unlinkReimbursement(_ id: UUID) {
+        do { try store.unlinkReimbursement(id) }
+        catch { validation = error.localizedDescription }
+    }
+
+    private func shortID(_ id: UUID) -> String { String(id.uuidString.prefix(8)) }
+}
+
+private struct ReimbursementSettlementView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.dismiss) private var dismiss
+    let expenseID: UUID
+    @State private var amount = ""
+    @State private var description = "Reimbursement received"
+    @State private var occurredAt = Date()
+    @State private var validation: String?
+
+    private var expense: Transaction? { store.transactions.first { $0.id == expenseID } }
+    private var status: ExpenseReimbursementStatus? {
+        store.reimbursementStatuses.first { $0.expenseID == expenseID }
+    }
+    private var linkedIDs: Set<UUID> {
+        Set(store.reimbursementStatuses.flatMap(\.linkedTransactionIDs))
+    }
+    private var candidates: [Transaction] {
+        store.transactions.filter {
+            $0.kind == .reimbursement && !linkedIDs.contains($0.id) && $0.deletedAt == nil
+        }
+    }
+
+    var body: some View {
+        Form {
+            Section("Link an existing reimbursement") {
+                if candidates.isEmpty {
+                    Text("No unlinked reimbursement transactions are available.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                ForEach(candidates) { candidate in
+                    Button {
+                        link(candidate)
+                    } label: {
+                        LabeledContent(candidate.merchant,
+                            value: Money.format(candidate.eurMinor ?? candidate.amountMinor))
+                    }
+                }
+            }
+            Section("Record a new real reimbursement") {
+                LabeledContent("Amount (EUR)") {
+                    TextField("0,00", text: $amount).keyboardType(.numbersAndPunctuation)
+                        .multilineTextAlignment(.trailing)
+                }
+                TextField("Description", text: $description)
+                DatePicker("Received", selection: $occurredAt)
+                Button("Record and link") { createAndLink() }
+                    .disabled(expense == nil || status?.outstandingEURMinor == 0)
+            }
+            if let validation { Section { Text(validation).foregroundStyle(.red) } }
+        }
+        .navigationTitle("Rimborso ricevuto")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        .onAppear {
+            if let outstanding = status?.outstandingEURMinor { amount = Money.editString(outstanding) }
+        }
+    }
+
+    private func link(_ reimbursement: Transaction) {
+        do {
+            try store.linkReimbursement(expenseID: expenseID, reimbursementID: reimbursement.id)
+            dismiss()
+        } catch { validation = error.localizedDescription }
+    }
+
+    private func createAndLink() {
+        guard let expense else { return }
+        let cents: Int64
+        switch Money.validatedPositiveAmount(amount) {
+        case .success(let value): cents = value
+        case .failure(let error): validation = error.message; return
+        }
+        guard !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            validation = "Enter a description."; return
+        }
+        var reimbursement = Transaction(id: UUID(), kind: .reimbursement, amountMinor: cents,
+            currency: "EUR", merchant: description.trimmingCharacters(in: .whitespacesAndNewlines),
+            account: expense.account, category: "", note: "Linked reimbursement",
+            occurredAt: occurredAt, updatedAt: .now, deletedAt: nil, isDemo: false,
+            revision: 0, sourceEventID: nil)
+        reimbursement.eurMinor = cents
+        reimbursement.personalExpenseEURMinor = -cents
+        reimbursement.recoverableEURMinor = 0
+        reimbursement.accountID = expense.accountID
+        do {
+            _ = try store.createAndLinkReimbursement(expenseID: expenseID,
+                                                     reimbursement: reimbursement)
+            dismiss()
+        } catch { validation = error.localizedDescription }
     }
 }
 

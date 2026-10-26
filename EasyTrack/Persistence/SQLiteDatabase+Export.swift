@@ -15,6 +15,7 @@ extension SQLiteDatabase {
             guard items.count == storedCount else { throw DatabaseError.sqlite("A transaction cannot be read for export") }
             let accounts = Dictionary(uniqueKeysWithValues: try localAccounts().map { ($0.id, $0.name) })
             let categories = Dictionary(uniqueKeysWithValues: try ledgerCategories().map { ($0.id, $0.name) })
+            let reimbursements = Dictionary(uniqueKeysWithValues: try reimbursementStatuses().map { ($0.expenseID, $0) })
             let trips = Dictionary(uniqueKeysWithValues: try historicalTrips().map { ($0.id, $0.name) })
             let stmt = try statement("SELECT transaction_id,source_payload_json FROM historical_imported_movements")
             var originals: [UUID: HistoricalOriginalValues] = [:]
@@ -34,7 +35,8 @@ extension SQLiteDatabase {
             try execute("COMMIT")
             return TransactionExportSnapshot(transactions: items, accountNames: accounts,
                                              categoryNames: categories, tripNames: trips,
-                                             historicalOriginals: originals)
+                                             historicalOriginals: originals,
+                                             reimbursementStatuses: reimbursements)
         } catch {
             try? execute("ROLLBACK")
             throw error

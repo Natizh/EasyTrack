@@ -118,6 +118,7 @@ struct TransactionExportSnapshot {
     let categoryNames: [UUID: String]
     let tripNames: [String: String]
     let historicalOriginals: [UUID: HistoricalOriginalValues]
+    var reimbursementStatuses: [UUID: ExpenseReimbursementStatus] = [:]
 
     static func accountKey(_ item: Transaction) -> String {
         item.accountID.map { "id:\($0.uuidString)" } ?? "label:\(item.account)"
@@ -195,7 +196,8 @@ struct TransactionExportSnapshot {
                 account: item.accountID.flatMap { accountNames[$0] } ?? item.account,
                 category: item.categoryID.flatMap { categoryNames[$0] } ?? item.category,
                 trip: item.tripID.flatMap { tripNames[$0] } ?? item.tripID,
-                original: historicalOriginals[item.id])
+                original: historicalOriginals[item.id],
+                reimbursementStatus: reimbursementStatuses[item.id])
         }
         if rows.contains(where: { $0.item.kind.isOutflow && $0.currentEURMinor == Int64.min }) {
             throw TransactionExportError.tooLarge
@@ -210,6 +212,7 @@ struct TransactionExportRow {
     let category: String
     let trip: String?
     let original: HistoricalOriginalValues?
+    let reimbursementStatus: ExpenseReimbursementStatus?
 
     var currentEURMinor: Int64? { item.eurMinor ?? (item.currency == "EUR" ? item.amountMinor : nil) }
     var personalEURMinor: Int64? {
@@ -293,6 +296,8 @@ enum TransactionExportColumn: String, CaseIterable {
          currentEUR, personalEUR, recoverableEUR, signedEUR, note,
          subcategory, trip, payer, affectsAccounts, historicalRate,
          importedAmount, importedCurrency, importedEUR, importedAt,
+         reimbursementStatus, reimbursementExpected, reimbursementReceived,
+         reimbursementOutstanding, reimbursementWrittenOff, linkedReimbursementIDs,
          transactionID, sourceMovementID, sourceEventID, recurringOccurrenceID, sourceSheet, sourceRow
 
     static func selected(_ options: TransactionExportOptions) -> [Self] {
@@ -301,7 +306,9 @@ enum TransactionExportColumn: String, CaseIterable {
                                .recoverableEUR, .signedEUR, .note]
         if options.columns == .detailed {
             columns += [.subcategory, .trip, .payer, .affectsAccounts, .historicalRate,
-                        .importedAmount, .importedCurrency, .importedEUR, .importedAt]
+                        .importedAmount, .importedCurrency, .importedEUR, .importedAt,
+                        .reimbursementStatus, .reimbursementExpected, .reimbursementReceived,
+                        .reimbursementOutstanding, .reimbursementWrittenOff, .linkedReimbursementIDs]
         }
         if options.includeTechnicalIDs {
             columns += [.transactionID, .sourceMovementID, .sourceEventID,
@@ -333,6 +340,12 @@ enum TransactionExportColumn: String, CaseIterable {
         case .importedCurrency: "Imported currency"
         case .importedEUR: "Imported EUR amount"
         case .importedAt: "Imported timestamp"
+        case .reimbursementStatus: "Reimbursement status"
+        case .reimbursementExpected: "Expected reimbursement EUR"
+        case .reimbursementReceived: "Received reimbursement EUR"
+        case .reimbursementOutstanding: "Outstanding reimbursement EUR"
+        case .reimbursementWrittenOff: "Written-off reimbursement EUR"
+        case .linkedReimbursementIDs: "Linked reimbursement IDs"
         case .transactionID: "Transaction ID"
         case .sourceMovementID: "Source movement ID"
         case .sourceEventID: "Source event ID"
@@ -346,7 +359,8 @@ enum TransactionExportColumn: String, CaseIterable {
         switch self {
         case .occurredAt, .importedAt: 22
         case .description, .note: 34
-        case .transactionID, .sourceEventID, .sourceMovementID, .recurringOccurrenceID: 38
+        case .transactionID, .sourceEventID, .sourceMovementID, .recurringOccurrenceID,
+             .linkedReimbursementIDs: 38
         default: 20
         }
     }
@@ -378,6 +392,14 @@ enum TransactionExportColumn: String, CaseIterable {
         case .importedCurrency: row.original?.currency.map { .text($0) } ?? .empty
         case .importedEUR: amount(row.original?.eurMinor)
         case .importedAt: row.original?.occurredAt.map { .text($0) } ?? .empty
+        case .reimbursementStatus: row.reimbursementStatus.map { .text($0.title) } ?? .empty
+        case .reimbursementExpected: amount(row.reimbursementStatus?.expectedEURMinor)
+        case .reimbursementReceived: amount(row.reimbursementStatus?.receivedEURMinor)
+        case .reimbursementOutstanding: amount(row.reimbursementStatus?.outstandingEURMinor)
+        case .reimbursementWrittenOff: amount(row.reimbursementStatus?.writtenOffEURMinor)
+        case .linkedReimbursementIDs: row.reimbursementStatus.map {
+            .text($0.linkedTransactionIDs.map(\.uuidString).joined(separator: " | "))
+        } ?? .empty
         case .transactionID: .text(item.id.uuidString)
         case .sourceMovementID: item.sourceMovementID.map { .text($0) } ?? .empty
         case .sourceEventID: item.sourceEventID.map { .text($0.uuidString) } ?? .empty

@@ -27,8 +27,20 @@ enum DashboardWidgetPreferenceResolver {
                 return $0.widgetID < $1.widgetID
             }
         let configured = Set(known.map(\.widgetID))
-        let added = canonical.filter { !configured.contains($0) }
-            .map { ResolvedDashboardWidget(widgetID: $0, isVisible: true) }
-        return known.map { ResolvedDashboardWidget(widgetID: $0.widgetID, isVisible: $0.isVisible) } + added
+        var result = known.map { ResolvedDashboardWidget(widgetID: $0.widgetID, isVisible: $0.isVisible) }
+        for missing in canonical.filter({ !configured.contains($0) }) {
+            let defaultIndex = canonical.firstIndex(of: missing)!
+            let predecessor = canonical[..<defaultIndex].reversed()
+                .compactMap { candidate in result.firstIndex { $0.widgetID == candidate } }.first
+            if let predecessor {
+                result.insert(ResolvedDashboardWidget(widgetID: missing, isVisible: true), at: predecessor + 1)
+            } else if let successor = canonical[(defaultIndex + 1)...]
+                .compactMap({ candidate in result.firstIndex { $0.widgetID == candidate } }).first {
+                result.insert(ResolvedDashboardWidget(widgetID: missing, isVisible: true), at: successor)
+            } else {
+                result.append(ResolvedDashboardWidget(widgetID: missing, isVisible: true))
+            }
+        }
+        return result
     }
 }
