@@ -363,6 +363,39 @@ final class SQLiteDatabase {
         sqlite3_column_type(statement, index) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, index)
     }
 
+    func appPreference(_ key: String) throws -> String? {
+        let query = try statement("SELECT value FROM metadata WHERE key=?")
+        defer { sqlite3_finalize(query) }
+        bind("preference.\(key)", at: 1, to: query)
+        return sqlite3_step(query) == SQLITE_ROW ? string(query, 0) : nil
+    }
+
+    func setAppPreference(_ value: String, for key: String) throws {
+        let save = try statement("INSERT OR REPLACE INTO metadata(key,value) VALUES(?,?)")
+        defer { sqlite3_finalize(save) }
+        bind("preference.\(key)", at: 1, to: save)
+        bind(value, at: 2, to: save)
+        guard sqlite3_step(save) == SQLITE_DONE else { throw error() }
+    }
+
+    func automationSetupMilestones() throws -> Set<AutomationSetupMilestone> {
+        guard let value = try appPreference("automationSetupMilestones"),
+              let data = value.data(using: .utf8),
+              let rawValues = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return Set(rawValues.compactMap(AutomationSetupMilestone.init(rawValue:)))
+    }
+
+    func markAutomationSetupMilestone(_ milestone: AutomationSetupMilestone) throws {
+        var milestones = try automationSetupMilestones()
+        milestones.insert(milestone)
+        let values = milestones.map(\.rawValue).sorted()
+        let data = try JSONEncoder().encode(values)
+        guard let value = String(data: data, encoding: .utf8) else {
+            throw DatabaseError.sqlite("Could not save notification setup progress")
+        }
+        try setAppPreference(value, for: "automationSetupMilestones")
+    }
+
     func seedDemoIfNeeded() throws {
         let check = try statement("SELECT value FROM metadata WHERE key = 'demo_seeded'")
         defer { sqlite3_finalize(check) }
@@ -568,6 +601,78 @@ final class SQLiteDatabase {
                                             fingerprint: string(statement, 7)))
         }
         return events
+    }
+
+    func notificationRetentionDays() throws -> Int {
+        guard let value = try appPreference("notificationRetentionDays"),
+              let days = Int(value), NotificationRetentionPolicy.supportedDays.contains(days) else {
+            return NotificationRetentionPolicy.defaultDays
+        }
+        return days
+    }
+
+    @discardableResult
+    func setNotificationRetentionDays(_ days: Int, now: Date = .now) throws -> Int {
+        guard NotificationRetentionPolicy.supportedDays.contains(days) else {
+            throw ParserValidationError.invalidRule("Choose 0, 7, 30, or 90 days of diagnostic retention.")
+        }
+        try setAppPreference(String(days), for: "notificationRetentionDays")
+        return try purgeExpiredNotificationContents(now: now)
+    }
+
+    @discardableResult
+    func purgeExpiredNotificationContents(now: Date = .now) throws -> Int {
+        let days = try notificationRetentionDays()
+        let cutoff = days == 0 ? now : now.addingTimeInterval(-Double(days) * 86_400)
+        return try scrubNotificationContents(before: cutoff)
+    }
+
+    @discardableResult
+    func clearNotificationDiagnosticContents() throws -> Int {
+        try scrubNotificationContents(before: nil)
+    }
+
+    private func scrubNotificationContents(before cutoff: Date?) throws -> Int {
+        let suffix = cutoff == nil ? "" : " WHERE captured_at<?"
+        let query = try statement("SELECT id,raw_json FROM notification_attempts\(suffix)")
+        if let cutoff { sqlite3_bind_double(query, 1, cutoff.timeIntervalSince1970) }
+        var sanitized: [(String, String)] = []
+        while sqlite3_step(query) == SQLITE_ROW {
+            let id = string(query, 0)
+            guard var event = try? JSONDecoder().decode(NotificationEvent.self,
+                                                        from: Data(string(query, 1).utf8)),
+                  !event.title.isEmpty || !event.subtitle.isEmpty || !event.message.isEmpty else { continue }
+            event.title = ""
+            event.subtitle = ""
+            event.message = ""
+            if let data = try? JSONEncoder().encode(event), let json = String(data: data, encoding: .utf8) {
+                sanitized.append((id, json))
+            }
+        }
+        sqlite3_finalize(query)
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for (id, json) in sanitized {
+                let update = try statement("UPDATE notification_attempts SET raw_json=? WHERE id=?")
+                bind(json, at: 1, to: update)
+                bind(id, at: 2, to: update)
+                guard sqlite3_step(update) == SQLITE_DONE else { sqlite3_finalize(update); throw error() }
+                sqlite3_finalize(update)
+            }
+            let contentFilter = cutoff == nil
+                ? " WHERE title!='' OR subtitle!='' OR message!=''"
+                : " WHERE captured_at<? AND (title!='' OR subtitle!='' OR message!='')"
+            let eventUpdate = try statement("UPDATE notification_events SET title='',subtitle='',message=''" + contentFilter)
+            if let cutoff { sqlite3_bind_double(eventUpdate, 1, cutoff.timeIntervalSince1970) }
+            guard sqlite3_step(eventUpdate) == SQLITE_DONE else { sqlite3_finalize(eventUpdate); throw error() }
+            let eventCount = Int(sqlite3_changes(handle))
+            sqlite3_finalize(eventUpdate)
+            try execute("COMMIT")
+            return max(sanitized.count, eventCount)
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
     }
 
     func operations() throws -> [LedgerOperation] {
@@ -996,6 +1101,29 @@ extension SQLiteDatabase {
         return source
     }
 
+    func configureParserSource(named sourceName: String, accountID: UUID) throws -> ParserSource {
+        let cleanName = sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty, cleanName.utf8.count <= 120 else {
+            throw ParserValidationError.invalidRule("Enter a source label under 120 characters.")
+        }
+        guard let account = try localAccounts().first(where: { $0.id == accountID && $0.archivedAt == nil }) else {
+            throw ParserValidationError.invalidRule("Choose an active EasyTrack account.")
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let source = try parserSource(named: cleanName)
+            try setSourceAccount(source.id, name: account.name)
+            try execute("COMMIT")
+            guard let configured = try parserSources().first(where: { $0.id == source.id }) else {
+                throw ParserValidationError.invalidRule("Notification source was not found.")
+            }
+            return configured
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
     private func backfillSourceAccountsFromLegacyRules() throws {
         let unmapped = try statement("SELECT id,name FROM parser_sources WHERE account_id IS NULL")
         var sources: [(UUID, String)] = []
@@ -1283,6 +1411,7 @@ extension SQLiteDatabase {
     }
 
     @discardableResult func captureNotification(_ event: NotificationEvent) throws -> ParserAttempt {
+        _ = try purgeExpiredNotificationContents()
         let attemptID: UUID
         try execute("BEGIN IMMEDIATE")
         do {
@@ -1299,12 +1428,15 @@ extension SQLiteDatabase {
             attemptID = try insertAttempt(event: event, canonicalEventID: canonicalID, sourceID: source.id)
             try execute("COMMIT")
         } catch { try? execute("ROLLBACK"); throw error }
-        do { return try processNotificationAttempt(attemptID) }
+        let result: ParserAttempt
+        do { result = try processNotificationAttempt(attemptID) }
         catch {
             // The raw capture has already committed. A processing failure cannot erase it.
             try markAttempt(attemptID, status: .failed, detail: "Local save failed. Retry this sample.")
-            return try notificationAttempt(attemptID)
+            result = try notificationAttempt(attemptID)
         }
+        if try notificationRetentionDays() == 0 { _ = try purgeExpiredNotificationContents() }
+        return result
     }
 
     private func notificationAttempt(_ id: UUID) throws -> ParserAttempt {
@@ -1466,6 +1598,10 @@ extension SQLiteDatabase {
             let attempt = try notificationAttempt(id)
             let event = attempt.event
             let date = event.receivedAt ?? event.capturedAt
+            if let reason = NotificationSafetyFilter.rejectionReason(for: event) {
+                try markAttempt(id, status: .rejected, detail: reason)
+                return try commitAttempt(id)
+            }
             if let duplicate = try exactDuplicate(event, window: 600) {
                 try markAttempt(id, status: .duplicateIgnored, transactionID: duplicate,
                                 detail: "This notification was already recorded.")

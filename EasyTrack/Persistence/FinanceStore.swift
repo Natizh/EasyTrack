@@ -23,6 +23,8 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var categorySuggestionsEnabled = true
     @Published private(set) var monthlyBudgets: [MonthlyBudget] = []
     @Published private(set) var savingsGoals: [SavingsGoal] = []
+    @Published private(set) var notificationRetentionDays = NotificationRetentionPolicy.defaultDays
+    @Published private(set) var automationSetupMilestones: Set<AutomationSetupMilestone> = []
     @Published var errorMessage: String?
 
     init() {
@@ -30,13 +32,18 @@ final class FinanceStore: ObservableObject {
             let database = try SQLiteDatabase.open()
             try database.seedDemoIfNeeded()
             _ = try database.materializeDueRecurring()
+            _ = try database.purgeExpiredNotificationContents()
         }
         catch { errorMessage = error.localizedDescription }
         reload()
     }
 
     func refreshOnForeground() {
-        do { _ = try SQLiteDatabase.open().materializeDueRecurring() }
+        do {
+            let database = try SQLiteDatabase.open()
+            _ = try database.materializeDueRecurring()
+            _ = try database.purgeExpiredNotificationContents()
+        }
         catch { errorMessage = error.localizedDescription }
         reload()
     }
@@ -65,6 +72,8 @@ final class FinanceStore: ObservableObject {
             categorySuggestionsEnabled = try database.categorySuggestionsEnabled()
             monthlyBudgets = try database.monthlyBudgets()
             savingsGoals = try database.savingsGoals()
+            notificationRetentionDays = try database.notificationRetentionDays()
+            automationSetupMilestones = try database.automationSetupMilestones()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -322,6 +331,40 @@ final class FinanceStore: ObservableObject {
         let source = try SQLiteDatabase.open().mapParserSource(sourceID, to: name)
         reload()
         return source
+    }
+
+    @discardableResult
+    func configureNotificationSource(label: String, accountID: UUID) throws -> ParserSource {
+        let source = try SQLiteDatabase.open().configureParserSource(named: label, accountID: accountID)
+        try SQLiteDatabase.open().markAutomationSetupMilestone(.sourceMapped)
+        reload()
+        return source
+    }
+
+    func markAutomationSetupMilestone(_ milestone: AutomationSetupMilestone) throws {
+        try SQLiteDatabase.open().markAutomationSetupMilestone(milestone)
+        reload()
+    }
+
+    @discardableResult
+    func setNotificationRetentionDays(_ days: Int) throws -> Int {
+        let changed = try SQLiteDatabase.open().setNotificationRetentionDays(days)
+        reload()
+        return changed
+    }
+
+    @discardableResult
+    func purgeExpiredNotificationContents() throws -> Int {
+        let changed = try SQLiteDatabase.open().purgeExpiredNotificationContents()
+        reload()
+        return changed
+    }
+
+    @discardableResult
+    func clearNotificationDiagnosticContents() throws -> Int {
+        let changed = try SQLiteDatabase.open().clearNotificationDiagnosticContents()
+        reload()
+        return changed
     }
 
     var availableAccountNames: [String] {

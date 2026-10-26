@@ -1197,6 +1197,8 @@ private struct SettingsView: View {
     @State private var restoreStatus: String?
     @State private var pendingRestoreMode: BackupRestoreMode?
     @State private var confirmingRestore = false
+    @State private var confirmingDiagnosticClear = false
+    @State private var notificationStatus: String?
 
     var body: some View {
         Form {
@@ -1221,6 +1223,32 @@ private struct SettingsView: View {
                     Label("Recurring payments", systemImage: "repeat")
                 }
                 .accessibilityIdentifier("settingsRecurringLink")
+            }
+            Section("Notification automation") {
+                NavigationLink { NotificationSetupGuideView() } label: {
+                    Label("Setup guide", systemImage: "list.number")
+                }
+                .accessibilityIdentifier("settingsNotificationGuide")
+                Picker("Raw diagnostic text", selection: Binding(
+                    get: { store.notificationRetentionDays },
+                    set: { days in
+                        do {
+                            let changed = try store.setNotificationRetentionDays(days)
+                            notificationStatus = changed == 0 ? "Retention updated." :
+                                "Retention updated; removed text from \(changed) diagnostic record\(changed == 1 ? "" : "s")."
+                        } catch { notificationStatus = error.localizedDescription }
+                    })) {
+                    Text("Do not retain").tag(0)
+                    Text("7 days").tag(7)
+                    Text("30 days").tag(30)
+                    Text("90 days").tag(90)
+                }
+                Button("Remove retained notification text now", role: .destructive) {
+                    confirmingDiagnosticClear = true
+                }
+                Text("Only raw Title, Subtitle and Message text is removed. Source identity, diagnostic status and saved financial transactions remain. Expired text is purged at the next app open, capture or diagnostics visit.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                if let notificationStatus { Text(notificationStatus).font(.footnote).foregroundStyle(.secondary) }
             }
             Section("Storage") {
                 Label("Local database · available offline", systemImage: "internaldrive")
@@ -1366,6 +1394,18 @@ private struct SettingsView: View {
                      ? "Replace \(preview.existingTransactions) current transactions with \(preview.incomingTransactions) backed-up transactions and all related records? This cannot be undone here."
                      : "Add \(preview.newRowsForMerge ?? 0) new backed-up records? Existing records stay unchanged; any conflict cancels the whole merge.")
             }
+        }
+        .confirmationDialog("Remove retained notification text?", isPresented: $confirmingDiagnosticClear,
+                            titleVisibility: .visible) {
+            Button("Remove diagnostic text", role: .destructive) {
+                do {
+                    let changed = try store.clearNotificationDiagnosticContents()
+                    notificationStatus = "Removed text from \(changed) diagnostic record\(changed == 1 ? "" : "s"). Saved transactions were unchanged."
+                } catch { notificationStatus = error.localizedDescription }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This cannot restore the raw notification wording. Financial transactions, source mappings, rule history and aggregate statuses stay in EasyTrack.")
         }
     }
 

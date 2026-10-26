@@ -530,6 +530,11 @@ extension SQLiteDatabase {
                     for row in current.rows { existing[Self.rowKey(row, indexes: indexes)] = row }
                 }
                 for row in table.rows {
+                    if mode == .merge, table.name == "metadata",
+                       let keyIndex = table.columns.firstIndex(of: "key"),
+                       row.indices.contains(keyIndex), row[keyIndex]?.hasPrefix("preference.") == true {
+                        continue // Device preferences stay local on merge; Replace restores them.
+                    }
                     if mode == .merge, let old = existing[Self.rowKey(row, indexes: indexes)] {
                         guard old == row else { throw BackupError.conflict(table.name) }
                         continue

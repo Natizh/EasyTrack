@@ -94,4 +94,17 @@ final class NotificationParserTests: XCTestCase {
                           NotificationParser.semanticFingerprint(amountMinor: 1_235, merchant: "Cedar Books",
                                                                   account: "Fictional checking"))
     }
+
+    func testSafetyFilterRejectsOTPAndPromotionWithoutRejectingPayment() {
+        let payment = event("Paid €12,34 at Cedar Books")
+        XCTAssertNil(NotificationSafetyFilter.rejectionReason(for: payment))
+
+        let otp = event("Your OTP code is 482913. Do not share this code.",
+                        title: "Verification code")
+        XCTAssertTrue(NotificationSafetyFilter.rejectionReason(for: otp)?.contains("OTP") == true)
+
+        let promotion = event("Get €10 cashback this weekend. Open the app to discover the offer.",
+                              title: "Special offer")
+        XCTAssertTrue(NotificationSafetyFilter.rejectionReason(for: promotion)?.contains("Promotional") == true)
+    }
 }

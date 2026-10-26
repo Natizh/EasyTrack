@@ -347,4 +347,82 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(try upgraded.parserAttempts().first?.status, .setupRequired)
         }
     }
+
+    func testSecurityAndPromotionCapturesAreRejectedWithoutTransactions() throws {
+        try temporaryDatabase { _, database in
+            let account = try database.saveLocalAccount(LocalAccount(id: UUID(), name: "Fictional checking",
+                                                                      createdAt: start))
+            let source = try database.configureParserSource(named: "Northstar Pay (fictional)",
+                                                            accountID: account.id)
+            let payment = event("Paid €12,34 at Cedar Books", at: start)
+            _ = try database.saveParserRule(rule(source: source, sample: payment))
+
+            let otp = event("Your OTP code is 482913. Do not share this code.",
+                            title: "Verification code", at: start.addingTimeInterval(60))
+            let rejectedOTP = try database.captureNotification(otp)
+            XCTAssertEqual(rejectedOTP.status, .rejected)
+            XCTAssertTrue(rejectedOTP.detail?.contains("OTP") == true)
+
+            let promotion = event("Get €10 cashback this weekend. Open the app to discover the offer.",
+                                  title: "Special offer", at: start.addingTimeInterval(120))
+            let rejectedPromotion = try database.captureNotification(promotion)
+            XCTAssertEqual(rejectedPromotion.status, .rejected)
+            XCTAssertTrue(rejectedPromotion.detail?.contains("Promotional") == true)
+            XCTAssertTrue(try database.transactions().isEmpty)
+        }
+    }
+
+    func testDiagnosticRetentionScrubsRawTextButPreservesLedgerAndBackupPreferences() throws {
+        try temporaryDatabase { _, database in
+            let oldDate = start.addingTimeInterval(-8 * 86_400)
+            let sample = event("Paid €12,34 at Cedar Books", at: oldDate)
+            let captured = try database.captureNotification(sample)
+            let source = try database.mapParserSource(XCTUnwrap(database.parserSources().first).id,
+                                                      to: "Fictional checking")
+            let saved = try database.saveParserRule(rule(source: source, sample: sample))
+            XCTAssertEqual(try database.processNotificationAttempt(captured.id,
+                                                                    preferredRuleID: saved.id).status, .created)
+            try database.markAutomationSetupMilestone(.simulationCompleted)
+            XCTAssertEqual(try database.setNotificationRetentionDays(7, now: start), 1)
+
+            let scrubbed = try XCTUnwrap(database.parserAttempts().first)
+            XCTAssertEqual(scrubbed.event.sourceApp, "Northstar Pay (fictional)")
+            XCTAssertTrue(scrubbed.event.title.isEmpty)
+            XCTAssertTrue(scrubbed.event.subtitle.isEmpty)
+            XCTAssertTrue(scrubbed.event.message.isEmpty)
+            XCTAssertEqual(try database.transactions().count, 1)
+            XCTAssertEqual(try database.notificationEvents().first?.message, "")
+
+            let backup = try database.exportBackup()
+            XCTAssertEqual(backup.schemaVersion, 12)
+            XCTAssertEqual(backup.databaseSchemaVersion, 11)
+            let targetURL = database.url.deletingLastPathComponent().appendingPathComponent("restored.sqlite")
+            let target = try SQLiteDatabase(url: targetURL)
+            _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
+            XCTAssertEqual(try target.notificationRetentionDays(), 7)
+            XCTAssertTrue(try target.automationSetupMilestones().contains(.simulationCompleted))
+            XCTAssertEqual(try target.transactions().count, 1)
+            XCTAssertEqual(try target.parserAttempts().first?.event.message, "")
+        }
+    }
+
+    func testDiagnosticRetentionBoundaryAndZeroDayPolicy() throws {
+        try temporaryDatabase { _, database in
+            let cutoff = start.addingTimeInterval(-7 * 86_400)
+            _ = try database.captureNotification(event("Paid €1,00 at Older Merchant",
+                                                       at: cutoff.addingTimeInterval(-1)))
+            _ = try database.captureNotification(event("Paid €2,00 at Boundary Merchant", at: cutoff,
+                                                       source: "Boundary Wallet (fictional)"))
+            XCTAssertEqual(try database.setNotificationRetentionDays(7, now: start), 1)
+            let afterSevenDays = try database.parserAttempts()
+            XCTAssertTrue(afterSevenDays.first { $0.event.sourceApp == "Northstar Pay (fictional)" }?.event.message.isEmpty == true)
+            XCTAssertTrue(afterSevenDays.first { $0.event.sourceApp == "Boundary Wallet (fictional)" }?.event.message.contains("Boundary") == true)
+
+            XCTAssertEqual(try database.setNotificationRetentionDays(0,
+                                                                      now: start.addingTimeInterval(1)), 1)
+            XCTAssertTrue(try database.parserAttempts().allSatisfy { $0.event.title.isEmpty &&
+                $0.event.subtitle.isEmpty && $0.event.message.isEmpty })
+            XCTAssertEqual(try database.notificationRetentionDays(), 0)
+        }
+    }
 }

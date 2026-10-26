@@ -103,7 +103,7 @@ struct ParserRuleRevision: Codable, Equatable {
 }
 
 enum ParserAttemptStatus: String, Codable {
-    case captured, setupRequired, unmatched, failed, duplicateIgnored, created, ready
+    case captured, setupRequired, unmatched, rejected, failed, duplicateIgnored, created, ready
     case recurringReview, matchedExisting
 
     var title: String {
@@ -111,6 +111,7 @@ enum ParserAttemptStatus: String, Codable {
         case .captured: "Captured"
         case .setupRequired: "Set up notification format"
         case .unmatched: "Add notification format"
+        case .rejected: "Rejected safely"
         case .failed: "Could not create transaction"
         case .duplicateIgnored: "Duplicate ignored"
         case .created: "Transaction created"
@@ -119,6 +120,18 @@ enum ParserAttemptStatus: String, Codable {
         case .matchedExisting: "Recurring payment confirmed"
         }
     }
+}
+
+enum NotificationRetentionPolicy {
+    static let supportedDays = [0, 7, 30, 90]
+    static let defaultDays = 30
+}
+
+enum AutomationSetupMilestone: String, Codable, CaseIterable, Hashable {
+    case sourceMapped
+    case shortcutsOpened
+    case fieldsReviewed
+    case simulationCompleted
 }
 
 struct ParserAttempt: Identifiable, Codable {
@@ -306,5 +319,35 @@ enum NotificationParser {
                              error: cleaned.isEmpty ? "No description was found." :
                                 (normalize(mappedAccount ?? "").isEmpty ?
                                  "Map this notification source to an account." : nil))
+    }
+}
+
+enum NotificationSafetyFilter {
+    static func rejectionReason(for event: NotificationEvent) -> String? {
+        let text = NotificationParser.normalize(
+            [event.title, event.subtitle, event.message].joined(separator: " "))
+        let securityPhrases = [
+            "codice otp", "otp code", "one time password", "one-time password",
+            "codice di verifica", "verification code", "codice di sicurezza",
+            "security code", "codice di accesso", "access code", "non condividere il codice",
+            "do not share this code", "nuovo accesso", "new login", "security alert"
+        ]
+        if securityPhrases.contains(where: text.contains) {
+            return "Security or OTP notification rejected. No transaction was created."
+        }
+
+        let promotionalPhrases = [
+            "promozione", "promo ", "offerta", "special offer", "save now",
+            "approfitta", "scopri l'offerta", "sconto del", "cashback disponibile"
+        ]
+        let paymentEvidence = [
+            "hai pagato", "pagamento effettuato", "pagamento di", "card purchase",
+            "you paid", "payment completed", "addebito", "charged", "acquisto"
+        ]
+        if promotionalPhrases.contains(where: text.contains),
+           !paymentEvidence.contains(where: text.contains) {
+            return "Promotional notification rejected. No transaction was created."
+        }
+        return nil
     }
 }

@@ -27,6 +27,25 @@ struct AutomationsView: View {
                 .background(LinearGradient(colors: [.teal, .blue], startPoint: .topLeading,
                                            endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 24))
 
+                NavigationLink { NotificationSetupGuideView() } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "list.number")
+                            .font(.title2).frame(width: 44, height: 44)
+                            .background(AutomationStyle.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 13))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Set up automatic notifications").font(.headline)
+                            Text("Account, Shortcuts, field mapping, safe test and diagnostics")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                    .padding(17)
+                    .background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 20))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("notificationSetupGuide")
+
 #if DEBUG
                 Menu {
                     Button("Northstar Pay sample") { store.captureSyntheticExample(1) }
@@ -41,7 +60,7 @@ struct AutomationsView: View {
                 Text("Sources").font(.title3.bold())
                 if store.parserSources.isEmpty {
                     ContentUnavailableView("No notifications yet", systemImage: "bell.slash",
-                                           description: Text("Use the Capture Payment Notification action in Shortcuts to start."))
+                                           description: Text("Start with the guided setup above. EasyTrack cannot read iOS notifications until you create the automation in Shortcuts."))
                 }
                 ForEach(store.parserSources) { source in
                     NavigationLink { AutomationSourceView(source: source) } label: {
@@ -55,6 +74,10 @@ struct AutomationsView: View {
         }
         .background(AutomationStyle.background)
         .navigationTitle("Automations")
+        .task {
+            do { _ = try store.purgeExpiredNotificationContents() }
+            catch { store.errorMessage = error.localizedDescription }
+        }
     }
 
     private func sourceCard(_ source: ParserSource) -> some View {
@@ -93,6 +116,389 @@ struct AutomationsView: View {
         .padding(17)
         .background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 20))
         .accessibilityElement(children: .combine)
+    }
+}
+
+struct NotificationSetupGuideView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.openURL) private var openURL
+    @State private var selectedAccountID: UUID?
+    @State private var sourceLabel = ""
+    @State private var openStep = 0
+    @State private var demoKind = DemoKind.payment
+    @State private var simulationRan = false
+    @State private var statusMessage: String?
+
+    private enum DemoKind: String, CaseIterable, Identifiable {
+        case payment = "Valid payment"
+        case security = "OTP / security"
+        case promotion = "Promotion"
+        var id: String { rawValue }
+    }
+
+    private var selectedAccount: LocalAccount? {
+        store.activeAccounts.first { $0.id == selectedAccountID }
+    }
+
+    private var effectiveSourceLabel: String {
+        let clean = sourceLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "Northstar Pay (fictional)" : clean
+    }
+
+    private var demoEvent: NotificationEvent {
+        let title: String
+        let message: String
+        switch demoKind {
+        case .payment:
+            title = "Card purchase"
+            message = "Paid €12,34 at Cedar Books"
+        case .security:
+            title = "Verification code"
+            message = "Your OTP code is 482913. Do not share this code."
+        case .promotion:
+            title = "Special offer"
+            message = "Get €10 cashback this weekend. Open the app to discover the offer."
+        }
+        return NotificationEvent.make(sourceApp: effectiveSourceLabel, title: title, subtitle: "",
+                                      message: message, receivedAt: .now)!
+    }
+
+    private var demoRejection: String? { NotificationSafetyFilter.rejectionReason(for: demoEvent) }
+
+    private var demoPreview: ParserPreview {
+        NotificationParser.preview(demoEvent, config: NotificationParser.suggest(for: demoEvent),
+                                   mappedAccount: selectedAccount?.name)
+    }
+
+    private var checklist: [(String, String, Bool)] {
+        let milestones = store.automationSetupMilestones
+        return [
+            ("Choose account and source", "An EasyTrack source is mapped to one account.",
+             milestones.contains(.sourceMapped) || store.parserSources.contains { $0.accountID != nil }),
+            ("Open Shortcuts setup", "The system automation must be created by you.",
+             milestones.contains(.shortcutsOpened)),
+            ("Review trigger fields", "Source app and notification variables are understood.",
+             milestones.contains(.fieldsReviewed)),
+            ("Capture a sample", "A real Shortcuts invocation reached EasyTrack.",
+             !store.parserAttempts.isEmpty),
+            ("Approve a format", "At least one local parsing rule is configured.",
+             !store.parserRules.isEmpty),
+            ("Verify first payment", "A captured notification created or matched a transaction.",
+             store.parserAttempts.contains { [.created, .matchedExisting].contains($0.status) })
+        ]
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                boundaryCard
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Setup progress").font(.title3.bold())
+                    ForEach(Array(checklist.enumerated()), id: \.offset) { index, item in
+                        HStack(alignment: .top, spacing: 11) {
+                            Image(systemName: item.2 ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(item.2 ? .green : .secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(index + 1). \(item.0)").font(.subheadline.weight(.semibold))
+                                Text(item.1).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityValue(item.2 ? "Complete" : "Not complete")
+                    }
+                }
+                .guideCard()
+
+                ForEach(0..<6, id: \.self) { step in
+                    stepCard(step)
+                }
+
+                simulationCard
+                diagnosticStatus
+                troubleshooting
+
+                Link(destination: URL(string: "https://support.apple.com/guide/shortcuts/apd932ff833f/10.0/ios/27")!) {
+                    Label("Apple Help: Notification event trigger", systemImage: "safari")
+                }
+                Link(destination: URL(string: "https://support.apple.com/guide/shortcuts/apdfbdbd7123/10.0/ios/27")!) {
+                    Label("Apple Help: Add an automation", systemImage: "safari")
+                }
+                .font(.subheadline)
+            }
+            .padding(20)
+        }
+        .background(AutomationStyle.background)
+        .navigationTitle("Notification setup")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if selectedAccountID == nil { selectedAccountID = store.activeAccounts.first?.id }
+            if sourceLabel.isEmpty { sourceLabel = store.parserSources.first?.name ?? "" }
+            do { _ = try store.purgeExpiredNotificationContents() }
+            catch { statusMessage = error.localizedDescription }
+        }
+    }
+
+    private var boundaryCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Two separate choices", systemImage: "rectangle.2.swap")
+                .font(.title3.bold())
+            Text("In Shortcuts, Notification → App selects the bank or payment app that sends the notification.")
+                .font(.subheadline.weight(.semibold))
+            Text("In EasyTrack → Capture Payment Notification, Source app is only a text label. It must exactly match the source label saved below. It is not an app selector.")
+                .font(.subheadline)
+            Text("EasyTrack cannot list installed banking apps, read notification history, or monitor every iOS notification by itself.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .guideCard(accent: .orange)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func stepCard(_ step: Int) -> some View {
+        let titles = [
+            "Choose the EasyTrack account", "Create the Notification trigger", "Add the EasyTrack action",
+            "Connect the notification fields", "Capture and approve a format", "Verify and diagnose"
+        ]
+        let symbols = ["building.columns", "bell.badge", "bolt.circle", "arrow.triangle.branch",
+                       "wand.and.stars", "checklist"]
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { openStep = openStep == step ? -1 : step }
+            } label: {
+                HStack {
+                    Image(systemName: symbols[step]).frame(width: 28)
+                        .foregroundStyle(AutomationStyle.accent)
+                    Text("\(step + 1). \(titles[step])").font(.headline).foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: openStep == step ? "chevron.up" : "chevron.down")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(openStep == step ? "Expanded" : "Collapsed")
+            if openStep == step {
+                stepContent(step)
+                HStack {
+                    if step > 0 { Button("Back") { openStep = step - 1 } }
+                    Spacer()
+                    if step < 5 { Button("Next") { openStep = step + 1 } }
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .guideCard()
+    }
+
+    @ViewBuilder
+    private func stepContent(_ step: Int) -> some View {
+        switch step {
+        case 0:
+            VStack(alignment: .leading, spacing: 12) {
+                if store.activeAccounts.isEmpty {
+                    Text("Create an account first. No banking credentials are requested.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    NavigationLink("Open Accounts") { AccountsView() }
+                } else {
+                    Picker("EasyTrack account", selection: $selectedAccountID) {
+                        Text("Choose an account").tag(UUID?.none)
+                        ForEach(store.activeAccounts) { account in
+                            Text(account.name).tag(Optional(account.id))
+                        }
+                    }
+                    TextField("Source app label", text: $sourceLabel)
+                        .textInputAutocapitalization(.words)
+                        .accessibilityIdentifier("notificationSourceLabel")
+                    Text("Use a short stable label, for example “Northstar Bank”. Do not enter a username, password, card number, or OTP.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Save source and account") { saveSource() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(selectedAccountID == nil || sourceLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button { copySourceLabel() } label: { Label("Copy name", systemImage: "doc.on.doc") }
+                            .buttonStyle(.bordered)
+                            .disabled(sourceLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        case 1:
+            VStack(alignment: .leading, spacing: 9) {
+                Text("Open Comandi Rapidi → Automazione → + or New Automation → Notifica → App, then choose the BANK app in the trigger.")
+                Text("Depending on the installed iOS layout, + may first show the shortcut editor; return to the Automation tab or choose Edit → Automation. The trigger and the action are separate.")
+                    .foregroundStyle(.secondary)
+                Text("Start without narrow Title/Subtitle/Message filters. Add filters only after inspecting a real sample, or a valid payment may be missed.")
+                    .foregroundStyle(.secondary)
+                Button { openShortcuts() } label: { Label("Open Shortcuts", systemImage: "arrow.up.forward.app") }
+                    .buttonStyle(.borderedProminent)
+            }.font(.subheadline)
+        case 2:
+            VStack(alignment: .leading, spacing: 9) {
+                Text("Add Action → EasyTrack → Capture Payment Notification.")
+                    .font(.subheadline.weight(.semibold))
+                Text("Paste “\(effectiveSourceLabel)” into Source app. This text identifies the EasyTrack source; it does not select the bank app.")
+                Text("If the EasyTrack action is missing, launch EasyTrack once, reopen Shortcuts, and confirm the installed app is still trusted and available.")
+                    .foregroundStyle(.secondary)
+                Button { copySourceLabel() } label: { Label("Copy source label", systemImage: "doc.on.doc") }
+                    .buttonStyle(.bordered)
+            }.font(.subheadline)
+        case 3:
+            VStack(alignment: .leading, spacing: 8) {
+                fieldHelp("Source app", "Required text: paste the exact EasyTrack source label. Never choose an app here.")
+                fieldHelp("Title", "Optional: insert the Title variable supplied by the Notification trigger, if your iOS version offers it. Do not type sample prose.")
+                fieldHelp("Subtitle", "Optional: insert the trigger's Subtitle variable when available.")
+                fieldHelp("Message", "Optional but normally needed: insert the trigger's Message/body variable when available.")
+                fieldHelp("Notification date", "Optional: insert the trigger date only when offered. Otherwise EasyTrack safely uses receipt time.")
+                Text("Tap a parameter field in Shortcuts and choose the matching variable from the Notification trigger. Available variable names can differ by iOS version; preview only fictional or non-sensitive text.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("I reviewed these fields") { mark(.fieldsReviewed) }
+                    .buttonStyle(.bordered)
+            }
+        case 4:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Set the automation to run automatically when that option is available, accept the required Shortcuts permissions, and trigger one harmless notification.")
+                Text("A received sample appears under its source in EasyTrack. Open it, confirm the account, amount and merchant, test the seven setup blocks, then explicitly activate the format.")
+                Text("One source maps to one account and may have several notification-format rules. A simulation below never inserts a transaction.")
+                    .foregroundStyle(.secondary)
+            }.font(.subheadline)
+        default:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Check three different facts: trigger tested, sample captured, and first real transaction verified. Typing a source label alone is never “connected”.")
+                Text("Test on the real bank app later with the phone locked, EasyTrack suspended, after relaunch, and with repeated notifications. Shortcuts delivery can be device-dependent; reconcile missing payments manually.")
+                Text("Diagnostics retain raw notification text for \(store.notificationRetentionDays) days by default policy and purge it at the next app open, capture, or diagnostics visit—not while the app stays closed.")
+                    .foregroundStyle(.secondary)
+            }.font(.subheadline)
+        }
+    }
+
+    private func fieldHelp(_ name: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(name).font(.subheadline.weight(.semibold))
+            Text(detail).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var simulationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Safe fictional parser test", systemImage: "testtube.2")
+                .font(.title3.bold())
+            Text("This checks only EasyTrack's parser and UI. It does not test iOS notification delivery, Shortcuts, background execution, or a bank app.")
+                .font(.caption).foregroundStyle(.secondary)
+            Picker("Fictional sample", selection: $demoKind) {
+                ForEach(DemoKind.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Button { runSimulation() } label: { Label("Run dry test", systemImage: "play.fill") }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("notificationDryRun")
+            if simulationRan {
+                LabeledContent("Recognized source", value: demoEvent.sourceApp)
+                LabeledContent("Mapped account", value: selectedAccount?.name ?? "Choose an account above")
+                if let reason = demoRejection {
+                    Label(reason, systemImage: "shield.checkered")
+                        .font(.subheadline).foregroundStyle(.orange)
+                } else {
+                    LabeledContent("Recognized amount", value: demoPreview.amount.map { Money.format($0.cents) } ?? "Not found")
+                    LabeledContent("Recognized merchant", value: demoPreview.merchant ?? "Not found")
+                    Label(demoPreview.ready ? "Preview ready: a matching real event could create this transaction." :
+                            (demoPreview.error ?? "This sample does not match."),
+                          systemImage: demoPreview.ready ? "checkmark.circle" : "exclamationmark.triangle")
+                        .font(.subheadline)
+                }
+                Text("No financial transaction or captured-notification record was written by this dry test.")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            }
+        }
+        .guideCard(accent: .blue)
+    }
+
+    private var diagnosticStatus: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("Integration status", systemImage: "waveform.path.ecg")
+                .font(.title3.bold())
+            statusLine("Shortcuts trigger", store.parserAttempts.isEmpty ? "Not yet observed" : "At least one invocation captured",
+                       complete: !store.parserAttempts.isEmpty)
+            statusLine("Parser format", store.parserRules.isEmpty ? "Not configured" : "Configured",
+                       complete: !store.parserRules.isEmpty)
+            statusLine("Real bank payment", "Not verified on the primary phone", complete: false)
+            Text("The secondary test phone has no banking apps. A dry test cannot satisfy real-notification acceptance.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let statusMessage { Text(statusMessage).font(.caption).foregroundStyle(.secondary) }
+        }
+        .guideCard()
+    }
+
+    private func statusLine(_ title: String, _ detail: String, complete: Bool) -> some View {
+        HStack(alignment: .top) {
+            Image(systemName: complete ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
+                .foregroundStyle(complete ? .green : .orange)
+            VStack(alignment: .leading) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var troubleshooting: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Troubleshooting", systemImage: "wrench.and.screwdriver")
+                .font(.title3.bold())
+            ForEach([
+                "Bank app missing: it cannot be selected until it is installed on this iPhone.",
+                "Label mismatch: Source app text must exactly match the EasyTrack source label.",
+                "No account mapped: return to step 1 and save one active account.",
+                "Sample captured but no format: open the source and set up the captured sample.",
+                "Amount or merchant missing: edit the parser blocks; unsupported text stays diagnostic only.",
+                "Promotion or OTP rejected: this is intentional and creates no transaction.",
+                "Duplicate skipped: inspect the status and existing Activity transaction.",
+                "Automation not running: check permissions, automatic execution and trigger filters in Shortcuts.",
+                "App unavailable: refresh SideStore signing and trust the developer app again if required.",
+                "No lock/background event: retest on the physical phone; iOS delivery is not guaranteed by EasyTrack."
+            ], id: \.self) { item in
+                Label(item, systemImage: "chevron.right").font(.caption)
+            }
+        }
+        .guideCard()
+    }
+
+    private func saveSource() {
+        guard let selectedAccountID else { return }
+        do {
+            let source = try store.configureNotificationSource(label: sourceLabel, accountID: selectedAccountID)
+            sourceLabel = source.name
+            statusMessage = "Source saved and mapped to \(source.accountName ?? "the selected account")."
+        } catch { statusMessage = error.localizedDescription }
+    }
+
+    private func copySourceLabel() {
+        let value = sourceLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        UIPasteboard.general.string = value
+        statusMessage = "Source label copied. Paste it into the Source app text field in the EasyTrack action."
+    }
+
+    private func openShortcuts() {
+        guard let url = URL(string: "shortcuts://") else { return }
+        openURL(url)
+        mark(.shortcutsOpened)
+    }
+
+    private func runSimulation() {
+        simulationRan = true
+        mark(.simulationCompleted)
+        UINotificationFeedbackGenerator().notificationOccurred(demoRejection == nil && demoPreview.ready ? .success : .warning)
+    }
+
+    private func mark(_ milestone: AutomationSetupMilestone) {
+        do { try store.markAutomationSetupMilestone(milestone) }
+        catch { statusMessage = error.localizedDescription }
+    }
+}
+
+private extension View {
+    func guideCard(accent: Color? = nil) -> some View {
+        padding(17).frame(maxWidth: .infinity, alignment: .leading)
+            .background(accent?.opacity(0.10) ?? AutomationStyle.card,
+                        in: RoundedRectangle(cornerRadius: 20))
     }
 }
 
@@ -253,6 +659,9 @@ private struct AutomationSourceView: View {
             if !attempt.event.message.isEmpty {
                 Text(attempt.event.message).font(.subheadline).foregroundStyle(.secondary)
                     .textSelection(.enabled)
+            } else if attempt.event.title.isEmpty && attempt.event.subtitle.isEmpty {
+                Label("Raw notification text removed by the retention policy", systemImage: "eye.slash")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if let detail = attempt.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
             if attempt.status == .recurringReview,
@@ -279,7 +688,7 @@ private struct AutomationSourceView: View {
                     }.buttonStyle(.bordered)
                 }
                 if attempt.transactionID == nil && attempt.status != .duplicateIgnored &&
-                   attempt.status != .recurringReview {
+                   attempt.status != .recurringReview && attempt.status != .rejected {
                     Button("Create manually") { manualEvent = attempt.event }
                         .buttonStyle(.bordered)
                 }
@@ -295,6 +704,7 @@ private struct AutomationSourceView: View {
         case .matchedExisting: "checkmark.circle.fill"
         case .recurringReview: "exclamationmark.circle.fill"
         case .duplicateIgnored: "square.on.square"
+        case .rejected: "shield.checkered"
         case .failed: "exclamationmark.triangle.fill"
         case .setupRequired, .unmatched: "wand.and.stars"
         case .captured, .ready: "bell.badge"
@@ -305,6 +715,7 @@ private struct AutomationSourceView: View {
         switch status {
         case .created, .matchedExisting: .green
         case .recurringReview: .orange
+        case .rejected: .orange
         case .failed: .red
         case .setupRequired, .unmatched: .orange
         case .duplicateIgnored, .captured, .ready: .teal
