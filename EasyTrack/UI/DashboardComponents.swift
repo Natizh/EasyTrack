@@ -138,11 +138,14 @@ struct RecentTransactionCard: View {
     }
 
     private var iconName: String {
-        category?.symbolName ?? (item.kind.isOutflow ? "creditcard.fill" : "arrow.down.left.circle.fill")
+        category?.symbolName ?? MovementIconResolver.fallback(description: item.merchant,
+                                                               kind: item.kind).symbolName
     }
 
     private var accent: Color {
-        category.map { LedgerColor.color($0.colorName) } ?? EasyTrackTheme.accent
+        category.map { LedgerColor.color($0.colorName) } ??
+            LedgerColor.color(MovementIconResolver.fallback(description: item.merchant,
+                                                             kind: item.kind).colorName)
     }
 
     private var amountText: String {

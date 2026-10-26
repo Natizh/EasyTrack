@@ -19,6 +19,8 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var dashboardWidgetPreferences: [DashboardWidgetPreference] = []
     @Published private(set) var merchantAliasGroups: [MerchantAliasGroup] = []
     @Published private(set) var reimbursementStatuses: [ExpenseReimbursementStatus] = []
+    @Published private(set) var categoryKeywordRules: [CategoryKeywordRule] = []
+    @Published private(set) var categorySuggestionsEnabled = true
     @Published var errorMessage: String?
 
     init() {
@@ -57,6 +59,8 @@ final class FinanceStore: ObservableObject {
             dashboardWidgetPreferences = try database.dashboardWidgetPreferences()
             merchantAliasGroups = try database.merchantAliasGroups()
             reimbursementStatuses = try database.reimbursementStatuses()
+            categoryKeywordRules = try database.categoryKeywordRules()
+            categorySuggestionsEnabled = try database.categorySuggestionsEnabled()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -153,6 +157,23 @@ final class FinanceStore: ObservableObject {
 
     func deleteMerchantAliasGroup(_ id: UUID) throws {
         try SQLiteDatabase.open().deleteMerchantAliasGroup(id)
+        reload()
+    }
+
+    func setCategorySuggestionsEnabled(_ enabled: Bool) throws {
+        try SQLiteDatabase.open().setCategorySuggestionsEnabled(enabled)
+        reload()
+    }
+
+    @discardableResult
+    func saveCategoryKeywordRule(_ rule: CategoryKeywordRule) throws -> CategoryKeywordRule {
+        let saved = try SQLiteDatabase.open().saveCategoryKeywordRule(rule)
+        reload()
+        return saved
+    }
+
+    func deleteCategoryKeywordRule(_ id: UUID) throws {
+        try SQLiteDatabase.open().deleteCategoryKeywordRule(id)
         reload()
     }
 

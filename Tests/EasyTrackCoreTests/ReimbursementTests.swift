@@ -211,8 +211,8 @@ final class ReimbursementTests: XCTestCase {
         XCTAssertEqual(try source.transactionExportSnapshotForTest(expense.id)?.personalExpenseEURMinor, 0)
 
         let backup = try source.exportBackup()
-        XCTAssertEqual(backup.schemaVersion, 10)
-        XCTAssertEqual(backup.databaseSchemaVersion, 9)
+        XCTAssertEqual(backup.schemaVersion, 11)
+        XCTAssertEqual(backup.databaseSchemaVersion, 10)
         let readOnly = try SQLiteDatabase(readOnlyURL: source.url)
         let export = try readOnly.transactionExportSnapshot().select(filter: .init(), options: {
             var options = TransactionExportOptions()
@@ -241,9 +241,10 @@ final class ReimbursementTests: XCTestCase {
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,
             sourceFormatVersion: nil)
         let upgraded = try BackupArchive.decode(JSONEncoder().encode(old))
-        XCTAssertEqual(upgraded.schemaVersion, 10)
+        XCTAssertEqual(upgraded.schemaVersion, 11)
         XCTAssertEqual(upgraded.sourceFormatVersion, 9)
-        XCTAssertTrue(upgraded.tables.suffix(2).allSatisfy(\.rows.isEmpty))
+        XCTAssertEqual(upgraded.tables[29].rows.first?[1], "1")
+        XCTAssertTrue(upgraded.tables[30].rows.isEmpty)
 
         let migrationURL = folder.appendingPathComponent("migration.sqlite")
         let migration = try SQLiteDatabase(url: migrationURL)

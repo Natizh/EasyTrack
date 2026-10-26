@@ -13,7 +13,7 @@ enum BackupError: LocalizedError {
         switch self {
         case .unsupportedVersion(let version):
             version < 5
-                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 10 backup."
+                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 11 backup."
                 : "Backup format \(version) is newer than this app supports. Update EasyTrack before restoring it."
         case .invalid(let reason): "Backup is incomplete or damaged: \(reason)"
         case .changedSincePreview: "Local data changed after the preview. Choose the backup again."
@@ -44,13 +44,14 @@ struct BackupArchive: Codable {
             throw BackupError.invalid("Missing format version or invalid JSON.")
         }
         if version == 5 { return try LegacyBackupConverter.convert(data) }
-        guard (6...10).contains(version) else { throw BackupError.unsupportedVersion(version) }
+        guard (6...11).contains(version) else { throw BackupError.unsupportedVersion(version) }
         do {
             let archive = try JSONDecoder().decode(BackupArchive.self, from: data)
-            if version == 6 { return try archive.upgradedFromSix().upgradedFromSeven().upgradedFromEight().upgradedFromNine() }
-            if version == 7 { return try archive.upgradedFromSeven().upgradedFromEight().upgradedFromNine() }
-            if version == 8 { return try archive.upgradedFromEight().upgradedFromNine() }
-            if version == 9 { return try archive.upgradedFromNine() }
+            if version == 6 { return try archive.upgradedFromSix().upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen() }
+            if version == 7 { return try archive.upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen() }
+            if version == 8 { return try archive.upgradedFromEight().upgradedFromNine().upgradedFromTen() }
+            if version == 9 { return try archive.upgradedFromNine().upgradedFromTen() }
+            if version == 10 { return try archive.upgradedFromTen() }
             return archive
         }
         catch { throw BackupError.invalid("Required fields could not be decoded.") }
@@ -190,11 +191,37 @@ extension BackupArchive {
         }) else {
             throw BackupError.invalid("Version 9 table columns are incomplete.")
         }
-        let upgraded = tables + Array(targetTables.suffix(2))
+        let upgraded = tables + [targetTables[27], targetTables[28]]
         return BackupArchive(schemaVersion: 10, databaseSchemaVersion: 9,
                              exportID: exportID, exportedAt: exportedAt,
                              contentSHA256: try SQLiteDatabase.digest(upgraded), tables: upgraded,
                              sourceFormatVersion: sourceFormatVersion ?? 9)
+    }
+}
+
+extension BackupArchive {
+    func upgradedFromTen() throws -> BackupArchive {
+        let legacyNames = Array(SQLiteDatabase.backupTableNames.prefix(29))
+        guard schemaVersion == 10, databaseSchemaVersion == 9,
+              tables.map(\.name) == legacyNames,
+              try SQLiteDatabase.digest(tables) == contentSHA256 else {
+            throw BackupError.invalid("The version 10 table list or checksum is invalid.")
+        }
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
+        defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
+        let targetTables = try SQLiteDatabase(url: file).backupTables()
+        guard Array(targetTables.prefix(29)).enumerated().allSatisfy({ index, target in
+            tables[index].columns == target.columns &&
+                tables[index].rows.allSatisfy { $0.count == target.columns.count }
+        }) else {
+            throw BackupError.invalid("Version 10 table columns are incomplete.")
+        }
+        let upgraded = tables + [targetTables[29], targetTables[30]]
+        return BackupArchive(schemaVersion: 11, databaseSchemaVersion: 10,
+                             exportID: exportID, exportedAt: exportedAt,
+                             contentSHA256: try SQLiteDatabase.digest(upgraded), tables: upgraded,
+                             sourceFormatVersion: sourceFormatVersion ?? 10)
     }
 }
 
@@ -233,7 +260,8 @@ extension SQLiteDatabase {
         "recurring_occurrences_local", "operations", "recurring_candidates",
         "recurring_payee_aliases", "recurring_reconciliation_audit",
         "dashboard_widget_preferences", "merchant_alias_groups",
-        "expense_reimbursement_plans", "expense_reimbursement_links"
+        "expense_reimbursement_plans", "expense_reimbursement_links",
+        "category_suggestion_settings", "category_keyword_rules"
     ]
 
     private func backupColumns(_ table: String) throws -> (columns: [String], primary: [String]) {
@@ -290,7 +318,7 @@ extension SQLiteDatabase {
             try checkDatabase()
             let tables = try backupTables()
             try checkReadableRows(tables)
-            let archive = BackupArchive(schemaVersion: 10, databaseSchemaVersion: 9,
+            let archive = BackupArchive(schemaVersion: 11, databaseSchemaVersion: 10,
                                         exportID: UUID(), exportedAt: .now,
                                         contentSHA256: try Self.digest(tables), tables: tables,
                                         sourceFormatVersion: nil)
@@ -421,7 +449,7 @@ extension SQLiteDatabase {
     }
 
     private func validate(_ archive: BackupArchive) throws {
-        guard archive.schemaVersion == 10, archive.databaseSchemaVersion == 9 else {
+        guard archive.schemaVersion == 11, archive.databaseSchemaVersion == 10 else {
             throw BackupError.unsupportedVersion(archive.schemaVersion)
         }
         guard archive.tables.map(\.name) == Self.backupTableNames else {
@@ -462,7 +490,8 @@ extension SQLiteDatabase {
             var inserted = 0
             for table in archive.tables {
                 if mode == .merge,
-                   table.name == "dashboard_widget_preferences" || table.name == "merchant_alias_groups" {
+                   table.name == "dashboard_widget_preferences" || table.name == "merchant_alias_groups" ||
+                   table.name == "category_suggestion_settings" {
                     continue // Local visualization choices deliberately win every merge.
                 }
                 let definition = try backupColumns(table.name)

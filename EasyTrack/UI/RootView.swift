@@ -65,16 +65,22 @@ private struct TransactionRow: View {
            let managed = store.ledgerCategories.first(where: { $0.id == id }) { return managed.name }
         return item.category.isEmpty ? "Uncategorized" : item.category
     }
+    private var managedCategory: LedgerCategory? {
+        item.categoryID.flatMap { id in store.ledgerCategories.first { $0.id == id } }
+    }
     private var reimbursementStatus: ExpenseReimbursementStatus? {
         store.reimbursementStatuses.first { $0.expenseID == item.id }
     }
 
     private var movementIcon: some View {
-        Image(systemName: item.kind.isOutflow ? "arrow.up.right" : "arrow.down.left")
+        let fallback = MovementIconResolver.fallback(description: item.merchant, kind: item.kind)
+        let symbol = managedCategory?.symbolName ?? fallback.symbolName
+        let color = LedgerColor.color(managedCategory?.colorName ?? fallback.colorName)
+        return Image(systemName: symbol)
             .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(item.kind.isOutflow ? Palette.ink : Palette.teal)
+            .foregroundStyle(color)
             .frame(width: 42, height: 42)
-            .background(item.kind.isOutflow ? Palette.canvas : Palette.mint, in: RoundedRectangle(cornerRadius: 13))
+            .background(color.opacity(0.13), in: RoundedRectangle(cornerRadius: 13))
             .accessibilityHidden(true)
     }
 
@@ -321,45 +327,83 @@ private struct UncategorizedTransactionsView: View {
         let categoryID: UUID?
         let categoryName: String
     }
+    private struct RuleProposal {
+        let description: String
+        let categoryID: UUID
+    }
 
     @EnvironmentObject private var store: FinanceStore
     @State private var undoChange: UndoChange?
+    @State private var skippedIDs: Set<UUID> = []
+    @State private var ruleProposal: RuleProposal?
+    @State private var showingRuleProposal = false
 
     private var items: [Transaction] {
         store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
+    private var visibleItems: [Transaction] { items.filter { !skippedIDs.contains($0.id) } }
 
     var body: some View {
-        List(items) { item in
-            HStack {
+        List(visibleItems) { item in
+            VStack(alignment: .leading, spacing: 10) {
                 NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
-                Menu {
-                    ForEach(store.ledgerCategories.filter { $0.archivedAt == nil }) { category in
-                        Button {
-                            assign(category, to: item)
-                        } label: {
-                            Label(category.name, systemImage: category.symbolName)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "tag.circle.fill").font(.title2).foregroundStyle(Palette.teal)
+                CategorySuggestionsView(description: item.merchant, kind: item.kind) { category in
+                    assign(category, to: item)
                 }
-                .accessibilityLabel("Assign category to \(item.merchant)")
+                HStack {
+                    Menu {
+                        ForEach(store.ledgerCategories.filter { $0.archivedAt == nil }) { category in
+                            Button {
+                                assign(category, to: item)
+                            } label: {
+                                Label(category.name, systemImage: category.symbolName)
+                            }
+                        }
+                    } label: {
+                        Label("All categories", systemImage: "tag.circle.fill")
+                    }
+                    .accessibilityLabel("Assign category to \(item.merchant)")
+                    Spacer()
+                    Button("Skip") { skippedIDs.insert(item.id) }
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .navigationTitle("Uncategorized")
-        .overlay { if items.isEmpty { ContentUnavailableView("All categorized", systemImage: "checkmark.circle") } }
+        .overlay {
+            if items.isEmpty {
+                ContentUnavailableView("All categorized", systemImage: "checkmark.circle")
+            } else if visibleItems.isEmpty {
+                ContentUnavailableView {
+                    Label("Review complete", systemImage: "checkmark.circle")
+                } description: {
+                    Text("Skipped movements were not changed.")
+                } actions: {
+                    Button("Review skipped") { skippedIDs.removeAll() }
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if undoChange != nil {
                 HStack {
                     Text("Category saved").font(.subheadline.weight(.semibold))
                     Spacer()
+                    if ruleProposal != nil {
+                        Button("Save rule") { showingRuleProposal = true }
+                            .font(.subheadline.weight(.bold))
+                    }
                     Button("Undo") { undo() }.font(.subheadline.weight(.bold))
                 }
                 .padding()
                 .background(.bar, in: Capsule())
                 .padding(.horizontal)
                 .accessibilityIdentifier("uncategorizedUndoCategory")
+            }
+        }
+        .sheet(isPresented: $showingRuleProposal) {
+            if let ruleProposal {
+                NavigationStack { SaveCategoryRuleView(description: ruleProposal.description,
+                                                       categoryID: ruleProposal.categoryID) }
             }
         }
     }
@@ -372,6 +416,7 @@ private struct UncategorizedTransactionsView: View {
             let persisted = try store.save(updated)
             undoChange = UndoChange(persisted: persisted, categoryID: item.categoryID,
                                     categoryName: item.category)
+            ruleProposal = RuleProposal(description: item.merchant, categoryID: category.id)
         } catch { store.errorMessage = error.localizedDescription }
     }
 
@@ -383,6 +428,7 @@ private struct UncategorizedTransactionsView: View {
         do {
             _ = try store.save(restored)
             undoChange = nil
+            ruleProposal = nil
         } catch { store.errorMessage = error.localizedDescription }
     }
 }
@@ -601,6 +647,8 @@ struct TransactionEditor: View {
     @State private var expectedReimbursementAmount: String
     @State private var showingReimbursementSettlement = false
     @State private var confirmingReimbursementWriteOff = false
+    @State private var manualCategoryChanged = false
+    @State private var showingCategoryRuleProposal = false
 
     init(item: Transaction? = nil, prefillEvent: NotificationEvent? = nil) {
         original = item
@@ -628,6 +676,11 @@ struct TransactionEditor: View {
     private var reimbursementStatus: ExpenseReimbursementStatus? {
         guard let id = original?.id else { return nil }
         return store.reimbursementStatuses.first { $0.expenseID == id }
+    }
+    private var categorySuggestions: [CategorySuggestion] {
+        CategorySuggestionEngine.suggestions(description: merchant, kind: kind,
+            categories: store.ledgerCategories, userRules: store.categoryKeywordRules,
+            isEnabled: store.categorySuggestionsEnabled)
     }
 
     var body: some View {
@@ -662,6 +715,15 @@ struct TransactionEditor: View {
                 if let validation {
                     Text(validation).font(.footnote).foregroundStyle(.red)
                         .accessibilityIdentifier("transactionValidationMessage")
+                }
+            }
+            if !categorySuggestions.isEmpty {
+                Section {
+                    CategorySuggestionsView(description: merchant, kind: kind) { selected in
+                        categoryID = selected.id
+                        category = selected.name
+                        manualCategoryChanged = true
+                    }
                 }
             }
             Section("Details") {
@@ -743,6 +805,15 @@ struct TransactionEditor: View {
                     }
                 }
             }
+            if manualCategoryChanged, let categoryID,
+               !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Section {
+                    Button("Salva questa regola") { showingCategoryRuleProposal = true }
+                        .accessibilityIdentifier("saveCategoryRuleProposal")
+                } footer: {
+                    Text("Optional. Review the word or phrase before saving; this never categorizes automatically.")
+                }
+            }
             if let original, !original.isDemo {
                 Section("Recurring payment") {
                     if let occurrenceID = original.recurringOccurrenceID,
@@ -816,12 +887,18 @@ struct TransactionEditor: View {
                 CategorySelectionView(selectedID: categoryID) { selected in
                     categoryID = selected?.id
                     category = selected?.name ?? ""
+                    manualCategoryChanged = selected != nil
                 }
             }
         }
         .sheet(isPresented: $showingReimbursementSettlement) {
             if let id = original?.id {
                 NavigationStack { ReimbursementSettlementView(expenseID: id) }
+            }
+        }
+        .sheet(isPresented: $showingCategoryRuleProposal) {
+            if let categoryID {
+                NavigationStack { SaveCategoryRuleView(description: merchant, categoryID: categoryID) }
             }
         }
         .onAppear {
@@ -1132,6 +1209,10 @@ private struct SettingsView: View {
                     Label("Categories", systemImage: "square.grid.2x2")
                 }
                 .accessibilityIdentifier("settingsCategoriesLink")
+                NavigationLink { CategorySuggestionSettingsView() } label: {
+                    Label("Category suggestions", systemImage: "lightbulb")
+                }
+                .accessibilityIdentifier("settingsCategorySuggestionsLink")
                 NavigationLink { RecurringListView() } label: {
                     Label("Recurring payments", systemImage: "repeat")
                 }
