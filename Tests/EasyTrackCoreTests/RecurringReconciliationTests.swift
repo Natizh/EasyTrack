@@ -450,7 +450,7 @@ final class RecurringReconciliationTests: XCTestCase {
         }
     }
 
-    func testFormatSevenRoundTripPreservesPendingCandidateAliasAndAudit() throws {
+    func testCurrentFormatRoundTripPreservesPendingCandidateAliasAndAudit() throws {
         try withDatabase { source, _ in
             try source.execute("INSERT INTO metadata(key,value) VALUES('demo_seeded','1')")
             let account = try account(source)
@@ -460,7 +460,7 @@ final class RecurringReconciliationTests: XCTestCase {
             try source.approveRecurringPayee("Fictional Plan", for: recurring.id)
             XCTAssertEqual(try source.processNotificationAttempt(attemptID).status, .recurringReview)
             let original = try source.exportBackup()
-            XCTAssertEqual(original.schemaVersion, 7)
+            XCTAssertEqual(original.schemaVersion, 9)
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-round-trip-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: folder) }

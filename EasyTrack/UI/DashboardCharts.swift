@@ -646,6 +646,7 @@ private func monthLabel(_ day: LocalDay) -> String {
     chartDate(day).formatted(.dateTime.month(.wide).year())
 }
 
+@MainActor
 private func openActivity(ids: Set<UUID>, label: String, snapshot: FinancialAnalyticsSnapshot,
                           navigation: AppNavigationModel) {
     var filter = snapshot.appliedFilter

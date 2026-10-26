@@ -78,7 +78,7 @@ struct FinancialHeroCard: View {
                        symbol: "arrow.down.left")
             MetricTile(title: "PAC", value: snapshot.map { Money.format($0.totals.pacInvestedEURMinor) } ?? "—",
                        symbol: "chart.line.uptrend.xyaxis")
-            MetricTile(title: "Daily avg", value: dailyAverage, symbol: "calendar.day.timeline.left",
+            MetricTile(title: "Per day", value: dailyAverage, symbol: "calendar.day.timeline.left",
                        accessibilityTitle: "Daily average")
         }
     }
