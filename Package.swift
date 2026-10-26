@@ -7,7 +7,7 @@ let package = Package(
     products: [.library(name: "EasyTrackCore", targets: ["EasyTrackCore"])],
     targets: [
         .target(name: "EasyTrackCore", path: "EasyTrack", exclude: ["App", "UI", "Intake", "Exchange", "Assets.xcassets", "Resources", "Info.plist", "Persistence/FinanceStore.swift"],
-                sources: ["Shared/Models.swift", "Shared/FinancialAnalytics.swift", "Shared/DashboardPreferences.swift", "Shared/MerchantAnalytics.swift", "Shared/ReimbursementModels.swift", "Shared/CategorySuggestions.swift", "Shared/NotificationParser.swift", "Shared/DailyModels.swift",
+                sources: ["Shared/Models.swift", "Shared/FinancialAnalytics.swift", "Shared/DashboardPreferences.swift", "Shared/MerchantAnalytics.swift", "Shared/ReimbursementModels.swift", "Shared/CategorySuggestions.swift", "Shared/BudgetModels.swift", "Shared/NotificationParser.swift", "Shared/DailyModels.swift",
                           "Shared/RecurringSchedule.swift", "Persistence/SQLiteDatabase.swift",
                           "Persistence/SQLiteDatabase+Daily.swift",
                           "Persistence/SQLiteDatabase+Reconciliation.swift",
@@ -15,6 +15,7 @@ let package = Package(
                           "Persistence/SQLiteDatabase+MerchantAnalytics.swift",
                           "Persistence/SQLiteDatabase+Reimbursements.swift",
                           "Persistence/SQLiteDatabase+CategorySuggestions.swift",
+                          "Persistence/SQLiteDatabase+Budgets.swift",
                           "Persistence/SQLiteDatabase+Backup.swift",
                           "Persistence/SQLiteDatabase+Export.swift",
                           "Persistence/LegacyBackupConverter.swift",

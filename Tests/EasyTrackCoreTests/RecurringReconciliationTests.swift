@@ -460,7 +460,7 @@ final class RecurringReconciliationTests: XCTestCase {
             try source.approveRecurringPayee("Fictional Plan", for: recurring.id)
             XCTAssertEqual(try source.processNotificationAttempt(attemptID).status, .recurringReview)
             let original = try source.exportBackup()
-            XCTAssertEqual(original.schemaVersion, 11)
+            XCTAssertEqual(original.schemaVersion, 12)
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-round-trip-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: folder) }

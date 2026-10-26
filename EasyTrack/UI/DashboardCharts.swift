@@ -29,6 +29,7 @@ struct DashboardWidgetID: RawRepresentable, Codable, Hashable, Identifiable {
     static let categoryBreakdown = DashboardWidgetID(rawValue: "categoryBreakdown")
     static let recurring = DashboardWidgetID(rawValue: "recurring")
     static let pendingReimbursements = DashboardWidgetID(rawValue: "pendingReimbursements")
+    static let budgetsGoals = DashboardWidgetID(rawValue: "budgetsGoals")
     static let dailySpending = DashboardWidgetID(rawValue: "dailySpending")
     static let topMerchants = DashboardWidgetID(rawValue: "topMerchants")
     static let uncategorized = DashboardWidgetID(rawValue: "uncategorized")
@@ -47,9 +48,10 @@ enum DashboardWidgetRegistry {
         .init(id: .categoryBreakdown, title: "Categories", systemImage: "chart.pie", defaultOrder: 1),
         .init(id: .recurring, title: "Upcoming", systemImage: "calendar", defaultOrder: 2),
         .init(id: .pendingReimbursements, title: "Expected reimbursements", systemImage: "arrow.uturn.backward.circle", defaultOrder: 3),
-        .init(id: .dailySpending, title: "Daily spending", systemImage: "chart.bar", defaultOrder: 4),
-        .init(id: .topMerchants, title: "Top merchants", systemImage: "building.2", defaultOrder: 5),
-        .init(id: .uncategorized, title: "Uncategorized", systemImage: "tag", defaultOrder: 6)
+        .init(id: .budgetsGoals, title: "Budgets & goals", systemImage: "target", defaultOrder: 4),
+        .init(id: .dailySpending, title: "Daily spending", systemImage: "chart.bar", defaultOrder: 5),
+        .init(id: .topMerchants, title: "Top merchants", systemImage: "building.2", defaultOrder: 6),
+        .init(id: .uncategorized, title: "Uncategorized", systemImage: "tag", defaultOrder: 7)
     ].sorted { $0.defaultOrder < $1.defaultOrder }
 
     static func resolved(preferences: [DashboardWidgetPreference]) -> [(DashboardWidgetDescriptor, Bool)] {
@@ -184,6 +186,8 @@ struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {
             recurring
         } else if id == .pendingReimbursements {
             PendingReimbursementsWidget()
+        } else if id == .budgetsGoals {
+            BudgetHomeWidget(financial: snapshot)
         } else if id == .dailySpending {
             DailySpendingWidget(snapshot: snapshot)
         } else if id == .topMerchants {

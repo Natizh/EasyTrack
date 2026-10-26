@@ -21,6 +21,8 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var reimbursementStatuses: [ExpenseReimbursementStatus] = []
     @Published private(set) var categoryKeywordRules: [CategoryKeywordRule] = []
     @Published private(set) var categorySuggestionsEnabled = true
+    @Published private(set) var monthlyBudgets: [MonthlyBudget] = []
+    @Published private(set) var savingsGoals: [SavingsGoal] = []
     @Published var errorMessage: String?
 
     init() {
@@ -61,6 +63,8 @@ final class FinanceStore: ObservableObject {
             reimbursementStatuses = try database.reimbursementStatuses()
             categoryKeywordRules = try database.categoryKeywordRules()
             categorySuggestionsEnabled = try database.categorySuggestionsEnabled()
+            monthlyBudgets = try database.monthlyBudgets()
+            savingsGoals = try database.savingsGoals()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -175,6 +179,20 @@ final class FinanceStore: ObservableObject {
     func deleteCategoryKeywordRule(_ id: UUID) throws {
         try SQLiteDatabase.open().deleteCategoryKeywordRule(id)
         reload()
+    }
+
+    @discardableResult
+    func saveMonthlyBudget(_ budget: MonthlyBudget) throws -> MonthlyBudget {
+        let saved = try SQLiteDatabase.open().saveMonthlyBudget(budget)
+        reload()
+        return saved
+    }
+
+    @discardableResult
+    func saveSavingsGoal(_ goal: SavingsGoal) throws -> SavingsGoal {
+        let saved = try SQLiteDatabase.open().saveSavingsGoal(goal)
+        reload()
+        return saved
     }
 
     @discardableResult func saveRecurringRule(_ rule: RecurringRule) throws -> RecurringRule {

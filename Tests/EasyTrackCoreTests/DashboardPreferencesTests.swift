@@ -63,7 +63,7 @@ final class DashboardPreferencesTests: XCTestCase {
             let version = try reopened.statement("PRAGMA user_version")
             defer { sqlite3_finalize(version) }
             XCTAssertEqual(sqlite3_step(version), SQLITE_ROW)
-            XCTAssertEqual(sqlite3_column_int(version, 0), 10)
+            XCTAssertEqual(sqlite3_column_int(version, 0), 11)
         }
     }
 
@@ -80,8 +80,8 @@ final class DashboardPreferencesTests: XCTestCase {
         let sourcePreferences = [preference("monthlyTrend", 0, false), preference("recurring", 1, true)]
         try source.saveDashboardWidgetPreferences(sourcePreferences)
         let backup = try source.exportBackup()
-        XCTAssertEqual(backup.schemaVersion, 11)
-        XCTAssertEqual(backup.databaseSchemaVersion, 10)
+        XCTAssertEqual(backup.schemaVersion, 12)
+        XCTAssertEqual(backup.databaseSchemaVersion, 11)
 
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
         XCTAssertEqual(try target.dashboardWidgetPreferences(), sourcePreferences)
@@ -98,7 +98,7 @@ final class DashboardPreferencesTests: XCTestCase {
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,
             sourceFormatVersion: nil)
         let upgraded = try BackupArchive.decode(JSONEncoder().encode(old))
-        XCTAssertEqual(upgraded.schemaVersion, 11)
+        XCTAssertEqual(upgraded.schemaVersion, 12)
         XCTAssertEqual(upgraded.sourceFormatVersion, 7)
         let legacyTargetURL = folder.appendingPathComponent("legacy-target.sqlite")
         let legacyTarget = try SQLiteDatabase(url: legacyTargetURL)

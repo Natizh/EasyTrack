@@ -148,7 +148,7 @@ enum LegacyBackupConverter {
             try database.execute("COMMIT")
         } catch { try? database.execute("ROLLBACK"); throw error }
         let tables = try database.backupTables()
-        return BackupArchive(schemaVersion: 11, databaseSchemaVersion: 10,
+        return BackupArchive(schemaVersion: 12, databaseSchemaVersion: 11,
                              exportID: old.exportID, exportedAt: old.exportedAt,
                              contentSHA256: try SQLiteDatabase.digest(tables), tables: tables,
                              sourceFormatVersion: 5)

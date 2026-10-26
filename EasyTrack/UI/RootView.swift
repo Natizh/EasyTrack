@@ -1213,6 +1213,10 @@ private struct SettingsView: View {
                     Label("Category suggestions", systemImage: "lightbulb")
                 }
                 .accessibilityIdentifier("settingsCategorySuggestionsLink")
+                NavigationLink { BudgetsAndGoalsView() } label: {
+                    Label("Budgets & goals", systemImage: "target")
+                }
+                .accessibilityIdentifier("settingsBudgetsGoalsLink")
                 NavigationLink { RecurringListView() } label: {
                     Label("Recurring payments", systemImage: "repeat")
                 }
