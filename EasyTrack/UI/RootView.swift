@@ -241,6 +241,7 @@ private struct HomeView: View {
     @Environment(\.easyTrackTheme) private var theme
     @State private var showingNew = false
     @State private var showingDashboardEditor = false
+    @State private var showingReceiptCapture = false
 
     private var homeTransactions: [Transaction] {
         let active = store.transactions.filter { $0.deletedAt == nil }
@@ -411,11 +412,15 @@ private struct HomeView: View {
             Button { showingDashboardEditor = true } label: { Image(systemName: "slider.horizontal.3") }
                 .accessibilityLabel("Customize Home")
                 .accessibilityIdentifier("customizeHomeButton")
+            Button { showingReceiptCapture = true } label: { Image(systemName: "doc.text.viewfinder") }
+                .accessibilityLabel("Add expense from receipt")
+                .accessibilityIdentifier("homeReceiptScannerButton")
             Button { showingNew = true } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add transaction")
                 .accessibilityIdentifier("homeAddTransactionButton")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
+        .sheet(isPresented: $showingReceiptCapture) { ReceiptCaptureFlow() }
         .sheet(isPresented: $showingDashboardEditor) {
             NavigationStack { DashboardWidgetEditorView() }
         }
@@ -554,6 +559,7 @@ private struct TransactionsView: View {
     @State private var showingNew = false
     @State private var exportRequest: ExportRequest?
     @State private var selectedTransactionID: UUID?
+    @State private var showingReceiptCapture = false
 
     private var categories: [String] { ["All categories"] + Array(Set(store.transactions.map(\.category))).sorted() }
     private var accounts: [String] { Array(Set(store.transactions.map(\.account))).sorted() }
@@ -694,10 +700,14 @@ private struct TransactionsView: View {
             } label: { Image(systemName: "square.and.arrow.up") }
                 .accessibilityLabel("Export filtered transactions")
                 .accessibilityIdentifier("activityExportTransactions")
+            Button { showingReceiptCapture = true } label: { Image(systemName: "doc.text.viewfinder") }
+                .accessibilityLabel("Add expense from receipt")
+                .accessibilityIdentifier("activityReceiptScannerButton")
             Button { showingNew = true } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add transaction")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
+        .sheet(isPresented: $showingReceiptCapture) { ReceiptCaptureFlow() }
         .sheet(item: $exportRequest) { request in
             NavigationStack { TransactionExportView(activityFilter: request.filter) }
         }
@@ -727,6 +737,7 @@ struct TransactionEditor: View {
     @Environment(\.easyTrackTheme) private var theme
     private let original: Transaction?
     private let sourceEventID: UUID?
+    private let receiptDraft: ReceiptTransactionDraft?
     @State private var kind: TransactionKind
     @State private var amount: String
     @State private var merchant: String
@@ -753,13 +764,17 @@ struct TransactionEditor: View {
     @State private var manualCategoryChanged = false
     @State private var showingCategoryRuleProposal = false
 
-    init(item: Transaction? = nil, prefillEvent: NotificationEvent? = nil) {
+    init(item: Transaction? = nil, prefillEvent: NotificationEvent? = nil,
+         receiptDraft: ReceiptTransactionDraft? = nil) {
         original = item
+        self.receiptDraft = receiptDraft
         sourceEventID = item?.sourceEventID ?? prefillEvent?.id
         _kind = State(initialValue: item?.kind ?? .expense)
         let editableEUR = item.flatMap { $0.currency == "EUR" ? $0.amountMinor : $0.eurMinor }
-        _amount = State(initialValue: editableEUR.map { Money.editString($0) } ?? "")
-        _merchant = State(initialValue: item?.merchant ?? "")
+        let receiptEUR = receiptDraft.flatMap { $0.currency == "EUR" ? $0.amountMinor : nil }
+        _amount = State(initialValue: editableEUR.map { Money.editString($0) } ??
+                        receiptEUR.map { Money.editString($0) } ?? "")
+        _merchant = State(initialValue: item?.merchant ?? receiptDraft?.merchant ?? "")
         _account = State(initialValue: item?.account ?? "")
         _accountID = State(initialValue: item?.accountID)
         _category = State(initialValue: item?.category ?? "")
@@ -769,7 +784,8 @@ struct TransactionEditor: View {
         _paidBy = State(initialValue: item?.paidBy ?? "")
         _affectsMyAccounts = State(initialValue: item?.affectsMyAccounts ?? true)
         _note = State(initialValue: item?.note ?? prefillEvent.map { [$0.title, $0.subtitle, $0.message].filter { !$0.isEmpty }.joined(separator: " · ") } ?? "")
-        _occurredAt = State(initialValue: item?.occurredAt ?? prefillEvent?.receivedAt ?? .now)
+        _occurredAt = State(initialValue: item?.occurredAt ?? receiptDraft?.occurredAt ??
+                            prefillEvent?.receivedAt ?? .now)
         let pending = item?.kind == .expense && (item?.recoverableEURMinor ?? 0) > 0
         _expectsReimbursement = State(initialValue: pending)
         _expectedReimbursementAmount = State(initialValue: pending
@@ -785,6 +801,15 @@ struct TransactionEditor: View {
             categories: store.ledgerCategories, userRules: store.categoryKeywordRules,
             isEnabled: store.categorySuggestionsEnabled)
     }
+    private var possibleReceiptDuplicates: [Transaction] {
+        guard let receiptDraft else { return [] }
+        var reviewed = receiptDraft
+        reviewed.merchant = merchant
+        reviewed.occurredAt = occurredAt
+        reviewed.amountMinor = Money.parseMinor(amount)
+        reviewed.currency = "EUR"
+        return ReceiptDuplicateDetector.possibleMatches(for: reviewed, transactions: store.transactions)
+    }
 
     var body: some View {
         Form {
@@ -792,6 +817,26 @@ struct TransactionEditor: View {
             if sourceEventID != nil && original == nil {
                 Section { Text("Only the notification text was prefilled as a note. Enter and verify every transaction field before saving.")
                     .font(.footnote).foregroundStyle(.secondary) }
+            }
+            if let receiptDraft, original == nil {
+                Section("Receipt suggestions") {
+                    Text("OCR suggestions are editable and unverified. Review amount, merchant, date, account and category, then tap Save explicitly.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if receiptDraft.currency != "EUR", let originalAmount = receiptDraft.amountMinor {
+                        Text("Detected original total: \(Money.format(originalAmount, currency: receiptDraft.currency)). Enter a verified EUR amount manually; it was not converted automatically.")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
+                    if !receiptDraft.dateWasDetected {
+                        Text("Receipt date was not recognized; verify the manual date.")
+                            .font(.footnote).foregroundStyle(.orange)
+                    }
+                    if !possibleReceiptDuplicates.isEmpty {
+                        Label("A similar expense already exists on this date. Review Activity before saving to avoid a duplicate.",
+                              systemImage: "exclamationmark.triangle")
+                            .font(.footnote).foregroundStyle(.orange)
+                            .accessibilityIdentifier("receiptPossibleDuplicate")
+                    }
+                }
             }
             Section("Transaction") {
                 Picker("Type", selection: $kind) { ForEach(TransactionKind.allCases) { Text($0.title).tag($0) } }
