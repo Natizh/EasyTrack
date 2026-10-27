@@ -1462,6 +1462,12 @@ private struct SettingsView: View {
     @State private var confirmingDiagnosticClear = false
     @State private var notificationStatus: String?
 
+    private var versionLabel: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        return "\(version) (\(build))"
+    }
+
     var body: some View {
         Form {
             Section("Everyday") {
@@ -1642,7 +1648,7 @@ private struct SettingsView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("About") {
-                LabeledContent("Version", value: "0.5 · everyday finances")
+                LabeledContent("Version", value: versionLabel)
                 LabeledContent("Currency in editor", value: "EUR")
             }
         }
