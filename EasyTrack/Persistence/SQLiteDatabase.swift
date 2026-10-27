@@ -430,6 +430,26 @@ final class SQLiteDatabase {
         try setAppPreference(value, for: "backupReminder")
     }
 
+    func shouldPresentOnboarding() throws -> Bool {
+        if let value = try appPreference("onboardingCompleted") { return value != "true" }
+        let query = try statement("""
+            SELECT
+                EXISTS(SELECT 1 FROM transactions WHERE is_demo=0) OR
+                EXISTS(SELECT 1 FROM local_accounts) OR
+                EXISTS(SELECT 1 FROM parser_sources) OR
+                EXISTS(SELECT 1 FROM historical_imported_movements)
+            """)
+        defer { sqlite3_finalize(query) }
+        guard sqlite3_step(query) == SQLITE_ROW else { throw error() }
+        let existingInstallation = sqlite3_column_int(query, 0) != 0
+        if existingInstallation { try setAppPreference("true", for: "onboardingCompleted") }
+        return !existingInstallation
+    }
+
+    func completeOnboarding() throws {
+        try setAppPreference("true", for: "onboardingCompleted")
+    }
+
     func seedDemoIfNeeded() throws {
         let check = try statement("SELECT value FROM metadata WHERE key = 'demo_seeded'")
         defer { sqlite3_finalize(check) }

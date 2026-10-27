@@ -27,6 +27,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var automationSetupMilestones: Set<AutomationSetupMilestone> = []
     @Published private(set) var appearancePreferences = AppearancePreferences.default
     @Published private(set) var backupReminderPreferences = BackupReminderPreferences.default
+    @Published private(set) var shouldPresentOnboarding = false
     @Published var errorMessage: String?
 
     init() {
@@ -78,6 +79,7 @@ final class FinanceStore: ObservableObject {
             automationSetupMilestones = try database.automationSetupMilestones()
             appearancePreferences = try database.appearancePreferences()
             backupReminderPreferences = try database.backupReminderPreferences()
+            shouldPresentOnboarding = try database.shouldPresentOnboarding()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -388,6 +390,11 @@ final class FinanceStore: ObservableObject {
         preferences.lastSuccessfulExportAt = date
         try SQLiteDatabase.open().saveBackupReminderPreferences(preferences)
         backupReminderPreferences = preferences
+    }
+
+    func completeOnboarding() throws {
+        try SQLiteDatabase.open().completeOnboarding()
+        shouldPresentOnboarding = false
     }
 
     var availableAccountNames: [String] {

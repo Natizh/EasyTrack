@@ -29,6 +29,111 @@ struct RootView: View {
                                                   set: { if !$0 { store.errorMessage = nil } })) {
             Button("OK") { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
+        .fullScreenCover(isPresented: Binding(
+            get: { store.shouldPresentOnboarding }, set: { _ in })) {
+                NavigationStack {
+                    OnboardingView {
+                        do { try store.completeOnboarding(); return true }
+                        catch { store.errorMessage = error.localizedDescription; return false }
+                    }
+                }
+            }
+    }
+}
+
+struct OnboardingView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.easyTrackTheme) private var theme
+    @State private var page = 0
+    let onFinish: () -> Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TabView(selection: $page) {
+                onboardingPage(symbol: "chart.line.uptrend.xyaxis", title: "Welcome to EasyTrack",
+                    message: "Record income and expenses, understand spending, manage budgets and reimbursements, and—where supported—import movements from notifications through Shortcuts.") {
+                    Label("No bank account, login, or permission is required to begin.", systemImage: "checkmark.shield")
+                }
+                .tag(0)
+
+                onboardingPage(symbol: "lock.shield", title: "Private ledger, manual backups",
+                    message: "The working database stays in EasyTrack private storage. JSON backup export is manual: you choose and safeguard the file in Files, iCloud Drive, or another provider.") {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Label("A file in iCloud Drive is a snapshot, not live device synchronization.", systemImage: "icloud.slash")
+                        Label("Deleting the app without an external backup can remove the local ledger.", systemImage: "externaldrive.badge.exclamationmark")
+                        Label("EasyTrack cannot indiscriminately read every notification from other apps.", systemImage: "bell.slash")
+                    }
+                }
+                .tag(1)
+
+                onboardingPage(symbol: "slider.horizontal.3", title: "Optional setup",
+                    message: "Set up only what you need now. You can skip everything and return from Settings at any time.") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        NavigationLink { AccountsView() } label: {
+                            Label("Accounts", systemImage: "creditcard")
+                        }
+                        NavigationLink { CategoriesView() } label: {
+                            Label("Categories", systemImage: "square.grid.2x2")
+                        }
+                        NavigationLink { NotificationSetupGuideView() } label: {
+                            Label("Automatic notification setup", systemImage: "list.number")
+                        }
+                        Text("The notification link opens the same complete guide used in Automations; it does not request permission or create a transaction.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .tag(2)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .always))
+
+            HStack {
+                Button("Back") { withAnimation { page -= 1 } }
+                    .disabled(page == 0)
+                Spacer()
+                Button(page == 2 ? "Finish" : "Continue") {
+                    if page == 2 { finish() }
+                    else { withAnimation { page += 1 } }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 16)
+            .background(.bar)
+        }
+        .navigationTitle("Getting started")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Skip") { finish() }.accessibilityIdentifier("skipOnboarding")
+            }
+        }
+        .interactiveDismissDisabled()
+        .accessibilityIdentifier("onboardingPage-\(page + 1)")
+    }
+
+    private func finish() {
+        if onFinish() { dismiss() }
+    }
+
+    private func onboardingPage<Content: View>(symbol: String, title: String, message: String,
+                                                @ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                Image(systemName: symbol)
+                    .font(.system(size: 48, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+                    .frame(width: 82, height: 82)
+                    .background(theme.accentWash, in: RoundedRectangle(cornerRadius: 24))
+                    .accessibilityHidden(true)
+                Text(title).font(.largeTitle.bold())
+                Text(message).font(.title3).foregroundStyle(.secondary)
+                content().font(.subheadline)
+                Spacer(minLength: 20)
+            }
+            .frame(maxWidth: 620, alignment: .leading)
+            .padding(28)
+        }
+        .background(theme.canvas)
     }
 }
 
@@ -1315,6 +1420,15 @@ private struct SettingsView: View {
     var body: some View {
         Form {
             Section("Everyday") {
+                NavigationLink {
+                    OnboardingView {
+                        do { try store.completeOnboarding(); return true }
+                        catch { store.errorMessage = error.localizedDescription; return false }
+                    }
+                } label: {
+                    Label("Getting started", systemImage: "hand.wave")
+                }
+                .accessibilityIdentifier("settingsOnboardingLink")
                 NavigationLink { AppearanceSettingsView() } label: {
                     Label("Appearance", systemImage: "circle.lefthalf.filled")
                 }

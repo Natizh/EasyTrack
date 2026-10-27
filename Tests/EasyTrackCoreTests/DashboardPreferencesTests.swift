@@ -117,6 +117,39 @@ final class DashboardPreferencesTests: XCTestCase {
         XCTAssertEqual(try target.backupReminderPreferences(), local)
     }
 
+    func testOnboardingFreshCompletionExistingUpgradeAndPopulatedRestore() throws {
+        try withDatabase { database, url in
+            try database.seedDemoIfNeeded()
+            let initial = try database.transactions()
+            XCTAssertTrue(try database.shouldPresentOnboarding())
+            XCTAssertEqual(try database.transactions(), initial)
+            try database.completeOnboarding()
+            XCTAssertFalse(try SQLiteDatabase(url: url).shouldPresentOnboarding())
+            XCTAssertEqual(try database.transactions(), initial)
+        }
+
+        try withDatabase { database, url in
+            try database.seedDemoIfNeeded()
+            _ = try database.saveLocalAccount(LocalAccount(id: UUID(), name: "Existing account", createdAt: .now))
+            XCTAssertFalse(try database.shouldPresentOnboarding())
+            XCTAssertFalse(try SQLiteDatabase(url: url).shouldPresentOnboarding())
+        }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-onboarding-restore-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let source = try SQLiteDatabase(url: folder.appendingPathComponent("source.sqlite"))
+        try source.seedDemoIfNeeded()
+        _ = try source.saveLocalAccount(LocalAccount(id: UUID(), name: "Restored account", createdAt: .now))
+        let backup = try source.exportBackup() // Intentionally predates an onboarding preference.
+        let target = try SQLiteDatabase(url: folder.appendingPathComponent("target.sqlite"))
+        try target.seedDemoIfNeeded()
+        _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
+        XCTAssertFalse(try target.shouldPresentOnboarding())
+        XCTAssertEqual(try target.localAccounts().map(\.name), ["Restored account"])
+    }
+
     func testSchemaSixMigratesAtomicallyToCurrent() throws {
         try withDatabase { database, url in
             try database.execute("DROP TABLE dashboard_widget_preferences")
