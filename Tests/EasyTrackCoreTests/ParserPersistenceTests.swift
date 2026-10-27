@@ -130,7 +130,7 @@ final class ParserPersistenceTests: XCTestCase {
 
             let refund = event("Refund €5,00 from Cedar Books", title: "Refund posted",
                                at: start.addingTimeInterval(360))
-            var refundRule = rule(source: source, sample: refund, name: "Refund format", priority: 3,
+            let refundRule = rule(source: source, sample: refund, name: "Refund format", priority: 3,
                                   kind: .reimbursement)
             _ = try database.saveParserRule(refundRule)
             let result = try database.captureNotification(refund)
@@ -374,6 +374,8 @@ final class ParserPersistenceTests: XCTestCase {
 
     func testDiagnosticRetentionScrubsRawTextButPreservesLedgerAndBackupPreferences() throws {
         try temporaryDatabase { _, database in
+            try database.seedDemoIfNeeded()
+            let initialTransactionCount = try database.transactions().count
             let oldDate = start.addingTimeInterval(-8 * 86_400)
             let sample = event("Paid €12,34 at Cedar Books", at: oldDate)
             let captured = try database.captureNotification(sample)
@@ -390,7 +392,7 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertTrue(scrubbed.event.title.isEmpty)
             XCTAssertTrue(scrubbed.event.subtitle.isEmpty)
             XCTAssertTrue(scrubbed.event.message.isEmpty)
-            XCTAssertEqual(try database.transactions().count, 1)
+            XCTAssertEqual(try database.transactions().count, initialTransactionCount + 1)
             XCTAssertEqual(try database.notificationEvents().first?.message, "")
 
             let backup = try database.exportBackup()
@@ -401,7 +403,7 @@ final class ParserPersistenceTests: XCTestCase {
             _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
             XCTAssertEqual(try target.notificationRetentionDays(), 7)
             XCTAssertTrue(try target.automationSetupMilestones().contains(.simulationCompleted))
-            XCTAssertEqual(try target.transactions().count, 1)
+            XCTAssertEqual(try target.transactions().count, initialTransactionCount + 1)
             XCTAssertEqual(try target.parserAttempts().first?.event.message, "")
         }
     }
