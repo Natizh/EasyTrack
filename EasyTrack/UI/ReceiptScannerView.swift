@@ -86,7 +86,7 @@ private struct ReceiptScannerView: View {
                     DatePicker("Purchase date", selection: $occurredAt, displayedComponents: .date)
                     Text(dateWasDetected ? "Date suggested by OCR; verify it." :
                             "No date was recognized. Today is only a manual default—correct it before saving.")
-                        .font(.footnote).foregroundStyle(dateWasDetected ? .secondary : .orange)
+                        .font(.footnote).foregroundStyle(dateWasDetected ? Color.secondary : Color.orange)
                 }
 
                 Section("Paid total") {
@@ -286,7 +286,7 @@ private enum ReceiptVisionService {
             request.recognitionLanguages = ["it-IT", "en-US"]
             let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation)
             try handler.perform([request])
-            let observations = request.results
+            let observations = request.results ?? []
             let sorted = observations.sorted {
                 if abs($0.boundingBox.maxY - $1.boundingBox.maxY) > 0.015 {
                     return $0.boundingBox.maxY > $1.boundingBox.maxY
