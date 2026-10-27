@@ -1388,10 +1388,24 @@ private struct SettingsView: View {
                 Text(probeStatus).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
             }
             Section("Backup") {
+                Toggle("Backup reminder", isOn: Binding(
+                    get: { store.backupReminderPreferences.isEnabled },
+                    set: { enabled in
+                        do { try store.setBackupReminderEnabled(enabled) }
+                        catch { backupStatus = error.localizedDescription }
+                    }))
+                if store.backupReminderPreferences.isDue() {
+                    Label("A fresh manual backup is recommended", systemImage: "externaldrive.badge.exclamationmark")
+                        .font(.subheadline).foregroundStyle(.orange)
+                        .accessibilityIdentifier("backupReminderDue")
+                }
+                LabeledContent("Last successful export",
+                    value: store.backupReminderPreferences.lastSuccessfulExportAt?.formatted(
+                        date: .abbreviated, time: .shortened) ?? "Never recorded")
                 Button("Export local data as JSON") {
                     do {
                         backupDocument = try BackupDocument(store.backup())
-                        backupFilename = "EasyTrack-backup-\(Int(Date().timeIntervalSince1970))"
+                        backupFilename = BackupFilename.make()
                         backupStatus = nil
                         showingExporter = true
                     }
@@ -1455,7 +1469,9 @@ private struct SettingsView: View {
                     }
                 }
                 if let restoreStatus { Text(restoreStatus).font(.footnote).accessibilityIdentifier("backupRestoreStatus") }
-                Text("Keep backups private. They include raw notification text, imported history, and source rows.")
+                Text("Export is always manual. Files lets you choose On My iPhone, iCloud Drive, or another available provider. An iCloud Drive backup is a snapshot file, not live synchronization between devices.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Text("Keep backup files private: JSON may include imported history and retained notification diagnostics. Deleting EasyTrack without an external backup can permanently remove the local ledger; restoring later requires choosing the JSON file manually.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Transaction export") {
@@ -1492,8 +1508,16 @@ private struct SettingsView: View {
         .fileExporter(isPresented: $showingExporter, document: backupDocument, contentType: .json,
                       defaultFilename: backupFilename) { result in
             switch result {
-            case .success(let url): backupStatus = "Exported \(url.lastPathComponent)"
-            case .failure(let error): store.errorMessage = error.localizedDescription
+            case .success(let url):
+                do {
+                    try store.recordSuccessfulBackupExport()
+                    backupStatus = "Exported \(url.lastPathComponent)"
+                } catch {
+                    backupStatus = "The file was exported, but EasyTrack could not record the reminder date: \(error.localizedDescription)"
+                }
+            case .failure(let error):
+                if (error as NSError).code == NSUserCancelledError { backupStatus = "Export cancelled." }
+                else { store.errorMessage = error.localizedDescription }
             }
         }
         .confirmationDialog(pendingRestoreMode == .replace ? "Replace the local ledger?" : "Merge backup records?",

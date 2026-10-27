@@ -39,6 +39,28 @@ struct AppearancePreferences: Codable, Equatable {
     static let `default` = AppearancePreferences()
 }
 
+struct BackupReminderPreferences: Codable, Equatable {
+    var isEnabled = true
+    var lastSuccessfulExportAt: Date?
+    static let `default` = BackupReminderPreferences()
+
+    func isDue(at date: Date = .now) -> Bool {
+        guard isEnabled else { return false }
+        guard let lastSuccessfulExportAt else { return true }
+        return date.timeIntervalSince(lastSuccessfulExportAt) >= 30 * 86_400
+    }
+}
+
+enum BackupFilename {
+    static func make(at date: Date = .now, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm"
+        return "EasyTrack-backup-\(formatter.string(from: date))"
+    }
+}
+
 struct DashboardWidgetPreference: Codable, Equatable, Identifiable {
     var id: String { widgetID }
     let widgetID: String

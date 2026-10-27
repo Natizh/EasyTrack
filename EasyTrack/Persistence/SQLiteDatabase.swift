@@ -413,6 +413,23 @@ final class SQLiteDatabase {
         try setAppPreference(value, for: "appearance")
     }
 
+    func backupReminderPreferences() throws -> BackupReminderPreferences {
+        guard let value = try appPreference("backupReminder"),
+              let data = value.data(using: .utf8),
+              let preferences = try? JSONDecoder().decode(BackupReminderPreferences.self, from: data) else {
+            return .default
+        }
+        return preferences
+    }
+
+    func saveBackupReminderPreferences(_ preferences: BackupReminderPreferences) throws {
+        let data = try JSONEncoder().encode(preferences)
+        guard let value = String(data: data, encoding: .utf8) else {
+            throw DatabaseError.sqlite("Could not save backup reminder settings")
+        }
+        try setAppPreference(value, for: "backupReminder")
+    }
+
     func seedDemoIfNeeded() throws {
         let check = try statement("SELECT value FROM metadata WHERE key = 'demo_seeded'")
         defer { sqlite3_finalize(check) }

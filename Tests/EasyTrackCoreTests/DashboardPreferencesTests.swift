@@ -81,6 +81,42 @@ final class DashboardPreferencesTests: XCTestCase {
         XCTAssertEqual(try SQLiteDatabase(url: targetURL).appearancePreferences(), local)
     }
 
+    func testBackupReminderFilenamePersistenceDueDateAndBackupSemantics() throws {
+        let now = Date(timeIntervalSince1970: 1_793_088_300) // 2026-10-27 08:05 UTC
+        XCTAssertEqual(BackupFilename.make(at: now, timeZone: TimeZone(secondsFromGMT: 0)!),
+                       "EasyTrack-backup-2026-10-27_08-05")
+        XCTAssertTrue(BackupReminderPreferences.default.isDue(at: now))
+        XCTAssertFalse(BackupReminderPreferences(isEnabled: true,
+            lastSuccessfulExportAt: now.addingTimeInterval(-29 * 86_400)).isDue(at: now))
+        XCTAssertTrue(BackupReminderPreferences(isEnabled: true,
+            lastSuccessfulExportAt: now.addingTimeInterval(-30 * 86_400)).isDue(at: now))
+        XCTAssertFalse(BackupReminderPreferences(isEnabled: false,
+            lastSuccessfulExportAt: nil).isDue(at: now))
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-backup-reminder-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let sourceURL = folder.appendingPathComponent("source.sqlite")
+        let source = try SQLiteDatabase(url: sourceURL)
+        try source.seedDemoIfNeeded()
+        let exported = BackupReminderPreferences(isEnabled: true, lastSuccessfulExportAt: now)
+        try source.saveBackupReminderPreferences(exported)
+        XCTAssertEqual(try SQLiteDatabase(url: sourceURL).backupReminderPreferences(), exported)
+        let backup = try source.exportBackup()
+
+        let targetURL = folder.appendingPathComponent("target.sqlite")
+        let target = try SQLiteDatabase(url: targetURL)
+        try target.seedDemoIfNeeded()
+        _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
+        XCTAssertEqual(try target.backupReminderPreferences(), exported)
+
+        let local = BackupReminderPreferences(isEnabled: false, lastSuccessfulExportAt: nil)
+        try target.saveBackupReminderPreferences(local)
+        _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
+        XCTAssertEqual(try target.backupReminderPreferences(), local)
+    }
+
     func testSchemaSixMigratesAtomicallyToCurrent() throws {
         try withDatabase { database, url in
             try database.execute("DROP TABLE dashboard_widget_preferences")

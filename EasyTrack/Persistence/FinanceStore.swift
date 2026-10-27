@@ -26,6 +26,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var notificationRetentionDays = NotificationRetentionPolicy.defaultDays
     @Published private(set) var automationSetupMilestones: Set<AutomationSetupMilestone> = []
     @Published private(set) var appearancePreferences = AppearancePreferences.default
+    @Published private(set) var backupReminderPreferences = BackupReminderPreferences.default
     @Published var errorMessage: String?
 
     init() {
@@ -76,6 +77,7 @@ final class FinanceStore: ObservableObject {
             notificationRetentionDays = try database.notificationRetentionDays()
             automationSetupMilestones = try database.automationSetupMilestones()
             appearancePreferences = try database.appearancePreferences()
+            backupReminderPreferences = try database.backupReminderPreferences()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -372,6 +374,20 @@ final class FinanceStore: ObservableObject {
     func saveAppearancePreferences(_ preferences: AppearancePreferences) throws {
         try SQLiteDatabase.open().saveAppearancePreferences(preferences)
         appearancePreferences = preferences
+    }
+
+    func setBackupReminderEnabled(_ enabled: Bool) throws {
+        var preferences = backupReminderPreferences
+        preferences.isEnabled = enabled
+        try SQLiteDatabase.open().saveBackupReminderPreferences(preferences)
+        backupReminderPreferences = preferences
+    }
+
+    func recordSuccessfulBackupExport(at date: Date = .now) throws {
+        var preferences = backupReminderPreferences
+        preferences.lastSuccessfulExportAt = date
+        try SQLiteDatabase.open().saveBackupReminderPreferences(preferences)
+        backupReminderPreferences = preferences
     }
 
     var availableAccountNames: [String] {
