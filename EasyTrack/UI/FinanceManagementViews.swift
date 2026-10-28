@@ -96,6 +96,7 @@ struct AccountsView: View {
                                 in: RoundedRectangle(cornerRadius: 13))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(account.name).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                    Text(account.nativeCurrency).font(.caption).foregroundStyle(.secondary)
                     if account.archivedAt != nil { Text("Archived").font(.caption).foregroundStyle(.secondary) }
                 }
                 Spacer()
@@ -119,6 +120,7 @@ private struct AccountEditorView: View {
     @State private var symbol: String
     @State private var color: String
     @State private var archived: Bool
+    @State private var nativeCurrency: String
     @State private var errorMessage: String?
     @State private var saving = false
 
@@ -128,6 +130,7 @@ private struct AccountEditorView: View {
         _symbol = State(initialValue: account?.symbolName ?? "creditcard.fill")
         _color = State(initialValue: account?.colorName ?? "teal")
         _archived = State(initialValue: account?.archivedAt != nil)
+        _nativeCurrency = State(initialValue: account?.nativeCurrency ?? "EUR")
     }
 
     var body: some View {
@@ -136,6 +139,13 @@ private struct AccountEditorView: View {
                 TextField("Name", text: $name)
                     .textInputAutocapitalization(.words)
                     .accessibilityIdentifier("accountNameField")
+                Picker("Native currency", selection: $nativeCurrency) {
+                    ForEach(CurrencyMetadata.supportedCodes, id: \.self) { Text($0).tag($0) }
+                }
+                if let original, original.nativeCurrency != nativeCurrency {
+                    Text("Currency can change only when this account has no recorded movements. Existing amounts are never relabeled or converted automatically.")
+                        .font(.footnote).foregroundStyle(.orange)
+                }
             }
             Section("Appearance") {
                 HStack(spacing: 12) {
@@ -186,6 +196,7 @@ private struct AccountEditorView: View {
         item.name = name
         item.symbolName = symbol
         item.colorName = color
+        item.nativeCurrency = nativeCurrency
         item.archivedAt = archived ? (item.archivedAt ?? .now) : nil
         do {
             try store.saveAccount(item)
