@@ -50,7 +50,7 @@ connection.close()
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(
     "EasyTrack import audit — source row numbers only\n"
-    "All 2,881 movements passed the version-1 mapper. No movement rows were rejected.\n\n"
+    "Import audit: source row diagnostics only.\n\n"
     f"Account labels without a canonical account match ({len(unmatched)}): {ranges(unmatched)}\n\n"
     f"Movements with no account label ({len(missing)}): {ranges(missing)}\n\n"
     f"Recurring rules with a non-ISO start date ({len(unusual_rule_dates)}): {ranges(unusual_rule_dates)}\n\n"
