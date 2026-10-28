@@ -36,6 +36,14 @@ struct EasyTrackTheme {
     }
 
     var accent: Color { effectiveAccent.color }
+    var isCompact: Bool { preferences.density == .compact }
+    var screenPadding: CGFloat { isCompact ? 16 : 20 }
+    var sectionSpacing: CGFloat { isCompact ? 14 : 22 }
+    var cardPadding: CGFloat { isCompact ? 13 : 17 }
+    var heroPadding: CGFloat { isCompact ? 18 : 22 }
+    var rowVerticalPadding: CGFloat { isCompact ? 1 : 4 }
+    var listRowSpacing: CGFloat? { isCompact ? 0 : nil }
+    var decorativeIconSize: CGFloat { isCompact ? 40 : 46 }
     var primaryText: Color { .primary }
     let champagne = Color(red: 196 / 255, green: 154 / 255, blue: 93 / 255)
     let coral = Color(red: 180 / 255, green: 92 / 255, blue: 85 / 255)
@@ -207,7 +215,7 @@ struct FinancialHeroCard: View {
                     .foregroundStyle(theme.heroSecondaryText)
             }
         }
-        .padding(22)
+        .padding(theme.heroPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             LinearGradient(colors: theme.heroColors,
@@ -294,7 +302,7 @@ struct RecentTransactionCard: View {
                 }
             }
         }
-        .padding(15)
+        .padding(theme.isCompact ? 12 : 15)
         .background(theme.surface, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 21, style: .continuous)
@@ -311,7 +319,7 @@ struct RecentTransactionCard: View {
         Image(systemName: iconName)
             .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(accent)
-            .frame(width: 46, height: 46)
+            .frame(width: theme.decorativeIconSize, height: theme.decorativeIconSize)
             .background(accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
             .accessibilityHidden(true)
     }
@@ -327,7 +335,7 @@ struct DashboardModuleCard<Content: View>: View {
 
     var body: some View {
         content
-            .padding(17)
+            .padding(theme.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(theme.surface,
                         in: RoundedRectangle(cornerRadius: 22, style: .continuous))

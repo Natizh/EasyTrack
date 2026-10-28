@@ -54,6 +54,7 @@ private struct LedgerColorPalette: View {
 
 struct AccountsView: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     @State private var selected: LocalAccount?
     @State private var showingNew = false
 
@@ -74,6 +75,7 @@ struct AccountsView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
+        .listRowSpacing(theme.listRowSpacing)
         .navigationTitle("Accounts")
         .toolbar { ToolbarItem(placement: .topBarTrailing) {
             Button { showingNew = true } label: { Image(systemName: "plus") }
@@ -111,6 +113,7 @@ struct AccountsView: View {
 private struct AccountEditorView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.easyTrackTheme) private var theme
     let original: LocalAccount?
     @State private var name: String
     @State private var symbol: String
@@ -164,6 +167,7 @@ private struct AccountEditorView: View {
             }
             if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
         }
+        .listRowSpacing(theme.listRowSpacing)
         .navigationTitle(original == nil ? "New account" : "Edit account")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -195,6 +199,7 @@ private struct AccountEditorView: View {
 
 struct CategoriesView: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     @State private var selected: LedgerCategory?
     @State private var showingNew = false
 
@@ -214,6 +219,7 @@ struct CategoriesView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
+        .listRowSpacing(theme.listRowSpacing)
         .navigationTitle("Categories")
         .toolbar { ToolbarItem(placement: .topBarTrailing) {
             Button { showingNew = true } label: { Image(systemName: "plus") }
@@ -269,6 +275,7 @@ struct CategoriesView: View {
 private struct CategoryEditorView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.easyTrackTheme) private var theme
     let original: LedgerCategory?
     @State private var name: String
     @State private var symbol: String
@@ -320,6 +327,7 @@ private struct CategoryEditorView: View {
             }
             if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
         }
+        .listRowSpacing(theme.listRowSpacing)
         .navigationTitle(original == nil ? "New category" : "Edit category")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

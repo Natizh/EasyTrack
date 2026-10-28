@@ -153,6 +153,7 @@ struct DashboardWidgetEditorView: View {
 }
 
 struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {
+    @Environment(\.easyTrackTheme) private var theme
     let snapshot: FinancialAnalyticsSnapshot?
     let widgets: [DashboardWidgetDescriptor]
     let recurring: Recurring
@@ -169,7 +170,7 @@ struct DashboardWidgetLayout<Recurring: View, Uncategorized: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: theme.sectionSpacing) {
             ForEach(widgets) { descriptor in
                 widget(descriptor.id)
             }

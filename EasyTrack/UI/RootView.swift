@@ -232,7 +232,7 @@ private struct TransactionRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, theme.rowVerticalPadding)
     }
 }
 
@@ -385,7 +385,7 @@ private struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: theme.sectionSpacing) {
                 HStack(spacing: 12) {
                     Button { if let prior = selectedMonth.adding(months: -1) { selectedMonth = prior } } label: {
                         Image(systemName: "chevron.left").frame(width: 44, height: 44)
@@ -451,7 +451,7 @@ private struct HomeView: View {
                     uncategorizedWidget
                 }
             }
-            .padding(20)
+            .padding(theme.screenPadding)
         }
         .background(theme.canvas)
         .navigationTitle("EasyTrack")
@@ -542,6 +542,7 @@ private struct UncategorizedTransactionsView: View {
     }
 
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     @State private var undoChange: UndoChange?
     @State private var skippedIDs: Set<UUID> = []
     @State private var ruleProposal: RuleProposal?
@@ -621,6 +622,7 @@ private struct UncategorizedTransactionsView: View {
             }
             .accessibilityElement(children: .contain)
         }
+        .listRowSpacing(theme.listRowSpacing)
         .navigationTitle("Uncategorized")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -886,6 +888,7 @@ private struct TransactionsView: View {
                     }
                 }
             }
+            .listRowSpacing(theme.listRowSpacing)
             .scrollContentBackground(.hidden)
             .overlay {
                 if filtered.isEmpty {
@@ -1194,6 +1197,7 @@ struct TransactionEditor: View {
             }
             if original != nil { Section { Button("Delete transaction", role: .destructive) { showDelete = true } } }
         }
+        .listRowSpacing(theme.listRowSpacing)
         .navigationTitle(original == nil ? "New transaction" : "Edit transaction")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1609,12 +1613,26 @@ private struct AppearanceSettingsView: View {
                 .pickerStyle(.segmented)
             }
 
+            Section("Display density") {
+                Picker("Density", selection: Binding(
+                    get: { store.appearancePreferences.density },
+                    set: { option in update { $0.density = option } })) {
+                    ForEach(AppDisplayDensity.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Text(store.appearancePreferences.density == .compact
+                     ? "Compact reduces decorative spacing while keeping text and touch targets accessible."
+                     : "Standard preserves the original EasyTrack spacing.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
             Section {
-                Text("Theme and accent update immediately and are included in Replace backups. Account colors, category colors, income/expense meaning and chart distinctions remain independent.")
+                Text("Theme, accent and density update immediately and are included in Replace backups. Account colors, category colors, income/expense meaning and chart distinctions remain independent.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if let statusMessage { Text(statusMessage).font(.footnote).foregroundStyle(.red) }
             }
         }
+        .listRowSpacing(theme.listRowSpacing)
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -1653,6 +1671,7 @@ private struct BackupDocument: FileDocument {
 
 private struct SettingsView: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
     private enum PickerPurpose { case seed, folder, backup }
     @State private var showingFilePicker = false
     @State private var pickerPurpose: PickerPurpose = .seed
@@ -1862,6 +1881,7 @@ private struct SettingsView: View {
                 LabeledContent("Currency in editor", value: "EUR")
             }
         }
+        .listRowSpacing(theme.listRowSpacing)
         .navigationTitle("Settings")
         .task { folderSelected = await FolderProbe.shared.hasSavedFolder(); if folderSelected { probeStatus = "Folder bookmark saved" } }
         .sheet(isPresented: $showingFilePicker) {

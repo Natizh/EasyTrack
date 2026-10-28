@@ -32,11 +32,38 @@ enum AppColorSchemePreference: String, Codable, CaseIterable, Identifiable {
     var title: String { rawValue.capitalized }
 }
 
+enum AppDisplayDensity: String, Codable, CaseIterable, Identifiable {
+    case standard
+    case compact
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+}
+
 struct AppearancePreferences: Codable, Equatable {
     var theme: AppThemeStyle = .classic
     var accent: AppAccentChoice = .jade
     var colorScheme: AppColorSchemePreference = .system
+    var density: AppDisplayDensity = .standard
     static let `default` = AppearancePreferences()
+
+    private enum CodingKeys: String, CodingKey { case theme, accent, colorScheme, density }
+
+    init(theme: AppThemeStyle = .classic, accent: AppAccentChoice = .jade,
+         colorScheme: AppColorSchemePreference = .system,
+         density: AppDisplayDensity = .standard) {
+        self.theme = theme
+        self.accent = accent
+        self.colorScheme = colorScheme
+        self.density = density
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        theme = try values.decodeIfPresent(AppThemeStyle.self, forKey: .theme) ?? .classic
+        accent = try values.decodeIfPresent(AppAccentChoice.self, forKey: .accent) ?? .jade
+        colorScheme = try values.decodeIfPresent(AppColorSchemePreference.self, forKey: .colorScheme) ?? .system
+        density = try values.decodeIfPresent(AppDisplayDensity.self, forKey: .density) ?? .standard
+    }
 }
 
 struct BackupReminderPreferences: Codable, Equatable {

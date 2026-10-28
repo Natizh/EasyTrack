@@ -64,7 +64,8 @@ final class DashboardPreferencesTests: XCTestCase {
         let source = try SQLiteDatabase(url: sourceURL)
         try source.seedDemoIfNeeded()
         XCTAssertEqual(try source.appearancePreferences(), .default)
-        let chosen = AppearancePreferences(theme: .neutral, accent: .violet, colorScheme: .dark)
+        let chosen = AppearancePreferences(theme: .neutral, accent: .violet,
+                                           colorScheme: .dark, density: .compact)
         try source.saveAppearancePreferences(chosen)
         XCTAssertEqual(try SQLiteDatabase(url: sourceURL).appearancePreferences(), chosen)
         let backup = try source.exportBackup()
@@ -79,6 +80,10 @@ final class DashboardPreferencesTests: XCTestCase {
         try target.saveAppearancePreferences(local)
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
         XCTAssertEqual(try SQLiteDatabase(url: targetURL).appearancePreferences(), local)
+
+        let legacyJSON = Data(#"{"theme":"neutral","accent":"blue","colorScheme":"light"}"#.utf8)
+        let legacy = try JSONDecoder().decode(AppearancePreferences.self, from: legacyJSON)
+        XCTAssertEqual(legacy.density, .standard)
     }
 
     func testBackupReminderFilenamePersistenceDueDateAndBackupSemantics() throws {
