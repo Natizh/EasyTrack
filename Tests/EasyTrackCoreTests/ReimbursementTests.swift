@@ -235,7 +235,7 @@ final class ReimbursementTests: XCTestCase {
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
         XCTAssertEqual(try target.reimbursementStatuses().filter { $0.expenseID == expense.id }.count, 1)
 
-        let oldTables = Array(backup.tables.prefix(27))
+        let oldTables = Array(BackupArchive.schemaElevenShape(backup.tables).prefix(27))
         let old = BackupArchive(schemaVersion: 9, databaseSchemaVersion: 8,
             exportID: UUID(), exportedAt: .now,
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,

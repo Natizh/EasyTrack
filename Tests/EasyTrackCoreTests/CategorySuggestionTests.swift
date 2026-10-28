@@ -161,7 +161,7 @@ final class CategorySuggestionTests: XCTestCase {
         XCTAssertThrowsError(try target.restoreBackup(backup, preview: preview, mode: .merge))
         XCTAssertEqual(try target.backupTables(), before)
 
-        let oldTables = Array(backup.tables.prefix(29))
+        let oldTables = Array(BackupArchive.schemaElevenShape(backup.tables).prefix(29))
         let old = BackupArchive(schemaVersion: 10, databaseSchemaVersion: 9,
             exportID: UUID(), exportedAt: .now,
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,

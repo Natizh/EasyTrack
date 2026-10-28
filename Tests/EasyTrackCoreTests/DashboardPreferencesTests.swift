@@ -164,7 +164,7 @@ final class DashboardPreferencesTests: XCTestCase {
             let version = try reopened.statement("PRAGMA user_version")
             defer { sqlite3_finalize(version) }
             XCTAssertEqual(sqlite3_step(version), SQLITE_ROW)
-            XCTAssertEqual(sqlite3_column_int(version, 0), 11)
+            XCTAssertEqual(sqlite3_column_int(version, 0), 13)
         }
     }
 
@@ -193,7 +193,7 @@ final class DashboardPreferencesTests: XCTestCase {
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
         XCTAssertEqual(try target.dashboardWidgetPreferences(), localPreferences)
 
-        let oldTables = Array(backup.tables.prefix(25))
+        let oldTables = Array(BackupArchive.schemaElevenShape(backup.tables).prefix(25))
         let old = BackupArchive(schemaVersion: 7, databaseSchemaVersion: 6,
             exportID: UUID(), exportedAt: .now,
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,

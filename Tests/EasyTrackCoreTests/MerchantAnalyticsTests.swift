@@ -65,7 +65,7 @@ final class MerchantAnalyticsTests: XCTestCase {
         try target.deleteMerchantAliasGroup(localGroup.id)
         XCTAssertTrue(try target.merchantAliasGroups().isEmpty)
 
-        let oldTables = Array(backup.tables.prefix(26))
+        let oldTables = Array(BackupArchive.schemaElevenShape(backup.tables).prefix(26))
         let old = BackupArchive(schemaVersion: 8, databaseSchemaVersion: 7,
             exportID: UUID(), exportedAt: .now,
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,

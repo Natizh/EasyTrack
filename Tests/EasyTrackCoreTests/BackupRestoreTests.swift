@@ -104,7 +104,7 @@ final class BackupRestoreTests: XCTestCase {
             _ = try populate(source)
             let before = LedgerTotals(transactions: try source.transactions())
             let current = try source.exportBackup()
-            let olderTables = current.tables.prefix(22).map { table -> BackupTable in
+            let olderTables = BackupArchive.schemaElevenShape(current.tables).prefix(22).map { table -> BackupTable in
                 switch table.name {
                 case "recurring_rules_local":
                     let index = table.columns.firstIndex(of: "review_window_days")!

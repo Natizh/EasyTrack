@@ -106,7 +106,7 @@ extension BackupArchive {
 }
 
 extension BackupArchive {
-    private static func schemaElevenShape(_ tables: [BackupTable]) -> [BackupTable] {
+    static func schemaElevenShape(_ tables: [BackupTable]) -> [BackupTable] {
         let removed: [String: Set<String>] = [
             "transactions": ["eur_value_source", "exchange_rate_date", "exchange_rate_provider",
                              "account_amount_minor", "account_currency"],
