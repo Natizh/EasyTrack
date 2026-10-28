@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        This issue is the **living specification** for one piece of work. Check related issues and the roadmap first. Do not paste real financial records, tokens, notification content or screenshots with personal data.
+        This issue is the **living specification** for one piece of work. Check related issues and the roadmap first. Include only product requirements and generic technical verification. Never paste financial records, tokens, actual notification contents, screenshots with personal data, device-owner information, host diagnostics, local file paths or private development-environment specifics.
   - type: dropdown
     id: area
     attributes:
