@@ -7,6 +7,36 @@ struct RootView: View {
     private var theme: EasyTrackTheme { EasyTrackTheme(preferences: store.appearancePreferences) }
 
     var body: some View {
+        adaptiveTabs
+            .environmentObject(navigation)
+            .environment(\.easyTrackTheme, theme)
+            .tint(theme.accent)
+            .preferredColorScheme(store.appearancePreferences.colorScheme.preferredColorScheme)
+            .alert("EasyTrack", isPresented: Binding(get: { store.errorMessage != nil },
+                                                      set: { if !$0 { store.errorMessage = nil } })) {
+                Button("OK") { store.errorMessage = nil }
+            } message: { Text(store.errorMessage ?? "") }
+            .fullScreenCover(isPresented: Binding(
+                get: { store.shouldPresentOnboarding }, set: { _ in })) {
+                    NavigationStack {
+                        OnboardingView {
+                            do { try store.completeOnboarding(); return true }
+                            catch { store.errorMessage = error.localizedDescription; return false }
+                        }
+                    }
+                }
+    }
+
+    @ViewBuilder
+    private var adaptiveTabs: some View {
+        if #available(iOS 26.0, *) {
+            tabs.tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            tabs
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: $navigation.selectedTab) {
             NavigationStack { HomeView() }
                 .tabItem { Label("Home", systemImage: "house.fill") }
@@ -21,23 +51,6 @@ struct RootView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(EasyTrackTab.settings)
         }
-        .environmentObject(navigation)
-        .environment(\.easyTrackTheme, theme)
-        .tint(theme.accent)
-        .preferredColorScheme(store.appearancePreferences.colorScheme.preferredColorScheme)
-        .alert("EasyTrack", isPresented: Binding(get: { store.errorMessage != nil },
-                                                  set: { if !$0 { store.errorMessage = nil } })) {
-            Button("OK") { store.errorMessage = nil }
-        } message: { Text(store.errorMessage ?? "") }
-        .fullScreenCover(isPresented: Binding(
-            get: { store.shouldPresentOnboarding }, set: { _ in })) {
-                NavigationStack {
-                    OnboardingView {
-                        do { try store.completeOnboarding(); return true }
-                        catch { store.errorMessage = error.localizedDescription; return false }
-                    }
-                }
-            }
     }
 }
 
