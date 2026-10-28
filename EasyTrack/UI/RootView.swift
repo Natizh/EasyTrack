@@ -255,6 +255,7 @@ private struct HomeView: View {
     @State private var showingNew = false
     @State private var showingDashboardEditor = false
     @State private var showingReceiptCapture = false
+    @State private var showingVoiceEntry = false
     @State private var showingMonthPicker = false
     @State private var selectedMonth = FinancialMonth.current()
     @AppStorage("homeSelectedMonth") private var storedMonthKey = ""
@@ -475,12 +476,15 @@ private struct HomeView: View {
             Button { showingReceiptCapture = true } label: { Image(systemName: "doc.text.viewfinder") }
                 .accessibilityLabel("Add expense from receipt")
                 .accessibilityIdentifier("homeReceiptScannerButton")
+            Button { showingVoiceEntry = true } label: { Image(systemName: "mic") }
+                .accessibilityLabel("Add transaction by voice")
             Button { showingNew = true } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add transaction")
                 .accessibilityIdentifier("homeAddTransactionButton")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
         .sheet(isPresented: $showingReceiptCapture) { ReceiptCaptureFlow() }
+        .sheet(isPresented: $showingVoiceEntry) { VoiceEntryFlow() }
         .sheet(isPresented: $showingDashboardEditor) {
             NavigationStack { DashboardWidgetEditorView() }
         }
@@ -785,6 +789,7 @@ private struct TransactionsView: View {
     @State private var exportRequest: ExportRequest?
     @State private var selectedTransactionID: UUID?
     @State private var showingReceiptCapture = false
+    @State private var showingVoiceEntry = false
 
     private var categories: [String] { ["All categories"] + Array(Set(store.transactions.map(\.category))).sorted() }
     private var accounts: [String] { Array(Set(store.transactions.map(\.account))).sorted() }
@@ -929,11 +934,14 @@ private struct TransactionsView: View {
             Button { showingReceiptCapture = true } label: { Image(systemName: "doc.text.viewfinder") }
                 .accessibilityLabel("Add expense from receipt")
                 .accessibilityIdentifier("activityReceiptScannerButton")
+            Button { showingVoiceEntry = true } label: { Image(systemName: "mic") }
+                .accessibilityLabel("Add transaction by voice")
             Button { showingNew = true } label: { Image(systemName: "plus") }
                 .accessibilityLabel("Add transaction")
         } }
         .sheet(isPresented: $showingNew) { NavigationStack { TransactionEditor() } }
         .sheet(isPresented: $showingReceiptCapture) { ReceiptCaptureFlow() }
+        .sheet(isPresented: $showingVoiceEntry) { VoiceEntryFlow() }
         .sheet(item: $exportRequest) { request in
             NavigationStack { TransactionExportView(activityFilter: request.filter) }
         }
@@ -964,6 +972,7 @@ struct TransactionEditor: View {
     private let original: Transaction?
     private let sourceEventID: UUID?
     private let receiptDraft: ReceiptTransactionDraft?
+    private let voiceDraft: VoiceTransactionDraft?
     @State private var kind: TransactionKind
     @State private var amount: String
     @State private var originalAmount: String
@@ -1001,17 +1010,18 @@ struct TransactionEditor: View {
     @State private var showingCategoryRuleProposal = false
 
     init(item: Transaction? = nil, prefillEvent: NotificationEvent? = nil,
-         receiptDraft: ReceiptTransactionDraft? = nil) {
+         receiptDraft: ReceiptTransactionDraft? = nil, voiceDraft: VoiceTransactionDraft? = nil) {
         original = item
         self.receiptDraft = receiptDraft
+        self.voiceDraft = voiceDraft
         sourceEventID = item?.sourceEventID ?? prefillEvent?.id
-        _kind = State(initialValue: item?.kind ?? .expense)
+        _kind = State(initialValue: item?.kind ?? voiceDraft?.kind ?? .expense)
         let editableEUR = item.flatMap { $0.currency == "EUR" ? $0.amountMinor : $0.eurMinor }
         let receiptEUR = receiptDraft.flatMap { $0.currency == "EUR" ? $0.amountMinor : nil }
         _amount = State(initialValue: editableEUR.map { Money.editString($0) } ??
                         receiptEUR.map { Money.editString($0) } ?? "")
-        let initialCurrency = item?.currency ?? receiptDraft?.currency ?? "EUR"
-        let initialOriginal = item?.amountMinor ?? receiptDraft?.amountMinor
+        let initialCurrency = item?.currency ?? receiptDraft?.currency ?? voiceDraft?.currency ?? "EUR"
+        let initialOriginal = item?.amountMinor ?? receiptDraft?.amountMinor ?? voiceDraft?.amountMinor
         _originalCurrency = State(initialValue: initialCurrency)
         _originalAmount = State(initialValue: initialOriginal.map {
             Money.editString($0, currency: initialCurrency)
@@ -1026,7 +1036,7 @@ struct TransactionEditor: View {
         _accountAmount = State(initialValue: item?.accountAmountMinor.map {
             Money.editString($0, currency: initialAccountCurrency)
         } ?? "")
-        _merchant = State(initialValue: item?.merchant ?? receiptDraft?.merchant ?? "")
+        _merchant = State(initialValue: item?.merchant ?? receiptDraft?.merchant ?? voiceDraft?.merchant ?? "")
         _account = State(initialValue: item?.account ?? "")
         _accountID = State(initialValue: item?.accountID)
         _category = State(initialValue: item?.category ?? "")
@@ -1036,7 +1046,7 @@ struct TransactionEditor: View {
         _paidBy = State(initialValue: item?.paidBy ?? "")
         _affectsMyAccounts = State(initialValue: item?.affectsMyAccounts ?? true)
         _note = State(initialValue: item?.note ?? prefillEvent.map { [$0.title, $0.subtitle, $0.message].filter { !$0.isEmpty }.joined(separator: " · ") } ?? "")
-        _occurredAt = State(initialValue: item?.occurredAt ?? receiptDraft?.occurredAt ??
+        _occurredAt = State(initialValue: item?.occurredAt ?? receiptDraft?.occurredAt ?? voiceDraft?.occurredAt ??
                             prefillEvent?.receivedAt ?? .now)
         let pending = item?.kind == .expense && (item?.recoverableEURMinor ?? 0) > 0
         _expectsReimbursement = State(initialValue: pending)
@@ -1088,6 +1098,13 @@ struct TransactionEditor: View {
                             .font(.footnote).foregroundStyle(.orange)
                             .accessibilityIdentifier("receiptPossibleDuplicate")
                     }
+                }
+            }
+            if let voiceDraft, original == nil {
+                Section("Voice draft") {
+                    Text("Speech suggestions are editable and unverified. No account or category was inferred, and nothing is saved until you tap Save.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    ForEach(voiceDraft.issues, id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
                 }
             }
             Section("Transaction") {

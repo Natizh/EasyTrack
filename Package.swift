@@ -8,7 +8,7 @@ let package = Package(
     targets: [
         .target(name: "EasyTrackCore", path: "EasyTrack", exclude: ["App", "UI", "Intake", "Exchange", "Assets.xcassets", "Resources", "Info.plist", "Persistence/FinanceStore.swift"],
                 sources: ["Shared/Models.swift", "Shared/FinancialAnalytics.swift", "Shared/DashboardPreferences.swift", "Shared/MerchantAnalytics.swift", "Shared/ReimbursementModels.swift", "Shared/CategorySuggestions.swift", "Shared/BudgetModels.swift", "Shared/NotificationParser.swift", "Shared/DailyModels.swift",
-                          "Shared/RecurringSchedule.swift", "Shared/ReceiptOCR.swift", "Shared/CurrencySupport.swift", "Persistence/SQLiteDatabase.swift",
+                          "Shared/RecurringSchedule.swift", "Shared/ReceiptOCR.swift", "Shared/CurrencySupport.swift", "Shared/VoiceEntry.swift", "Persistence/SQLiteDatabase.swift",
                           "Persistence/SQLiteDatabase+Daily.swift",
                           "Persistence/SQLiteDatabase+Reconciliation.swift",
                           "Persistence/SQLiteDatabase+Dashboard.swift",
