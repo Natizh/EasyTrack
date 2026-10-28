@@ -350,6 +350,8 @@ struct NotificationSetupGuideView: View {
                 fieldHelp("Notification date", "Optional: insert the trigger date only when offered. Otherwise EasyTrack safely uses receipt time.")
                 Text("Tap a parameter field in Shortcuts and choose the matching variable from the Notification trigger. Available variable names can differ by iOS version; preview only fictional or non-sensitive text.")
                     .font(.caption).foregroundStyle(.secondary)
+                Text("Apple documents Title, Subtitle and Message as notification FILTERS, but does not guarantee that every field is exposed as an action variable on every iOS build. A dynamic value appears as a blue variable token and changes for each notification. Never type a fixed payment example. If no matching token is offered, leave that field empty and treat capture as unverified; first test with two harmless notifications containing different text.")
+                    .font(.caption).foregroundStyle(.orange)
                 Button("I reviewed these fields") { mark(.fieldsReviewed) }
                     .buttonStyle(.bordered)
             }
