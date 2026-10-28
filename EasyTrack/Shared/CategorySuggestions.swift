@@ -25,6 +25,12 @@ struct MovementIconAppearance: Equatable {
     let colorName: String
 }
 
+struct TransactionCategoryChange: Equatable {
+    let transactionID: UUID
+    let expectedRevision: Int64
+    let categoryID: UUID?
+}
+
 enum CategorySuggestionEngine {
     private struct Match {
         let category: LedgerCategory

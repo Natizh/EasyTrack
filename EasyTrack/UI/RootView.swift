@@ -533,9 +533,8 @@ private struct HomeMonthPickerView: View {
 
 private struct UncategorizedTransactionsView: View {
     private struct UndoChange {
-        let persisted: Transaction
-        let categoryID: UUID?
-        let categoryName: String
+        let original: [Transaction]
+        let persisted: [Transaction]
     }
     private struct RuleProposal {
         let description: String
@@ -547,6 +546,11 @@ private struct UncategorizedTransactionsView: View {
     @State private var skippedIDs: Set<UUID> = []
     @State private var ruleProposal: RuleProposal?
     @State private var showingRuleProposal = false
+    @State private var selecting = false
+    @State private var selectedIDs: Set<UUID> = []
+    @State private var showingBatchCategories = false
+    @State private var pendingBatchCategory: LedgerCategory?
+    @State private var confirmingBatch = false
 
     private var items: [Transaction] {
         store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -555,31 +559,78 @@ private struct UncategorizedTransactionsView: View {
 
     var body: some View {
         List(visibleItems) { item in
-            VStack(alignment: .leading, spacing: 10) {
-                NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
-                CategorySuggestionsView(description: item.merchant, kind: item.kind) { category in
-                    assign(category, to: item)
-                }
-                HStack {
-                    Menu {
-                        ForEach(store.ledgerCategories.filter { $0.archivedAt == nil }) { category in
-                            Button {
-                                assign(category, to: item)
-                            } label: {
-                                Label(category.name, systemImage: category.symbolName)
-                            }
-                        }
-                    } label: {
-                        Label("All categories", systemImage: "tag.circle.fill")
+            HStack(alignment: .top, spacing: 12) {
+                if selecting {
+                    Button { toggleSelection(item) } label: {
+                        Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                            .font(.title3).frame(width: 44, height: 44)
                     }
-                    .accessibilityLabel("Assign category to \(item.merchant)")
-                    Spacer()
-                    Button("Skip") { skippedIDs.insert(item.id) }
-                        .foregroundStyle(.secondary)
+                    .buttonStyle(.plain)
+                    .disabled(item.kind != .expense)
+                    .accessibilityLabel(selectedIDs.contains(item.id) ?
+                        "Deselect \(item.merchant)" : "Select \(item.merchant)")
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    if selecting {
+                        TransactionRow(item: item).contentShape(Rectangle())
+                            .onTapGesture { toggleSelection(item) }
+                    } else {
+                        NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+                    }
+                    Text("\(item.account.isEmpty ? "Unspecified account" : item.account) · Uncategorized")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !selecting && item.kind == .expense {
+                        let suggestions = CategorySuggestionEngine.suggestions(description: item.merchant,
+                            kind: item.kind, categories: store.ledgerCategories,
+                            userRules: store.categoryKeywordRules,
+                            isEnabled: store.categorySuggestionsEnabled)
+                        HStack {
+                            Menu {
+                                if !suggestions.isEmpty {
+                                    Section("Suggestions") {
+                                        ForEach(suggestions) { suggestion in
+                                            if let category = store.ledgerCategories.first(where: {
+                                                $0.id == suggestion.categoryID && $0.archivedAt == nil
+                                            }) {
+                                                Button(category.name) { assign(category, to: item) }
+                                            }
+                                        }
+                                    }
+                                }
+                                Section("All categories") {
+                                    ForEach(activeCategories) { category in
+                                        Button { assign(category, to: item) } label: {
+                                            Label(category.name, systemImage: category.symbolName)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("Uncategorized", systemImage: "tag.circle")
+                                    .padding(.horizontal, 10).padding(.vertical, 7)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("Assign category to \(item.merchant)")
+                            Spacer()
+                            Button("Skip") { skippedIDs.insert(item.id) }.foregroundStyle(.secondary)
+                        }
+                    } else if item.kind != .expense {
+                        Text("Open the editor to categorize this movement type.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
+            .accessibilityElement(children: .contain)
         }
         .navigationTitle("Uncategorized")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(selecting ? "Cancel" : "Select") {
+                    selecting.toggle()
+                    if !selecting { selectedIDs.removeAll() }
+                }
+                .accessibilityIdentifier("uncategorizedSelect")
+            }
+        }
         .overlay {
             if items.isEmpty {
                 ContentUnavailableView("All categorized", systemImage: "checkmark.circle")
@@ -594,7 +645,16 @@ private struct UncategorizedTransactionsView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if undoChange != nil {
+            if selecting {
+                HStack {
+                    Text("\(selectedIDs.count) selected").font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("Assign category") { showingBatchCategories = true }
+                        .buttonStyle(.borderedProminent).disabled(selectedIDs.isEmpty)
+                        .accessibilityIdentifier("uncategorizedBatchAssign")
+                }
+                .padding().background(.bar)
+            } else if undoChange != nil {
                 HStack {
                     Text("Category saved").font(.subheadline.weight(.semibold))
                     Spacer()
@@ -616,27 +676,73 @@ private struct UncategorizedTransactionsView: View {
                                                        categoryID: ruleProposal.categoryID) }
             }
         }
+        .sheet(isPresented: $showingBatchCategories) {
+            NavigationStack {
+                List(activeCategories) { category in
+                    Button {
+                        showingBatchCategories = false
+                        pendingBatchCategory = category
+                        let selected = items.filter { selectedIDs.contains($0.id) }
+                        let mixed = Set(selected.map { NotificationParser.normalize($0.merchant) }).count > 1 ||
+                            Set(selected.map(\.accountID)).count > 1
+                        if mixed && selected.count > 1 { confirmingBatch = true }
+                        else { assignBatch(category) }
+                    } label: { Label(category.name, systemImage: category.symbolName) }
+                }
+                .navigationTitle("Assign category")
+                .toolbar { ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showingBatchCategories = false }
+                } }
+            }
+        }
+        .confirmationDialog("Assign one category to \(selectedIDs.count) different movements?",
+                            isPresented: $confirmingBatch, titleVisibility: .visible) {
+            Button("Assign category") {
+                if let pendingBatchCategory { assignBatch(pendingBatchCategory) }
+            }
+            Button("Cancel", role: .cancel) { pendingBatchCategory = nil }
+        } message: {
+            Text("Amounts, dates, accounts, notification origins and reimbursement links will not change.")
+        }
+        .onChange(of: items.map(\.id)) { _, ids in
+            selectedIDs.formIntersection(Set(ids))
+        }
+    }
+
+    private var activeCategories: [LedgerCategory] {
+        store.ledgerCategories.filter { $0.archivedAt == nil }
     }
 
     private func assign(_ category: LedgerCategory, to item: Transaction) {
-        var updated = item
-        updated.categoryID = category.id
-        updated.category = category.name
         do {
-            let persisted = try store.save(updated)
-            undoChange = UndoChange(persisted: persisted, categoryID: item.categoryID,
-                                    categoryName: item.category)
+            let persisted = try store.assignCategory(category, to: [item.id])
+            undoChange = UndoChange(original: [item], persisted: persisted)
             ruleProposal = RuleProposal(description: item.merchant, categoryID: category.id)
+        } catch { store.errorMessage = error.localizedDescription }
+    }
+
+    private func toggleSelection(_ item: Transaction) {
+        guard item.kind == .expense else { return }
+        if selectedIDs.contains(item.id) { selectedIDs.remove(item.id) }
+        else { selectedIDs.insert(item.id) }
+    }
+
+    private func assignBatch(_ category: LedgerCategory) {
+        let original = items.filter { selectedIDs.contains($0.id) }
+        do {
+            let persisted = try store.assignCategory(category, to: selectedIDs)
+            undoChange = UndoChange(original: original, persisted: persisted)
+            selectedIDs.removeAll()
+            selecting = false
+            pendingBatchCategory = nil
+            ruleProposal = nil
         } catch { store.errorMessage = error.localizedDescription }
     }
 
     private func undo() {
         guard let change = undoChange else { return }
-        var restored = change.persisted
-        restored.categoryID = change.categoryID
-        restored.category = change.categoryName
         do {
-            _ = try store.save(restored)
+            _ = try store.restoreCategories(from: change.original, replacing: change.persisted)
             undoChange = nil
             ruleProposal = nil
         } catch { store.errorMessage = error.localizedDescription }

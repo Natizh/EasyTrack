@@ -197,6 +197,30 @@ final class FinanceStore: ObservableObject {
     }
 
     @discardableResult
+    func assignCategory(_ category: LedgerCategory?, to transactionIDs: Set<UUID>) throws -> [Transaction] {
+        let selected = transactions.filter { transactionIDs.contains($0.id) }
+        guard selected.count == transactionIDs.count else { throw DailyValidationError.staleRecord }
+        let changes = selected.map { TransactionCategoryChange(transactionID: $0.id,
+            expectedRevision: $0.revision, categoryID: category?.id) }
+        let saved = try SQLiteDatabase.open().applyTransactionCategoryChanges(changes)
+        reload()
+        return saved
+    }
+
+    @discardableResult
+    func restoreCategories(from transactions: [Transaction], replacing persisted: [Transaction]) throws -> [Transaction] {
+        let oldByID = Dictionary(uniqueKeysWithValues: transactions.map { ($0.id, $0) })
+        let changes = try persisted.map { current -> TransactionCategoryChange in
+            guard let old = oldByID[current.id] else { throw DailyValidationError.staleRecord }
+            return TransactionCategoryChange(transactionID: current.id,
+                expectedRevision: current.revision, categoryID: old.categoryID)
+        }
+        let saved = try SQLiteDatabase.open().applyTransactionCategoryChanges(changes)
+        reload()
+        return saved
+    }
+
+    @discardableResult
     func saveMonthlyBudget(_ budget: MonthlyBudget) throws -> MonthlyBudget {
         let saved = try SQLiteDatabase.open().saveMonthlyBudget(budget)
         reload()

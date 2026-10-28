@@ -172,4 +172,58 @@ final class CategorySuggestionTests: XCTestCase {
         XCTAssertEqual(upgraded.tables[29].rows.first?[1], "1")
         XCTAssertTrue(upgraded.tables[30].rows.isEmpty)
     }
+
+    func testAtomicInlineBatchCategoryAssignmentUndoAndRollback() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-batch-category-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let database = try SQLiteDatabase(url: folder.appendingPathComponent("ledger.sqlite"))
+        try database.seedDemoIfNeeded()
+        let category = try XCTUnwrap(database.ledgerCategories().first { $0.archivedAt == nil })
+        let account = try database.saveLocalAccount(LocalAccount(id: UUID(), name: "Batch account", createdAt: .now))
+        func expense(_ merchant: String, _ amount: Int64) throws -> Transaction {
+            var item = Transaction(id: UUID(), kind: .expense, amountMinor: amount, currency: "EUR",
+                merchant: merchant, account: account.name, category: "", note: "keep",
+                occurredAt: .now, updatedAt: .now, deletedAt: nil, isDemo: false, revision: 0,
+                sourceEventID: nil)
+            item.accountID = account.id
+            return try database.save(item)
+        }
+        let first = try expense("Merchant Alpha", 1_000)
+        let second = try expense("Merchant Beta", 2_000)
+        let totals = LedgerTotals(transactions: try database.transactions())
+        let operationsBefore = try database.operations().count
+        let assigned = try database.applyTransactionCategoryChanges([
+            .init(transactionID: first.id, expectedRevision: first.revision, categoryID: category.id),
+            .init(transactionID: second.id, expectedRevision: second.revision, categoryID: category.id)
+        ])
+        XCTAssertEqual(Set(assigned.map(\.id)), Set([first.id, second.id]))
+        XCTAssertTrue(assigned.allSatisfy { $0.categoryID == category.id })
+        XCTAssertEqual(LedgerTotals(transactions: try database.transactions()), totals)
+        XCTAssertEqual(try database.operations().count, operationsBefore + 2)
+        XCTAssertEqual(assigned.first { $0.id == first.id }?.note, first.note)
+        XCTAssertEqual(assigned.first { $0.id == first.id }?.accountID, first.accountID)
+
+        let restored = try database.applyTransactionCategoryChanges(assigned.map {
+            .init(transactionID: $0.id, expectedRevision: $0.revision, categoryID: nil)
+        })
+        XCTAssertTrue(restored.allSatisfy { $0.categoryID == nil && $0.category.isEmpty })
+
+        let beforeRollback = try database.backupTables()
+        XCTAssertThrowsError(try database.applyTransactionCategoryChanges([
+            .init(transactionID: restored[0].id, expectedRevision: restored[0].revision, categoryID: category.id),
+            .init(transactionID: restored[1].id, expectedRevision: restored[1].revision - 1, categoryID: category.id)
+        ]))
+        XCTAssertEqual(try database.backupTables(), beforeRollback)
+
+        var archived = category
+        archived.archivedAt = .now
+        archived.revision = category.revision
+        archived = try database.saveLedgerCategory(archived)
+        XCTAssertThrowsError(try database.applyTransactionCategoryChanges([
+            .init(transactionID: restored[0].id, expectedRevision: restored[0].revision,
+                  categoryID: archived.id)
+        ]))
+    }
 }

@@ -2,6 +2,42 @@ import Foundation
 import SQLite3
 
 extension SQLiteDatabase {
+    @discardableResult
+    func applyTransactionCategoryChanges(_ changes: [TransactionCategoryChange]) throws -> [Transaction] {
+        guard !changes.isEmpty, Set(changes.map(\.transactionID)).count == changes.count else {
+            throw DatabaseError.sqlite("Choose at least one unique transaction.")
+        }
+        let categories = try ledgerCategories()
+        let categoryByID = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
+        for change in changes {
+            if let id = change.categoryID {
+                guard let category = categoryByID[id], category.archivedAt == nil else {
+                    throw DailyValidationError.invalidCategory
+                }
+            }
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let current = try transactions()
+            let byID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+            var saved: [Transaction] = []
+            for change in changes {
+                guard var item = byID[change.transactionID], item.kind == .expense,
+                      item.revision == change.expectedRevision else {
+                    throw DailyValidationError.staleRecord
+                }
+                item.categoryID = change.categoryID
+                item.category = change.categoryID.flatMap { categoryByID[$0]?.name } ?? ""
+                saved.append(try save(item, manageTransaction: false))
+            }
+            try execute("COMMIT")
+            return saved
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
     func migrateToSchemaTen() throws {
         try execute("BEGIN IMMEDIATE")
         do {
