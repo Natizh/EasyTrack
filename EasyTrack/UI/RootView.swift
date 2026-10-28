@@ -242,19 +242,37 @@ private struct HomeView: View {
     @State private var showingNew = false
     @State private var showingDashboardEditor = false
     @State private var showingReceiptCapture = false
+    @State private var showingMonthPicker = false
+    @State private var selectedMonth = FinancialMonth.current()
+    @AppStorage("homeSelectedMonth") private var storedMonthKey = ""
 
     private var homeTransactions: [Transaction] {
         let active = store.transactions.filter { $0.deletedAt == nil }
         let real = active.filter { !$0.isDemo }
         return real.isEmpty ? active : real
     }
-    private var currentMonthSnapshot: FinancialAnalyticsSnapshot? {
+    private var selectedMonthSnapshot: FinancialAnalyticsSnapshot? {
         try? FinancialAnalytics.snapshot(transactions: homeTransactions,
-            period: .month(containing: .now, timeZone: .current),
+            period: selectedMonth.period,
             categoryNames: Dictionary(uniqueKeysWithValues: store.ledgerCategories.map { ($0.id, $0.name) }),
             tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
     }
-    private var recentTransactions: ArraySlice<Transaction> { homeTransactions.prefix(3) }
+    private var recentTransactions: ArraySlice<Transaction> {
+        guard let ids = selectedMonthSnapshot?.appliedFilter.transactionIDs else { return [] }
+        return homeTransactions.filter { ids.contains($0.id) }.prefix(3)
+    }
+    private var selectedMonthTitle: String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        guard let date = calendar.date(from: DateComponents(year: selectedMonth.year,
+                                                             month: selectedMonth.month, day: 1)) else {
+            return selectedMonth.id
+        }
+        return date.formatted(.dateTime.month(.wide).year())
+    }
+    private var earliestHomeYear: Int {
+        homeTransactions.map { LocalDay(date: $0.occurredAt, timeZone: .current).year }.min() ?? selectedMonth.year
+    }
     private var uncategorized: [Transaction] {
         store.transactions.filter { !$0.isDemo && $0.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
@@ -368,7 +386,36 @@ private struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                FinancialHeroCard(snapshot: currentMonthSnapshot, periodTitle: "Current month")
+                HStack(spacing: 12) {
+                    Button { if let prior = selectedMonth.adding(months: -1) { selectedMonth = prior } } label: {
+                        Image(systemName: "chevron.left").frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Previous month")
+                    Spacer()
+                    Button { showingMonthPicker = true } label: {
+                        Text(selectedMonthTitle).font(.headline).foregroundStyle(.primary)
+                    }
+                    .accessibilityLabel("Selected month, \(selectedMonthTitle)")
+                    Spacer()
+                    Button {
+                        if let next = selectedMonth.adding(months: 1), next <= FinancialMonth.current() {
+                            selectedMonth = next
+                        }
+                    } label: {
+                        Image(systemName: "chevron.right").frame(width: 44, height: 44)
+                    }
+                    .disabled(selectedMonth >= FinancialMonth.current())
+                    .accessibilityLabel("Next month")
+                }
+                .padding(.horizontal, 4)
+                if selectedMonth != FinancialMonth.current() {
+                    Button("This month") { selectedMonth = FinancialMonth.current() }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("homeCurrentMonthButton")
+                }
+
+                FinancialHeroCard(snapshot: selectedMonthSnapshot, periodTitle: selectedMonthTitle)
 
                 VStack(alignment: .leading, spacing: 11) {
                     HStack {
@@ -397,7 +444,7 @@ private struct HomeView: View {
                     }
                 }
 
-                DashboardWidgetLayout(snapshot: currentMonthSnapshot,
+                DashboardWidgetLayout(snapshot: selectedMonthSnapshot,
                     widgets: DashboardWidgetRegistry.visible(preferences: store.dashboardWidgetPreferences)) {
                     recurringWidget
                 } uncategorized: {
@@ -423,6 +470,63 @@ private struct HomeView: View {
         .sheet(isPresented: $showingReceiptCapture) { ReceiptCaptureFlow() }
         .sheet(isPresented: $showingDashboardEditor) {
             NavigationStack { DashboardWidgetEditorView() }
+        }
+        .sheet(isPresented: $showingMonthPicker) {
+            NavigationStack {
+                HomeMonthPickerView(selection: $selectedMonth, minimumYear: earliestHomeYear)
+            }
+        }
+        .onAppear {
+            if let restored = FinancialMonth(key: storedMonthKey), restored <= FinancialMonth.current() {
+                selectedMonth = restored
+            } else {
+                selectedMonth = FinancialMonth.current()
+            }
+        }
+        .onChange(of: selectedMonth) { _, value in storedMonthKey = value.id }
+    }
+}
+
+private struct HomeMonthPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selection: FinancialMonth
+    let minimumYear: Int
+    @State private var draftYear: Int
+    @State private var draftMonth: Int
+
+    init(selection: Binding<FinancialMonth>, minimumYear: Int) {
+        _selection = selection
+        self.minimumYear = minimumYear
+        _draftYear = State(initialValue: selection.wrappedValue.year)
+        _draftMonth = State(initialValue: selection.wrappedValue.month)
+    }
+
+    private var draft: FinancialMonth { FinancialMonth(year: draftYear, month: draftMonth)! }
+
+    var body: some View {
+        Form {
+            Picker("Year", selection: $draftYear) {
+                ForEach(min(minimumYear, FinancialMonth.current().year)...FinancialMonth.current().year,
+                        id: \.self) { Text(String($0)).tag($0) }
+            }
+            Picker("Month", selection: $draftMonth) {
+                ForEach(1...12, id: \.self) { month in
+                    Text(Calendar.current.monthSymbols[month - 1]).tag(month)
+                }
+            }
+            if draft > FinancialMonth.current() {
+                Text("Future months are unavailable until they begin.")
+                    .font(.footnote).foregroundStyle(.orange)
+            }
+        }
+        .navigationTitle("Choose month")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Apply") { selection = draft; dismiss() }
+                    .disabled(draft > FinancialMonth.current())
+            }
         }
     }
 }

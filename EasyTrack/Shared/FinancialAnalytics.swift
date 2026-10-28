@@ -1,5 +1,40 @@
 import Foundation
 
+struct FinancialMonth: Codable, Equatable, Hashable, Identifiable, Comparable {
+    let year: Int
+    let month: Int
+    var id: String { String(format: "%04d-%02d", year, month) }
+
+    init?(year: Int, month: Int) {
+        guard (1...12).contains(month) else { return nil }
+        self.year = year
+        self.month = month
+    }
+
+    init?(key: String) {
+        let parts = key.split(separator: "-")
+        guard parts.count == 2, let year = Int(parts[0]), let month = Int(parts[1]) else { return nil }
+        self.init(year: year, month: month)
+    }
+
+    static func current(at date: Date = .now, timeZone: TimeZone = .current) -> FinancialMonth {
+        let day = LocalDay(date: date, timeZone: timeZone)
+        return FinancialMonth(year: day.year, month: day.month)!
+    }
+
+    func adding(months: Int) -> FinancialMonth? {
+        let total = year * 12 + (month - 1) + months
+        guard total >= 0 else { return nil }
+        return FinancialMonth(year: total / 12, month: total % 12 + 1)
+    }
+
+    var period: FinancialPeriod { .month(year: year, month: month) }
+
+    static func < (lhs: FinancialMonth, rhs: FinancialMonth) -> Bool {
+        lhs.year != rhs.year ? lhs.year < rhs.year : lhs.month < rhs.month
+    }
+}
+
 enum FinancialAnalyticsError: LocalizedError, Equatable {
     case invalidPeriod
     case periodHasNotStarted

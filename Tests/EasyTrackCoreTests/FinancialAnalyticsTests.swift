@@ -3,6 +3,21 @@ import XCTest
 @testable import EasyTrackCore
 
 final class FinancialAnalyticsTests: XCTestCase {
+    func testFinancialMonthNavigationCrossesYearsAndUsesLeapDSTBoundaries() throws {
+        let december = try XCTUnwrap(FinancialMonth(year: 2025, month: 12))
+        XCTAssertEqual(december.adding(months: 1), FinancialMonth(year: 2026, month: 1))
+        XCTAssertEqual(december.adding(months: -12), FinancialMonth(year: 2024, month: 12))
+        XCTAssertEqual(FinancialMonth(key: "2026-02")?.id, "2026-02")
+        XCTAssertNil(FinancialMonth(key: "2026-13"))
+
+        let zone = TimeZone(identifier: "Europe/Rome")!
+        let leap = try FinancialPeriod.month(year: 2024, month: 2)
+            .selection(now: LocalDay(isoString: "2024-03-15")!.noon(in: zone)!, timeZone: zone)
+        XCTAssertEqual(try leap.requested.dayCount(timeZone: zone), 29)
+        let dst = try FinancialPeriod.month(year: 2026, month: 3)
+            .selection(now: LocalDay(isoString: "2026-04-15")!.noon(in: zone)!, timeZone: zone)
+        XCTAssertEqual(try dst.requested.dayCount(timeZone: zone), 31)
+    }
     private let zone = TimeZone(identifier: "Europe/Rome")!
 
     private func day(_ value: String) -> LocalDay {
