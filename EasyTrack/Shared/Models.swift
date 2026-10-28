@@ -54,10 +54,20 @@ struct Transaction: Identifiable, Codable, Equatable {
     var accountID: UUID? = nil
     var categoryID: UUID? = nil
     var recurringOccurrenceID: String? = nil
+    var eurValueSource: EURValueSource? = nil
+    var exchangeRateDate: String? = nil
+    var exchangeRateProvider: String? = nil
+    var accountAmountMinor: Int64? = nil
+    var accountCurrency: String? = nil
 }
 
 enum Money {
     static func parseMinor(_ input: String) -> Int64? {
+        parseMinor(input, currency: "EUR")
+    }
+
+    static func parseMinor(_ input: String, currency: String) -> Int64? {
+        let exponent = CurrencyMetadata.exponent(for: currency)
         let spaces = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{00A0}\u{202F}"))
         var value = input.trimmingCharacters(in: spaces)
         if value.first == "€" { value.removeFirst() }
@@ -73,14 +83,14 @@ enum Money {
             let decimalSeparator: Character = value.lastIndex(of: ".")! > value.lastIndex(of: ",")! ? "." : ","
             let groupingSeparator: Character = decimalSeparator == "." ? "," : "."
             let parts = value.split(separator: decimalSeparator, omittingEmptySubsequences: false)
-            guard parts.count == 2, (1...2).contains(parts[1].count), parts[1].allSatisfy(\.isNumber),
+            guard parts.count == 2, (exponent == 0 ? parts[1].isEmpty : (1...exponent).contains(parts[1].count)), parts[1].allSatisfy(\.isNumber),
                   validGroupedWhole(String(parts[0]), separator: groupingSeparator) else { return nil }
             whole = parts[0].filter { $0 != groupingSeparator }
             fraction = String(parts[1])
         } else if dots + commas > 0 {
             let separator: Character = dots > 0 ? "." : ","
             let parts = value.split(separator: separator, omittingEmptySubsequences: false)
-            if parts.count == 2, (1...2).contains(parts[1].count),
+            if parts.count == 2, (exponent == 0 ? parts[1].isEmpty : (1...exponent).contains(parts[1].count)),
                parts[0].allSatisfy(\.isNumber), parts[1].allSatisfy(\.isNumber) {
                 whole = String(parts[0])
                 fraction = String(parts[1])
@@ -93,10 +103,12 @@ enum Money {
             fraction = ""
         }
         guard !whole.isEmpty, whole.allSatisfy(\.isNumber), let units = Int64(whole) else { return nil }
-        guard let fractionalCents = Int64(fraction.isEmpty ? "0" : fraction.count == 1 ? fraction + "0" : fraction) else { return nil }
-        let (base, overflow) = units.multipliedReportingOverflow(by: 100)
+        let paddedFraction = fraction.padding(toLength: exponent, withPad: "0", startingAt: 0)
+        guard let fractionalMinor = Int64(paddedFraction.isEmpty ? "0" : paddedFraction) else { return nil }
+        let multiplier = (0..<exponent).reduce(Int64(1)) { value, _ in value * 10 }
+        let (base, overflow) = units.multipliedReportingOverflow(by: multiplier)
         guard !overflow else { return nil }
-        let (minor, addOverflow) = base.addingReportingOverflow(fractionalCents)
+        let (minor, addOverflow) = base.addingReportingOverflow(fractionalMinor)
         return addOverflow ? nil : minor
     }
 
@@ -117,19 +129,20 @@ enum Money {
         return parseMinor(trimmed)
     }
 
-    static func editString(_ minor: Int64, locale: Locale = .current) -> String {
-        let amount = NSDecimalNumber(value: minor).dividing(by: 100)
+    static func editString(_ minor: Int64, currency: String = "EUR", locale: Locale = .current) -> String {
+        let exponent = CurrencyMetadata.exponent(for: currency)
+        let amount = NSDecimalNumber(value: minor).dividing(by: NSDecimalNumber(decimal: CurrencyMetadata.divisor(for: currency)))
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.locale = locale
         formatter.usesGroupingSeparator = false
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = exponent
+        formatter.maximumFractionDigits = exponent
         return formatter.string(from: amount) ?? amount.stringValue
     }
 
     static func format(_ minor: Int64, currency: String = "EUR", locale: Locale = .current) -> String {
-        let amount = NSDecimalNumber(value: minor).dividing(by: 100)
+        let amount = NSDecimalNumber(value: minor).dividing(by: NSDecimalNumber(decimal: CurrencyMetadata.divisor(for: currency)))
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = locale

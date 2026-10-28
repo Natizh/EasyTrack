@@ -128,7 +128,7 @@ final class BackupRestoreTests: XCTestCase {
                 contentSHA256: try SQLiteDatabase.digest(olderTables),
                 tables: olderTables, sourceFormatVersion: nil)
             let converted = try BackupArchive.decode(JSONEncoder().encode(older))
-            XCTAssertEqual(converted.schemaVersion, 12)
+            XCTAssertEqual(converted.schemaVersion, 14)
             XCTAssertEqual(converted.sourceFormatVersion, 6)
             let preview = try target.previewBackup(converted)
             XCTAssertEqual(preview.sourceFormatVersion, 6)
@@ -136,7 +136,7 @@ final class BackupRestoreTests: XCTestCase {
             let reopened = try SQLiteDatabase(url: targetURL)
             XCTAssertEqual(LedgerTotals(transactions: try reopened.transactions()), before)
             XCTAssertEqual(try reopened.recurringOccurrences().first?.status, .legacyCounted)
-            XCTAssertEqual(try reopened.exportBackup().schemaVersion, 12)
+            XCTAssertEqual(try reopened.exportBackup().schemaVersion, 14)
             try reopened.checkDatabase()
         }
     }
@@ -209,7 +209,7 @@ final class BackupRestoreTests: XCTestCase {
                 XCTAssertThrowsError(try BackupArchive.decode(Data("{\"schemaVersion\":\(version)}".utf8)))
             }
             XCTAssertThrowsError(try BackupArchive.decode(Data("{\"schemaVersion\":5}".utf8)))
-            let incomplete = BackupArchive(schemaVersion: 12, databaseSchemaVersion: 11,
+            let incomplete = BackupArchive(schemaVersion: 14, databaseSchemaVersion: 13,
                 exportID: backup.exportID, exportedAt: backup.exportedAt,
                 contentSHA256: backup.contentSHA256, tables: Array(backup.tables.dropLast()),
                 sourceFormatVersion: nil)
@@ -221,7 +221,7 @@ final class BackupRestoreTests: XCTestCase {
                 let index = try XCTUnwrap(changed[position].columns.firstIndex(of: column))
                 rows[0][index] = value
                 changed[position] = BackupTable(name: "transactions", columns: changed[position].columns, rows: rows)
-                let damaged = BackupArchive(schemaVersion: 12, databaseSchemaVersion: 11,
+                let damaged = BackupArchive(schemaVersion: 14, databaseSchemaVersion: 13,
                     exportID: backup.exportID, exportedAt: backup.exportedAt,
                     contentSHA256: try SQLiteDatabase.digest(changed), tables: changed,
                     sourceFormatVersion: nil)

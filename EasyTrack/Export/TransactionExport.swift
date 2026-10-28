@@ -275,10 +275,13 @@ struct TransactionExportSelection {
 }
 
 enum TransactionExportMoney {
-    static func decimal(_ minor: Int64, separator: Character = ".") -> String {
+    static func decimal(_ minor: Int64, separator: Character = ".", exponent: Int = 2) -> String {
         let magnitude = minor.magnitude
-        let fraction = magnitude % 100
-        return "\(minor < 0 ? "-" : "")\(magnitude / 100)\(separator)\(fraction < 10 ? "0" : "")\(fraction)"
+        let divisor = (0..<exponent).reduce(UInt64(1)) { value, _ in value * 10 }
+        guard exponent > 0 else { return "\(minor < 0 ? "-" : "")\(magnitude)" }
+        let rawFraction = String(magnitude % divisor)
+        let fraction = String(repeating: "0", count: max(0, exponent - rawFraction.count)) + rawFraction
+        return "\(minor < 0 ? "-" : "")\(magnitude / divisor)\(separator)\(fraction)"
     }
 
     static func xlsxDecimal(_ minor: Int64) throws -> String {
@@ -294,7 +297,8 @@ enum TransactionExportCell {
 enum TransactionExportColumn: String, CaseIterable {
     case occurredAt, description, kind, account, category, currentAmount, currentCurrency,
          currentEUR, personalEUR, recoverableEUR, signedEUR, note,
-         subcategory, trip, payer, affectsAccounts, historicalRate,
+         subcategory, trip, payer, affectsAccounts, historicalRate, eurValueSource,
+         exchangeRateDate, exchangeRateProvider, accountAmount, accountCurrency,
          importedAmount, importedCurrency, importedEUR, importedAt,
          reimbursementStatus, reimbursementExpected, reimbursementReceived,
          reimbursementOutstanding, reimbursementWrittenOff, linkedReimbursementIDs,
@@ -306,6 +310,8 @@ enum TransactionExportColumn: String, CaseIterable {
                                .recoverableEUR, .signedEUR, .note]
         if options.columns == .detailed {
             columns += [.subcategory, .trip, .payer, .affectsAccounts, .historicalRate,
+                        .eurValueSource, .exchangeRateDate, .exchangeRateProvider,
+                        .accountAmount, .accountCurrency,
                         .importedAmount, .importedCurrency, .importedEUR, .importedAt,
                         .reimbursementStatus, .reimbursementExpected, .reimbursementReceived,
                         .reimbursementOutstanding, .reimbursementWrittenOff, .linkedReimbursementIDs]
@@ -336,6 +342,11 @@ enum TransactionExportColumn: String, CaseIterable {
         case .payer: "Payer"
         case .affectsAccounts: "Affects my accounts"
         case .historicalRate: "Historical EUR exchange rate"
+        case .eurValueSource: "EUR value source"
+        case .exchangeRateDate: "Exchange rate date"
+        case .exchangeRateProvider: "Exchange rate provider"
+        case .accountAmount: "Account charged amount"
+        case .accountCurrency: "Account currency"
         case .importedAmount: "Imported amount"
         case .importedCurrency: "Imported currency"
         case .importedEUR: "Imported EUR amount"
@@ -376,7 +387,10 @@ enum TransactionExportColumn: String, CaseIterable {
         case .kind: .text(item.kind.title)
         case .account: .text(row.account)
         case .category: .text(row.category.isEmpty ? "Uncategorized" : row.category)
-        case .currentAmount: amount(item.amountMinor, eur: false)
+        case .currentAmount:
+            CurrencyMetadata.exponent(for: item.currency) == 2 ? amount(item.amountMinor, eur: false) :
+                .text(TransactionExportMoney.decimal(item.amountMinor,
+                    exponent: CurrencyMetadata.exponent(for: item.currency)))
         case .currentCurrency: .text(item.currency)
         case .currentEUR: amount(row.currentEURMinor)
         case .personalEUR: amount(row.personalEURMinor)
@@ -388,6 +402,14 @@ enum TransactionExportColumn: String, CaseIterable {
         case .payer: item.paidBy.map { .text($0) } ?? .empty
         case .affectsAccounts: item.affectsMyAccounts.map { .text($0 ? "Yes" : "No") } ?? .empty
         case .historicalRate: item.exchangeRateEUR.map { .text($0) } ?? .empty
+        case .eurValueSource: item.eurValueSource.map { .text($0.rawValue) } ?? .empty
+        case .exchangeRateDate: item.exchangeRateDate.map { .text($0) } ?? .empty
+        case .exchangeRateProvider: item.exchangeRateProvider.map { .text($0) } ?? .empty
+        case .accountAmount:
+            if let value = item.accountAmountMinor, let currency = item.accountCurrency {
+                .text(TransactionExportMoney.decimal(value, exponent: CurrencyMetadata.exponent(for: currency)))
+            } else { .empty }
+        case .accountCurrency: item.accountCurrency.map { .text($0) } ?? .empty
         case .importedAmount: amount(row.original?.amountMinor, eur: false)
         case .importedCurrency: row.original?.currency.map { .text($0) } ?? .empty
         case .importedEUR: amount(row.original?.eurMinor)

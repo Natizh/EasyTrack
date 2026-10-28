@@ -38,8 +38,8 @@ final class SQLiteDatabase {
             try execute("PRAGMA query_only=ON")
             let stmt = try statement("PRAGMA user_version")
             defer { sqlite3_finalize(stmt) }
-            guard sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_int(stmt, 0) == 11 else {
-                throw DatabaseError.sqlite("Ledger schema must be version 11 before export")
+            guard sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_int(stmt, 0) == 13 else {
+                throw DatabaseError.sqlite("Ledger schema must be version 13 before export")
             }
         } catch {
             sqlite3_close(handle)
@@ -64,7 +64,7 @@ final class SQLiteDatabase {
             }
             let existingVersion = sqlite3_column_int(versionStatement, 0)
             sqlite3_finalize(versionStatement)
-            guard existingVersion <= 11 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
+            guard existingVersion <= 13 else { throw DatabaseError.sqlite("newer local database version is unsupported") }
             try execute("""
                 CREATE TABLE IF NOT EXISTS transactions (
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL, amount_minor INTEGER NOT NULL,
@@ -237,6 +237,8 @@ final class SQLiteDatabase {
             if existingVersion < 9 { try migrateToSchemaNine() }
             if existingVersion < 10 { try migrateToSchemaTen() }
             if existingVersion < 11 { try migrateToSchemaEleven() }
+            if existingVersion < 12 { try migrateToSchemaTwelve() }
+            if existingVersion < 13 { try migrateToSchemaThirteen() }
             try backfillSourceAccountsFromLegacyRules()
             try backfillLegacyNotificationEvents()
         } catch {
@@ -264,6 +266,39 @@ final class SQLiteDatabase {
         }
         sqlite3_finalize(columns)
         if !present { try execute("ALTER TABLE \(table) ADD COLUMN \(name) \(type)") }
+    }
+
+    private func migrateToSchemaTwelve() throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try ensureColumn("eur_value_source", type: "TEXT", in: "transactions")
+            try ensureColumn("exchange_rate_date", type: "TEXT", in: "transactions")
+            try ensureColumn("exchange_rate_provider", type: "TEXT", in: "transactions")
+            try execute("""
+                UPDATE transactions SET eur_value_source=CASE
+                    WHEN eur_minor IS NULL AND currency!='EUR' THEN NULL
+                    WHEN currency='EUR' THEN 'confirmed'
+                    ELSE 'historical' END
+                WHERE eur_value_source IS NULL
+                """)
+            try execute("PRAGMA user_version=12")
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+    }
+
+    private func migrateToSchemaThirteen() throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try ensureColumn("native_currency", type: "TEXT NOT NULL DEFAULT 'EUR'", in: "local_accounts")
+            try ensureColumn("account_amount_minor", type: "INTEGER", in: "transactions")
+            try ensureColumn("account_currency", type: "TEXT", in: "transactions")
+            try execute("""
+                UPDATE transactions SET account_amount_minor=amount_minor,account_currency=currency
+                WHERE account_amount_minor IS NULL AND account_currency IS NULL
+                """)
+            try execute("PRAGMA user_version=13")
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
     }
 
     private func migrateToSchemaFour() throws {
@@ -501,8 +536,9 @@ final class SQLiteDatabase {
                     subcategory, eur_minor, exchange_rate_eur, personal_expense_eur_minor,
                     recoverable_eur_minor, trip_id, paid_by, affects_my_accounts,
                     source_movement_id, source_sheet, source_row, source_occurred_at, source_kind,
-                    account_id, category_id, recurring_occurrence_id)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    account_id, category_id, recurring_occurrence_id,eur_value_source,
+                    exchange_rate_date,exchange_rate_provider,account_amount_minor,account_currency)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, amount_minor=excluded.amount_minor,
                     currency=excluded.currency, merchant=excluded.merchant, account=excluded.account,
                     category=excluded.category, note=excluded.note, occurred_at=excluded.occurred_at,
@@ -517,7 +553,12 @@ final class SQLiteDatabase {
                     source_row=excluded.source_row, source_occurred_at=excluded.source_occurred_at,
                     source_kind=excluded.source_kind, account_id=excluded.account_id,
                     category_id=excluded.category_id,
-                    recurring_occurrence_id=excluded.recurring_occurrence_id
+                    recurring_occurrence_id=excluded.recurring_occurrence_id,
+                    eur_value_source=excluded.eur_value_source,
+                    exchange_rate_date=excluded.exchange_rate_date,
+                    exchange_rate_provider=excluded.exchange_rate_provider,
+                    account_amount_minor=excluded.account_amount_minor,
+                    account_currency=excluded.account_currency
                 """)
             bind(item.id.uuidString, at: 1, to: save)
             bind(item.kind.rawValue, at: 2, to: save)
@@ -552,6 +593,11 @@ final class SQLiteDatabase {
             bindOptional(item.accountID?.uuidString, at: 28, to: save)
             bindOptional(item.categoryID?.uuidString, at: 29, to: save)
             bindOptional(item.recurringOccurrenceID, at: 30, to: save)
+            bindOptional(item.eurValueSource?.rawValue, at: 31, to: save)
+            bindOptional(item.exchangeRateDate, at: 32, to: save)
+            bindOptional(item.exchangeRateProvider, at: 33, to: save)
+            bindOptional(item.accountAmountMinor, at: 34, to: save)
+            bindOptional(item.accountCurrency, at: 35, to: save)
             let saveResult = sqlite3_step(save)
             sqlite3_finalize(save)
             guard saveResult == SQLITE_DONE else { throw error() }
@@ -621,6 +667,11 @@ final class SQLiteDatabase {
             item.accountID = UUID(uuidString: string(statement, 27))
             item.categoryID = UUID(uuidString: string(statement, 28))
             item.recurringOccurrenceID = optionalString(statement, 29)
+            item.eurValueSource = optionalString(statement, 30).flatMap(EURValueSource.init(rawValue:))
+            item.exchangeRateDate = optionalString(statement, 31)
+            item.exchangeRateProvider = optionalString(statement, 32)
+            item.accountAmountMinor = optionalInt(statement, 33)
+            item.accountCurrency = optionalString(statement, 34)
             items.append(item)
         }
         return items
@@ -1056,7 +1107,7 @@ extension SQLiteDatabase {
         let normalized = NotificationParser.normalize(name)
         guard !normalized.isEmpty else { throw ParserValidationError.invalidRule("Choose an account name.") }
         let query = try statement("""
-            SELECT id,name,created_at,updated_at,symbol_name,color_name,archived_at,revision
+            SELECT id,name,created_at,updated_at,symbol_name,color_name,archived_at,revision,native_currency
             FROM local_accounts WHERE normalized_name=?
             """)
         bind(normalized, at: 1, to: query)
@@ -1069,6 +1120,7 @@ extension SQLiteDatabase {
             found.archivedAt = sqlite3_column_type(query, 6) == SQLITE_NULL ? nil :
                 Date(timeIntervalSince1970: sqlite3_column_double(query, 6))
             found.revision = sqlite3_column_int64(query, 7)
+            found.nativeCurrency = string(query, 8)
             sqlite3_finalize(query)
             return found
         }
@@ -1091,7 +1143,7 @@ extension SQLiteDatabase {
 
     func localAccounts() throws -> [LocalAccount] {
         let query = try statement("""
-            SELECT id,name,created_at,updated_at,symbol_name,color_name,archived_at,revision
+            SELECT id,name,created_at,updated_at,symbol_name,color_name,archived_at,revision,native_currency
             FROM local_accounts ORDER BY archived_at IS NOT NULL,name COLLATE NOCASE
             """)
         defer { sqlite3_finalize(query) }
@@ -1106,6 +1158,7 @@ extension SQLiteDatabase {
             account.archivedAt = sqlite3_column_type(query, 6) == SQLITE_NULL ? nil :
                 Date(timeIntervalSince1970: sqlite3_column_double(query, 6))
             account.revision = sqlite3_column_int64(query, 7)
+            account.nativeCurrency = string(query, 8)
             accounts.append(account)
         }
         return accounts

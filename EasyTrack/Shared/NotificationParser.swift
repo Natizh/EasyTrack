@@ -72,6 +72,32 @@ struct LocalAccount: Identifiable, Codable, Equatable {
     var colorName: String = "teal"
     var archivedAt: Date? = nil
     var revision: Int64 = 0
+    var nativeCurrency: String = "EUR"
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, createdAt, updatedAt, symbolName, colorName, archivedAt, revision, nativeCurrency
+    }
+
+    init(id: UUID, name: String, createdAt: Date, updatedAt: Date = .now,
+         symbolName: String = "creditcard.fill", colorName: String = "teal",
+         archivedAt: Date? = nil, revision: Int64 = 0, nativeCurrency: String = "EUR") {
+        self.id = id; self.name = name; self.createdAt = createdAt; self.updatedAt = updatedAt
+        self.symbolName = symbolName; self.colorName = colorName; self.archivedAt = archivedAt
+        self.revision = revision; self.nativeCurrency = nativeCurrency
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(UUID.self, forKey: .id),
+            name: try c.decode(String.self, forKey: .name),
+            createdAt: try c.decode(Date.self, forKey: .createdAt),
+            updatedAt: try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now,
+            symbolName: try c.decodeIfPresent(String.self, forKey: .symbolName) ?? "creditcard.fill",
+            colorName: try c.decodeIfPresent(String.self, forKey: .colorName) ?? "teal",
+            archivedAt: try c.decodeIfPresent(Date.self, forKey: .archivedAt),
+            revision: try c.decodeIfPresent(Int64.self, forKey: .revision) ?? 0,
+            nativeCurrency: try c.decodeIfPresent(String.self, forKey: .nativeCurrency) ?? "EUR")
+    }
 }
 
 struct ParserSource: Identifiable, Codable, Equatable {

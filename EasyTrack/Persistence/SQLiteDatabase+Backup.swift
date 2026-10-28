@@ -13,7 +13,7 @@ enum BackupError: LocalizedError {
         switch self {
         case .unsupportedVersion(let version):
             version < 5
-                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 12 backup."
+                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 14 backup."
                 : "Backup format \(version) is newer than this app supports. Update EasyTrack before restoring it."
         case .invalid(let reason): "Backup is incomplete or damaged: \(reason)"
         case .changedSincePreview: "Local data changed after the preview. Choose the backup again."
@@ -44,15 +44,16 @@ struct BackupArchive: Codable {
             throw BackupError.invalid("Missing format version or invalid JSON.")
         }
         if version == 5 { return try LegacyBackupConverter.convert(data) }
-        guard (6...12).contains(version) else { throw BackupError.unsupportedVersion(version) }
+        guard (6...14).contains(version), version != 13 else { throw BackupError.unsupportedVersion(version) }
         do {
             let archive = try JSONDecoder().decode(BackupArchive.self, from: data)
-            if version == 6 { return try archive.upgradedFromSix().upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven() }
-            if version == 7 { return try archive.upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven() }
-            if version == 8 { return try archive.upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven() }
-            if version == 9 { return try archive.upgradedFromNine().upgradedFromTen().upgradedFromEleven() }
-            if version == 10 { return try archive.upgradedFromTen().upgradedFromEleven() }
-            if version == 11 { return try archive.upgradedFromEleven() }
+            if version == 6 { return try archive.upgradedFromSix().upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
+            if version == 7 { return try archive.upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
+            if version == 8 { return try archive.upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
+            if version == 9 { return try archive.upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
+            if version == 10 { return try archive.upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
+            if version == 11 { return try archive.upgradedFromEleven().upgradedFromTwelve() }
+            if version == 12 { return try archive.upgradedFromTwelve() }
             return archive
         }
         catch { throw BackupError.invalid("Required fields could not be decoded.") }
@@ -60,6 +61,64 @@ struct BackupArchive: Codable {
 }
 
 extension BackupArchive {
+    func upgradedFromTwelve() throws -> BackupArchive {
+        guard schemaVersion == 12, databaseSchemaVersion == 11,
+              tables.map(\.name) == SQLiteDatabase.backupTableNames,
+              try SQLiteDatabase.digest(tables) == contentSHA256 else {
+            throw BackupError.invalid("The version 12 table list or checksum is invalid.")
+        }
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
+        defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
+        let targetTables = try SQLiteDatabase(url: file).backupTables()
+        var upgraded: [BackupTable] = []
+        for (index, original) in tables.enumerated() {
+            let target = targetTables[index]
+            let rows: [[String?]]
+            if original.name == "transactions" {
+                guard target.columns.prefix(original.columns.count).elementsEqual(original.columns) else {
+                    throw BackupError.invalid("Version 12 transaction columns are incomplete.")
+                }
+                let currency = original.columns.firstIndex(of: "currency")!
+                let eur = original.columns.firstIndex(of: "eur_minor")!
+                rows = original.rows.map { row in
+                    let source: String? = row[eur] == nil ? nil : (row[currency] == "EUR" ? "confirmed" : "historical")
+                    return row + [source, nil, nil, row[original.columns.firstIndex(of: "amount_minor")!], row[currency]]
+                }
+            } else if original.name == "local_accounts" {
+                guard target.columns.prefix(original.columns.count).elementsEqual(original.columns) else {
+                    throw BackupError.invalid("Version 12 account columns are incomplete.")
+                }
+                rows = original.rows.map { $0 + ["EUR"] }
+            } else {
+                guard original.columns == target.columns else {
+                    throw BackupError.invalid("Version 12 \(original.name) columns are incomplete.")
+                }
+                rows = original.rows
+            }
+            upgraded.append(BackupTable(name: original.name, columns: target.columns, rows: rows))
+        }
+        return BackupArchive(schemaVersion: 14, databaseSchemaVersion: 13,
+            exportID: exportID, exportedAt: exportedAt,
+            contentSHA256: try SQLiteDatabase.digest(upgraded), tables: upgraded,
+            sourceFormatVersion: sourceFormatVersion ?? 12)
+    }
+}
+
+extension BackupArchive {
+    private static func schemaElevenShape(_ tables: [BackupTable]) -> [BackupTable] {
+        let removed: [String: Set<String>] = [
+            "transactions": ["eur_value_source", "exchange_rate_date", "exchange_rate_provider",
+                             "account_amount_minor", "account_currency"],
+            "local_accounts": ["native_currency"]
+        ]
+        return tables.map { table in
+            let indexes = table.columns.indices.filter { !(removed[table.name]?.contains(table.columns[$0]) ?? false) }
+            return BackupTable(name: table.name, columns: indexes.map { table.columns[$0] },
+                               rows: table.rows.map { row in indexes.map { row[$0] } })
+        }
+    }
+
     func upgradedFromEleven() throws -> BackupArchive {
         let legacyNames = Array(SQLiteDatabase.backupTableNames.prefix(31))
         guard schemaVersion == 11, databaseSchemaVersion == 10,
@@ -70,7 +129,7 @@ extension BackupArchive {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
-        let targetTables = try SQLiteDatabase(url: file).backupTables()
+        let targetTables = Self.schemaElevenShape(try SQLiteDatabase(url: file).backupTables())
         guard Array(targetTables.prefix(31)).enumerated().allSatisfy({ index, target in
             tables[index].columns == target.columns &&
                 tables[index].rows.allSatisfy { $0.count == target.columns.count }
@@ -95,7 +154,7 @@ extension BackupArchive {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
         let schema = try SQLiteDatabase(url: file)
-        let targetTables = Array(try schema.backupTables().prefix(25))
+        let targetTables = Array(Self.schemaElevenShape(try schema.backupTables()).prefix(25))
         let transactionTable = tables.first { $0.name == "transactions" }!
         guard let idIndex = transactionTable.columns.firstIndex(of: "id"),
               let deletedIndex = transactionTable.columns.firstIndex(of: "deleted_at") else {
@@ -159,7 +218,7 @@ extension BackupArchive {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
-        let targetTables = try SQLiteDatabase(url: file).backupTables()
+        let targetTables = Self.schemaElevenShape(try SQLiteDatabase(url: file).backupTables())
         guard Array(targetTables.prefix(25)).enumerated().allSatisfy({ index, target in
             tables[index].columns == target.columns &&
                 tables[index].rows.allSatisfy { $0.count == target.columns.count }
@@ -185,7 +244,7 @@ extension BackupArchive {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
-        let targetTables = try SQLiteDatabase(url: file).backupTables()
+        let targetTables = Self.schemaElevenShape(try SQLiteDatabase(url: file).backupTables())
         guard Array(targetTables.prefix(26)).enumerated().allSatisfy({ index, target in
             tables[index].columns == target.columns &&
                 tables[index].rows.allSatisfy { $0.count == target.columns.count }
@@ -211,7 +270,7 @@ extension BackupArchive {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
-        let targetTables = try SQLiteDatabase(url: file).backupTables()
+        let targetTables = Self.schemaElevenShape(try SQLiteDatabase(url: file).backupTables())
         guard Array(targetTables.prefix(27)).enumerated().allSatisfy({ index, target in
             tables[index].columns == target.columns &&
                 tables[index].rows.allSatisfy { $0.count == target.columns.count }
@@ -237,7 +296,7 @@ extension BackupArchive {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("EasyTrack-backup-upgrade-\(UUID().uuidString).sqlite")
         defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: file.path + suffix) } }
-        let targetTables = try SQLiteDatabase(url: file).backupTables()
+        let targetTables = Self.schemaElevenShape(try SQLiteDatabase(url: file).backupTables())
         guard Array(targetTables.prefix(29)).enumerated().allSatisfy({ index, target in
             tables[index].columns == target.columns &&
                 tables[index].rows.allSatisfy { $0.count == target.columns.count }
@@ -346,7 +405,7 @@ extension SQLiteDatabase {
             try checkDatabase()
             let tables = try backupTables()
             try checkReadableRows(tables)
-            let archive = BackupArchive(schemaVersion: 12, databaseSchemaVersion: 11,
+            let archive = BackupArchive(schemaVersion: 14, databaseSchemaVersion: 13,
                                         exportID: UUID(), exportedAt: .now,
                                         contentSHA256: try Self.digest(tables), tables: tables,
                                         sourceFormatVersion: nil)
@@ -477,7 +536,7 @@ extension SQLiteDatabase {
     }
 
     private func validate(_ archive: BackupArchive) throws {
-        guard archive.schemaVersion == 12, archive.databaseSchemaVersion == 11 else {
+        guard archive.schemaVersion == 14, archive.databaseSchemaVersion == 13 else {
             throw BackupError.unsupportedVersion(archive.schemaVersion)
         }
         guard archive.tables.map(\.name) == Self.backupTableNames else {

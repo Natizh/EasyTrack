@@ -153,7 +153,8 @@ extension SQLiteDatabase {
         let name = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name.utf8.count <= 100 else { throw DailyValidationError.emptyName }
         guard LedgerAppearance.symbols.contains(input.symbolName),
-              LedgerAppearance.colors.contains(input.colorName) else { throw DailyValidationError.invalidAppearance }
+              LedgerAppearance.colors.contains(input.colorName),
+              CurrencyMetadata.supportedCodes.contains(input.nativeCurrency) else { throw DailyValidationError.invalidAppearance }
         let normalized = NotificationParser.normalize(name)
         try execute("BEGIN IMMEDIATE")
         do {
@@ -168,17 +169,27 @@ extension SQLiteDatabase {
                 throw DailyValidationError.staleRecord
             }
             var item = input
+            if let existing, existing.nativeCurrency != item.nativeCurrency {
+                let count = try statement("SELECT COUNT(*) FROM transactions WHERE account_id=? AND deleted_at IS NULL")
+                bind(item.id.uuidString, at: 1, to: count)
+                guard sqlite3_step(count) == SQLITE_ROW else { sqlite3_finalize(count); throw error() }
+                let hasMovements = sqlite3_column_int64(count, 0) > 0
+                sqlite3_finalize(count)
+                guard !hasMovements else {
+                    throw DatabaseError.sqlite("Account currency cannot change after movements are recorded.")
+                }
+            }
             item.name = name
             item.updatedAt = .now
             item.revision = (existing?.revision ?? 0) + 1
             let stmt = try statement("""
                 INSERT INTO local_accounts
-                (id,name,normalized_name,created_at,updated_at,symbol_name,color_name,archived_at,revision)
-                VALUES(?,?,?,?,?,?,?,?,?)
+                (id,name,normalized_name,created_at,updated_at,symbol_name,color_name,archived_at,revision,native_currency)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET name=excluded.name,
                     normalized_name=excluded.normalized_name,updated_at=excluded.updated_at,
                     symbol_name=excluded.symbol_name,color_name=excluded.color_name,
-                    archived_at=excluded.archived_at,revision=excluded.revision
+                    archived_at=excluded.archived_at,revision=excluded.revision,native_currency=excluded.native_currency
                 """)
             bind(item.id.uuidString, at: 1, to: stmt)
             bind(name, at: 2, to: stmt)
@@ -190,6 +201,7 @@ extension SQLiteDatabase {
             if let archived = item.archivedAt { sqlite3_bind_double(stmt, 8, archived.timeIntervalSince1970) }
             else { sqlite3_bind_null(stmt, 8) }
             sqlite3_bind_int64(stmt, 9, item.revision)
+            bind(item.nativeCurrency, at: 10, to: stmt)
             let saved = sqlite3_step(stmt)
             sqlite3_finalize(stmt)
             guard saved == SQLITE_DONE else { throw error() }

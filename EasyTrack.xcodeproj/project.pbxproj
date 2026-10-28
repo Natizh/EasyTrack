@@ -54,6 +54,7 @@
 		A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F708192A3B4C5D6E /* RecurringSchedule.swift */; };
 		D0A1B2C3D4E5F60718293A4B /* ReceiptOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1B2C3D4E5F60718293A4B /* ReceiptOCR.swift */; };
 		D1A2B3C4D5E6F708192A3B4C /* ReceiptScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F708192A3B4C /* ReceiptScannerView.swift */; };
+		D2A3B4C5D6E7F8091A2B3C4D /* CurrencySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A3B4C5D6E7F8091A2B3C4D /* CurrencySupport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -112,6 +113,7 @@
 		B6C7D8E9F0123A4B5C6D7E8F /* RecurringViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecurringViews.swift; sourceTree = "<group>"; };
 		C0A1B2C3D4E5F60718293A4B /* ReceiptOCR.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReceiptOCR.swift; sourceTree = "<group>"; };
 		C1A2B3C4D5E6F708192A3B4C /* ReceiptScannerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReceiptScannerView.swift; sourceTree = "<group>"; };
+		C2A3B4C5D6E7F8091A2B3C4D /* CurrencySupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CurrencySupport.swift; sourceTree = "<group>"; };
 		C784201ED5514D2C84B7BEBF /* HistoricalImportSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HistoricalImportSection.swift; sourceTree = "<group>"; };
 		DF2B12A9D4543CDC906ECF61 /* FinanceStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FinanceStore.swift; sourceTree = "<group>"; };
 		FBA6D32A6D00A6F48087EF56 /* EasyTrack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = EasyTrack.app; path = EasyTrack.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -265,6 +267,7 @@
 			isa = PBXGroup;
 			children = (
 				C0A1B2C3D4E5F60718293A4B /* ReceiptOCR.swift */,
+				C2A3B4C5D6E7F8091A2B3C4D /* CurrencySupport.swift */,
 				81A18BE776B20AE51FF239E7 /* Models.swift */,
 				E1A2B3C4D5E60718293A4B5C /* FinancialAnalytics.swift */,
 				E4A5B6C7D8E9012A3B4C5D6E /* DashboardPreferences.swift */,
@@ -445,6 +448,7 @@
 				A2B3C4D5E6F708192A3B4C5D /* DailyModels.swift in Sources */,
 				A3B4C5D6E7F8091A2B3C4D5E /* RecurringSchedule.swift in Sources */,
 				D0A1B2C3D4E5F60718293A4B /* ReceiptOCR.swift in Sources */,
+				D2A3B4C5D6E7F8091A2B3C4D /* CurrencySupport.swift in Sources */,
 				3D0A0EE3BDEDE8678AC3D94D /* HistoricalImportSection.swift in Sources */,
 				F3A4B5C6D7E8091A2B3C4D5E /* DashboardCharts.swift in Sources */,
 				FCA3B4C5D6E7890A1B2C3D4E /* SmartCategoryViews.swift in Sources */,

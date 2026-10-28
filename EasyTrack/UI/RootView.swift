@@ -966,6 +966,16 @@ struct TransactionEditor: View {
     private let receiptDraft: ReceiptTransactionDraft?
     @State private var kind: TransactionKind
     @State private var amount: String
+    @State private var originalAmount: String
+    @State private var originalCurrency: String
+    @State private var eurValueSource: EURValueSource?
+    @State private var exchangeRate: String
+    @State private var exchangeRateDate: String
+    @State private var exchangeRateProvider: String
+    @State private var accountAmount: String
+    @State private var accountCurrency: String
+    @State private var fxStatus: String?
+    @State private var fxBusy = false
     @State private var merchant: String
     @State private var account: String
     @State private var accountID: UUID?
@@ -1000,6 +1010,22 @@ struct TransactionEditor: View {
         let receiptEUR = receiptDraft.flatMap { $0.currency == "EUR" ? $0.amountMinor : nil }
         _amount = State(initialValue: editableEUR.map { Money.editString($0) } ??
                         receiptEUR.map { Money.editString($0) } ?? "")
+        let initialCurrency = item?.currency ?? receiptDraft?.currency ?? "EUR"
+        let initialOriginal = item?.amountMinor ?? receiptDraft?.amountMinor
+        _originalCurrency = State(initialValue: initialCurrency)
+        _originalAmount = State(initialValue: initialOriginal.map {
+            Money.editString($0, currency: initialCurrency)
+        } ?? "")
+        _eurValueSource = State(initialValue: item?.eurValueSource ??
+            (initialCurrency == "EUR" && initialOriginal != nil ? .confirmed : nil))
+        _exchangeRate = State(initialValue: item?.exchangeRateEUR ?? "")
+        _exchangeRateDate = State(initialValue: item?.exchangeRateDate ?? "")
+        _exchangeRateProvider = State(initialValue: item?.exchangeRateProvider ?? "")
+        let initialAccountCurrency = item?.accountCurrency ?? "EUR"
+        _accountCurrency = State(initialValue: initialAccountCurrency)
+        _accountAmount = State(initialValue: item?.accountAmountMinor.map {
+            Money.editString($0, currency: initialAccountCurrency)
+        } ?? "")
         _merchant = State(initialValue: item?.merchant ?? receiptDraft?.merchant ?? "")
         _account = State(initialValue: item?.account ?? "")
         _accountID = State(initialValue: item?.accountID)
@@ -1066,11 +1092,40 @@ struct TransactionEditor: View {
             }
             Section("Transaction") {
                 Picker("Type", selection: $kind) { ForEach(TransactionKind.allCases) { Text($0.title).tag($0) } }
-                LabeledContent("Amount (EUR)") {
-                    TextField("0,00", text: $amount)
+                Picker("Original currency", selection: $originalCurrency) {
+                    ForEach(CurrencyMetadata.supportedCodes, id: \.self) { Text($0).tag($0) }
+                }
+                LabeledContent("Original amount (\(originalCurrency))") {
+                    TextField("0", text: $originalAmount)
                         .keyboardType(.numbersAndPunctuation)
                         .multilineTextAlignment(.trailing)
-                        .accessibilityIdentifier("transactionAmountField")
+                        .accessibilityIdentifier("transactionOriginalAmountField")
+                }
+                if originalCurrency != "EUR" {
+                    LabeledContent(eurValueSource == .confirmed ? "Actual charged EUR" : "EUR equivalent") {
+                        TextField("Optional", text: $amount)
+                            .keyboardType(.numbersAndPunctuation)
+                            .multilineTextAlignment(.trailing)
+                            .accessibilityIdentifier("transactionAmountField")
+                    }
+                    Picker("EUR value", selection: $eurValueSource) {
+                        Text("Missing").tag(EURValueSource?.none)
+                        Text("Indicative estimate").tag(Optional(EURValueSource.estimated))
+                        Text("Confirmed actual").tag(Optional(EURValueSource.confirmed))
+                        if original?.eurValueSource == .historical {
+                            Text("Historical").tag(Optional(EURValueSource.historical))
+                        }
+                    }
+                    Button(fxBusy ? "Looking up rate…" : "Get indicative EUR rate") { requestFXRate() }
+                        .disabled(fxBusy || eurValueSource == .confirmed)
+                    if !exchangeRate.isEmpty {
+                        Text("Rate \(exchangeRate) · \(exchangeRateProvider) · \(exchangeRateDate). Indicative only; your bank charge may differ.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if let fxStatus { Text(fxStatus).font(.footnote).foregroundStyle(.secondary) }
+                } else {
+                    Text("EUR reporting value equals the original EUR amount.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Description").font(.subheadline)
@@ -1079,10 +1134,7 @@ struct TransactionEditor: View {
                         .accessibilityIdentifier("transactionDescriptionField")
                 }
                 DatePicker("Date", selection: $occurredAt, displayedComponents: [.date, .hourAndMinute])
-                if let original, original.currency != "EUR" {
-                    Text("Editing uses EUR. The original \(original.currency) amount stays in import data.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                } else if let original, TransactionEditPolicy.hasSeparatePersonalShare(original) {
+                if let original, TransactionEditPolicy.hasSeparatePersonalShare(original) {
                     Text("This imported expense has a separate personal share. Changing its amount keeps that share unchanged.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -1111,6 +1163,10 @@ struct TransactionEditor: View {
                         }
                     }
                     .accessibilityIdentifier("transactionAccountPicker")
+                }
+                LabeledContent("Account debit (\(accountCurrency))") {
+                    TextField("Optional", text: $accountAmount)
+                        .keyboardType(.numbersAndPunctuation).multilineTextAlignment(.trailing)
                 }
                 LabeledContent("Category") {
                     HStack {
@@ -1254,6 +1310,8 @@ struct TransactionEditor: View {
                 AccountSelectionView(selectedID: accountID) { selected in
                     accountID = selected.id
                     account = selected.name
+                    accountCurrency = selected.nativeCurrency
+                    if original == nil && originalAmount.isEmpty { originalCurrency = selected.nativeCurrency }
                 }
             }
         }
@@ -1287,10 +1345,22 @@ struct TransactionEditor: View {
     private func save() {
         guard !isSaving else { return }
         validation = nil
-        let cents: Int64
-        switch Money.validatedPositiveAmount(amount) {
-        case .success(let parsed): cents = parsed
-        case .failure(let error): validation = error.message; return
+        guard let originalMinor = Money.parseMinor(originalAmount, currency: originalCurrency),
+              originalMinor > 0 else { validation = "Enter a valid positive original amount."; return }
+        let eurMinor: Int64?
+        if originalCurrency == "EUR" {
+            eurMinor = originalMinor
+            eurValueSource = .confirmed
+            amount = Money.editString(originalMinor)
+        } else if amount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            eurMinor = nil
+            eurValueSource = nil
+        } else {
+            switch Money.validatedPositiveAmount(amount) {
+            case .success(let parsed): eurMinor = parsed
+            case .failure(let error): validation = error.message; return
+            }
+            guard eurValueSource != nil else { validation = "Mark the EUR value as estimated or confirmed."; return }
         }
         guard !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             validation = "Enter a description."; return
@@ -1303,17 +1373,24 @@ struct TransactionEditor: View {
             (original == nil || normalizedCategory != original?.category) {
             validation = "Choose an existing category or leave it uncategorized."; return
         }
-        let values = TransactionEditPolicy.values(original: original, kind: kind, newEURMinor: cents)
-        var item = original ?? Transaction(id: UUID(), kind: kind, amountMinor: cents, currency: "EUR",
+        let values = eurMinor.map { TransactionEditPolicy.values(original: original, kind: kind, newEURMinor: $0) }
+        var item = original ?? Transaction(id: UUID(), kind: kind, amountMinor: originalMinor, currency: originalCurrency,
                                            merchant: merchant, account: account, category: category,
                                            note: note, occurredAt: occurredAt, updatedAt: .now,
                                            deletedAt: nil, isDemo: false, revision: 0, sourceEventID: sourceEventID)
         item.kind = kind
-        item.amountMinor = cents
-        item.currency = "EUR"
-        item.eurMinor = cents
-        item.personalExpenseEURMinor = values.personal
-        item.recoverableEURMinor = values.recoverable
+        item.amountMinor = originalMinor
+        item.currency = originalCurrency
+        item.eurMinor = eurMinor
+        item.eurValueSource = eurValueSource
+        item.exchangeRateEUR = exchangeRate.isEmpty ? nil : exchangeRate
+        item.exchangeRateDate = exchangeRateDate.isEmpty ? nil : exchangeRateDate
+        item.exchangeRateProvider = exchangeRateProvider.isEmpty ? nil : exchangeRateProvider
+        item.personalExpenseEURMinor = values?.personal
+        item.recoverableEURMinor = values?.recoverable
+        item.accountCurrency = accountCurrency
+        item.accountAmountMinor = Money.parseMinor(accountAmount, currency: accountCurrency) ??
+            (accountCurrency == originalCurrency ? originalMinor : nil)
         item.merchant = merchant.trimmingCharacters(in: .whitespacesAndNewlines)
         item.accountID = accountID
         item.account = store.localAccounts.first(where: { $0.id == accountID })?.name ??
@@ -1329,8 +1406,9 @@ struct TransactionEditor: View {
         let expectedReimbursement: Int64?
         if kind == .expense && expectsReimbursement {
             let text = expectedReimbursementAmount.isEmpty ? amount : expectedReimbursementAmount
+            guard let eurMinor else { validation = "A verified EUR value is required for an expected reimbursement."; return }
             switch Money.validatedPositiveAmount(text) {
-            case .success(let expected) where expected <= cents: expectedReimbursement = expected
+            case .success(let expected) where expected <= eurMinor: expectedReimbursement = expected
             case .success: validation = "Expected reimbursement cannot exceed the expense."; return
             case .failure(let error): validation = error.message; return
             }
@@ -1346,6 +1424,31 @@ struct TransactionEditor: View {
         } catch {
             validation = "Couldn’t save transaction. \(error.localizedDescription)"
             isSaving = false
+        }
+    }
+
+    private func requestFXRate() {
+        guard originalCurrency != "EUR",
+              let originalMinor = Money.parseMinor(originalAmount, currency: originalCurrency),
+              originalMinor > 0 else { fxStatus = "Enter the original amount and currency first."; return }
+        fxBusy = true
+        fxStatus = nil
+        let day = LocalDay(date: occurredAt, timeZone: .current)
+        Task {
+            do {
+                let quote = try await FrankfurterFXService.shared.quote(base: originalCurrency,
+                                                                         quote: "EUR", date: day)
+                guard let rate = quote.decimalRate else { throw FXRateError.invalidResponse }
+                let proposed = try CurrencyMath.eurMinor(originalMinor: originalMinor,
+                                                         currency: originalCurrency, eurPerUnit: rate)
+                amount = Money.editString(proposed)
+                eurValueSource = .estimated
+                exchangeRate = quote.rate
+                exchangeRateDate = quote.date.isoString
+                exchangeRateProvider = quote.provider
+                fxStatus = "Indicative estimate loaded. Confirm the actual bank charge when known."
+            } catch { fxStatus = error.localizedDescription }
+            fxBusy = false
         }
     }
 

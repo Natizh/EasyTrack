@@ -214,6 +214,11 @@ struct FinancialHeroCard: View {
                     .font(.caption)
                     .foregroundStyle(theme.heroSecondaryText)
             }
+            if let snapshot, snapshot.estimatedEURTransactionCount > 0 {
+                Label("\(snapshot.estimatedEURTransactionCount) movement(s) use indicative EUR estimates",
+                      systemImage: "approximately")
+                    .font(.caption).foregroundStyle(theme.heroSecondaryText)
+            }
         }
         .padding(theme.heroPadding)
         .frame(maxWidth: .infinity, alignment: .leading)

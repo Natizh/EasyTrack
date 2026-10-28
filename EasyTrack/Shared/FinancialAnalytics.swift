@@ -280,6 +280,7 @@ struct FinancialAnalyticsSnapshot: Equatable {
     let unconvertedTransactions: [UnconvertedFinancialTransaction]
     let comparison: FinancialPeriodComparison
     let appliedFilter: TransactionFilter
+    let estimatedEURTransactionCount: Int
 
     var positiveCategories: [FinancialCategoryAggregate] {
         categories.filter { $0.personalNetExpensesEURMinor > 0 }
@@ -333,7 +334,8 @@ enum FinancialAnalytics {
             comparison: FinancialPeriodComparison(interval: selection.comparison,
                 totals: previous.totals, personalNetExpensesChange: change,
                 unconvertedTransactions: previous.unconverted),
-            appliedFilter: currentFilter
+            appliedFilter: currentFilter,
+            estimatedEURTransactionCount: currentItems.filter { $0.eurValueSource == .estimated }.count
         )
     }
 

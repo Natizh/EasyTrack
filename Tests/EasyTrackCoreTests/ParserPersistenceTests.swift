@@ -341,7 +341,7 @@ final class ParserPersistenceTests: XCTestCase {
                 PRAGMA user_version=2;
                 """, at: url)
             let upgraded = try SQLiteDatabase(url: url)
-            XCTAssertEqual(try scalar("PRAGMA user_version", at: url), 11)
+            XCTAssertEqual(try scalar("PRAGMA user_version", at: url), 13)
             XCTAssertEqual(try upgraded.notificationEvents().count, 1)
             XCTAssertEqual(try upgraded.parserSources().count, 1)
             XCTAssertEqual(try upgraded.parserAttempts().first?.status, .setupRequired)
@@ -396,8 +396,8 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(try database.notificationEvents().first?.message, "")
 
             let backup = try database.exportBackup()
-            XCTAssertEqual(backup.schemaVersion, 12)
-            XCTAssertEqual(backup.databaseSchemaVersion, 11)
+            XCTAssertEqual(backup.schemaVersion, 14)
+            XCTAssertEqual(backup.databaseSchemaVersion, 13)
             let targetURL = database.url.deletingLastPathComponent().appendingPathComponent("restored.sqlite")
             let target = try SQLiteDatabase(url: targetURL)
             _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
