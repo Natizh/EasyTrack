@@ -1231,7 +1231,10 @@ final class SQLiteDatabase {
             }
             try setAppPreference(name, for: "tripName.\(tripID)")
             try execute("COMMIT")
-            return try historicalTrips().first { $0.id == tripID }!
+            guard let saved = try historicalTrips().first(where: { $0.id == tripID }) else {
+                throw DatabaseError.sqlite("Saved trip could not be reopened.")
+            }
+            return saved
         } catch { try? execute("ROLLBACK"); throw error }
     }
 

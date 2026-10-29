@@ -60,6 +60,10 @@ final class DefaultAccountTests: XCTestCase {
         try target.setDefaultExpenseAccountID(second.id)
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
         XCTAssertEqual(try SQLiteDatabase(url: targetURL).defaultExpenseAccountID(), second.id)
+
+        try target.execute("DELETE FROM metadata WHERE key='preference.defaultExpenseAccountID'")
+        _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
+        XCTAssertEqual(try SQLiteDatabase(url: targetURL).defaultExpenseAccountID(), first.id)
     }
 
     private func account(_ name: String, currency: String) -> LocalAccount {

@@ -592,7 +592,12 @@ extension SQLiteDatabase {
                     if mode == .merge, table.name == "metadata",
                        let keyIndex = table.columns.firstIndex(of: "key"),
                        row.indices.contains(keyIndex), row[keyIndex]?.hasPrefix("preference.") == true {
-                        continue // Device preferences stay local on merge; Replace restores them.
+                        let key = row[keyIndex] ?? ""
+                        let addWhenMissing = key == "preference.defaultExpenseAccountID" ||
+                            key.hasPrefix("preference.tripName.")
+                        if !addWhenMissing || existing[Self.rowKey(row, indexes: indexes)] != nil {
+                            continue // Existing device preferences stay local; Replace restores all.
+                        }
                     }
                     if mode == .merge, let old = existing[Self.rowKey(row, indexes: indexes)] {
                         guard old == row else { throw BackupError.conflict(table.name) }

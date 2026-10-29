@@ -298,9 +298,10 @@ struct TripDetailView: View {
     private func percent(_ category: TripCategoryAggregate, total: Int64) -> String {
         guard total > 0 else { return "—" }
         let value = NSDecimalNumber(decimal: Decimal(category.personalNetEURMinor) * 100 / Decimal(total))
-        return "\(value.rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 1,
+        let behavior = NSDecimalNumberHandler(roundingMode: .plain, scale: 1,
             raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false,
-            raiseOnDivideByZero: false)))%"
+            raiseOnDivideByZero: false)
+        return "\(value.rounding(accordingToBehavior: behavior))%"
     }
 }
 

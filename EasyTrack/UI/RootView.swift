@@ -164,7 +164,7 @@ private struct DemoBanner: View {
     }
 }
 
-private struct TransactionRow: View {
+struct TransactionRow: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.easyTrackTheme) private var theme
@@ -1255,7 +1255,7 @@ struct TransactionEditor: View {
                     }
                 }
             }
-            if manualCategoryChanged, let categoryID,
+            if manualCategoryChanged, categoryID != nil,
                !merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Section {
                     Button("Salva questa regola") { showingCategoryRuleProposal = true }

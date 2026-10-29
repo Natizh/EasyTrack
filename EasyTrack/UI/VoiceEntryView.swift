@@ -197,7 +197,7 @@ private final class OfflineSpeechSession: ObservableObject {
             finalizeTimeoutTask = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(1_500))
                 guard !Task.isCancelled else { return }
-                await self?.completeFinalization(token: token, language: language,
+                self?.completeFinalization(token: token, language: language,
                     message: "Final speech result was not available in time. The best transcript is preserved for review.")
             }
         }
