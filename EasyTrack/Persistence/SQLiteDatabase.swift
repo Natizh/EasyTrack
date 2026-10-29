@@ -1160,13 +1160,52 @@ final class SQLiteDatabase {
         defer { sqlite3_finalize(stmt) }
         var result: [HistoricalTrip] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            result.append(HistoricalTrip(id: string(stmt, 0), name: string(stmt, 1),
+            let id = string(stmt, 0)
+            let displayName = try appPreference("tripName.\(id)") ?? string(stmt, 1)
+            result.append(HistoricalTrip(id: id, name: displayName,
                                          destination: optionalString(stmt, 2), startsAt: optionalString(stmt, 3),
                                          endsAt: optionalString(stmt, 4), currency: optionalString(stmt, 5),
                                          note: optionalString(stmt, 6), sourceSheet: string(stmt, 7),
                                          sourceRow: Int(sqlite3_column_int64(stmt, 8)), cellValuesJSON: string(stmt, 9)))
         }
         return result
+    }
+
+    @discardableResult func saveTrip(id: String? = nil, name rawName: String) throws -> HistoricalTrip {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.utf8.count <= 120 else {
+            throw DatabaseError.sqlite("Enter a trip name under 120 characters.")
+        }
+        let tripID = id ?? "local:\(UUID().uuidString)"
+        let existingTrips = try historicalTrips()
+        guard !existingTrips.contains(where: {
+            $0.id != tripID && NotificationParser.normalize($0.name) == NotificationParser.normalize(name)
+        }) else { throw DatabaseError.sqlite("A trip with this name already exists.") }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let existing = existingTrips.first { $0.id == tripID }
+            if existing == nil {
+                let statement = try statement("""
+                    INSERT INTO historical_trips
+                    (id,name,destination,starts_at,ends_at,currency,note,source_sheet,source_row,cell_values_json)
+                    VALUES(?,?,NULL,NULL,NULL,NULL,NULL,'EasyTrack.local',?,?)
+                    """)
+                bind(tripID, at: 1, to: statement)
+                bind(name, at: 2, to: statement)
+                sqlite3_bind_int64(statement, 3, Int64(Date().timeIntervalSince1970))
+                bind("{\"origin\":\"EasyTrack.local\"}", at: 4, to: statement)
+                guard sqlite3_step(statement) == SQLITE_DONE else { sqlite3_finalize(statement); throw error() }
+                sqlite3_finalize(statement)
+            } else if existing?.sourceSheet == "EasyTrack.local" {
+                let statement = try statement("UPDATE historical_trips SET name=? WHERE id=?")
+                bind(name, at: 1, to: statement); bind(tripID, at: 2, to: statement)
+                guard sqlite3_step(statement) == SQLITE_DONE else { sqlite3_finalize(statement); throw error() }
+                sqlite3_finalize(statement)
+            }
+            try setAppPreference(name, for: "tripName.\(tripID)")
+            try execute("COMMIT")
+            return try historicalTrips().first { $0.id == tripID }!
+        } catch { try? execute("ROLLBACK"); throw error }
     }
 
     func historicalRules() throws -> [HistoricalRecurringRule] {

@@ -138,6 +138,12 @@ final class FinanceStore: ObservableObject {
         return saved
     }
 
+    @discardableResult func saveTrip(id: String? = nil, name: String) throws -> HistoricalTrip {
+        let saved = try SQLiteDatabase.open().saveTrip(id: id, name: name)
+        reload()
+        return saved
+    }
+
     @discardableResult func saveCategory(_ category: LedgerCategory) throws -> LedgerCategory {
         let saved = try SQLiteDatabase.open().saveLedgerCategory(category)
         reload()

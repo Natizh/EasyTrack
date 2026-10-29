@@ -1001,6 +1001,7 @@ struct TransactionEditor: View {
     @State private var confirmingReimbursementWriteOff = false
     @State private var manualCategoryChanged = false
     @State private var showingCategoryRuleProposal = false
+    @State private var showingTripCreator = false
 
     init(item: Transaction? = nil, prefillEvent: NotificationEvent? = nil,
          receiptDraft: ReceiptTransactionDraft? = nil, voiceDraft: VoiceTransactionDraft? = nil) {
@@ -1192,11 +1193,13 @@ struct TransactionEditor: View {
                 LabeledContent("Subcategory") {
                     TextField("Optional", text: $subcategory).multilineTextAlignment(.trailing)
                 }
-                if !store.historicalTrips.isEmpty {
-                    Picker("Trip", selection: $tripID) {
-                        Text("None").tag("")
-                        ForEach(store.historicalTrips) { Text($0.name).tag($0.id) }
-                    }
+                Picker("Trip", selection: $tripID) {
+                    Text("None").tag("")
+                    ForEach(store.historicalTrips) { Text($0.name).tag($0.id) }
+                }
+                .accessibilityIdentifier("transactionTripPicker")
+                Button { showingTripCreator = true } label: {
+                    Label("Create trip", systemImage: "plus.circle")
                 }
                 if original?.sourceMovementID != nil {
                     LabeledContent("Paid by") {
@@ -1324,6 +1327,9 @@ struct TransactionEditor: View {
                     if original == nil && originalAmount.isEmpty { originalCurrency = selected.nativeCurrency }
                 }
             }
+        }
+        .sheet(isPresented: $showingTripCreator) {
+            NavigationStack { TripEditorView { saved in tripID = saved.id } }
         }
         .sheet(isPresented: $choosingCategory) {
             NavigationStack {
@@ -1847,6 +1853,10 @@ private struct SettingsView: View {
                     Label("Categories", systemImage: "square.grid.2x2")
                 }
                 .accessibilityIdentifier("settingsCategoriesLink")
+                NavigationLink { TripsView() } label: {
+                    Label("Trips", systemImage: "airplane")
+                }
+                .accessibilityIdentifier("settingsTripsLink")
                 NavigationLink { CategorySuggestionSettingsView() } label: {
                     Label("Category suggestions", systemImage: "lightbulb")
                 }

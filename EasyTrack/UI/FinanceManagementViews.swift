@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 enum LedgerColor {
@@ -108,6 +109,180 @@ struct AccountsView: View {
         .accessibilityLabel(account.archivedAt == nil ? account.name : "\(account.name), archived")
         .accessibilityHint("Edit account")
         .accessibilityIdentifier("accountRow-\(account.name)")
+    }
+}
+
+struct TripsView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
+    @State private var showingNew = false
+
+    var body: some View {
+        List {
+            Section("Trips") {
+                if store.historicalTrips.isEmpty {
+                    ContentUnavailableView("No trips", systemImage: "airplane",
+                        description: Text("Create a trip, then assign expenses explicitly from the transaction editor."))
+                }
+                ForEach(store.historicalTrips) { trip in
+                    NavigationLink { TripDetailView(tripID: trip.id) } label: {
+                        Label(trip.name, systemImage: "airplane")
+                    }
+                    .accessibilityIdentifier("tripRow-\(trip.id)")
+                }
+            }
+            Section {
+                Text("Trip membership is explicit. Dates never add or remove transactions automatically, so advance bookings remain included.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .listRowSpacing(theme.listRowSpacing)
+        .navigationTitle("Trips")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) {
+            Button { showingNew = true } label: { Image(systemName: "plus") }
+                .accessibilityLabel("Create trip")
+                .accessibilityIdentifier("addTripButton")
+        } }
+        .sheet(isPresented: $showingNew) { NavigationStack { TripEditorView() } }
+    }
+}
+
+struct TripEditorView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.dismiss) private var dismiss
+    let tripID: String?
+    let onSave: ((HistoricalTrip) -> Void)?
+    @State private var name: String
+    @State private var validation: String?
+
+    init(trip: HistoricalTrip? = nil, onSave: ((HistoricalTrip) -> Void)? = nil) {
+        tripID = trip?.id
+        self.onSave = onSave
+        _name = State(initialValue: trip?.name ?? "")
+    }
+
+    var body: some View {
+        Form {
+            Section("Trip") {
+                TextField("Name", text: $name).textInputAutocapitalization(.words)
+                    .accessibilityIdentifier("tripNameField")
+            }
+            if let validation { Section { Text(validation).foregroundStyle(.red) } }
+        }
+        .navigationTitle(tripID == nil ? "New trip" : "Rename trip")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.fontWeight(.semibold) }
+        }
+    }
+
+    private func save() {
+        do {
+            let saved = try store.saveTrip(id: tripID, name: name)
+            onSave?(saved); dismiss()
+        } catch { validation = error.localizedDescription }
+    }
+}
+
+struct TripDetailView: View {
+    @EnvironmentObject private var store: FinanceStore
+    @Environment(\.easyTrackTheme) private var theme
+    let tripID: String
+    @State private var editingTrip: HistoricalTrip?
+
+    private var trip: HistoricalTrip? { store.historicalTrips.first { $0.id == tripID } }
+    private var categoryNames: [UUID: String] {
+        Dictionary(uniqueKeysWithValues: store.ledgerCategories.map { ($0.id, $0.name) })
+    }
+    private var snapshot: TripAnalyticsSnapshot? {
+        try? FinancialAnalytics.tripSnapshot(transactions: store.transactions, tripID: tripID,
+                                              categoryNames: categoryNames)
+    }
+    private var transactions: [Transaction] {
+        let ids = Set(snapshot?.transactionIDs ?? [])
+        return store.transactions.filter { ids.contains($0.id) }.sorted { $0.occurredAt > $1.occurredAt }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Net personal trip spending").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(Money.format(snapshot?.personalNetEURMinor ?? 0))
+                        .font(.largeTitle.bold()).monospacedDigit()
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Net personal trip spending, \(Money.format(snapshot?.personalNetEURMinor ?? 0))")
+                if let missing = snapshot?.missingEURTransactionCount, missing > 0 {
+                    Label("\(missing) linked movement(s) excluded because no EUR value is available",
+                          systemImage: "exclamationmark.circle")
+                        .font(.footnote).foregroundStyle(.orange)
+                }
+            }
+            if let snapshot, !snapshot.positiveCategories.isEmpty {
+                Section("Positive category share") {
+                    Chart(snapshot.positiveCategories) { category in
+                        SectorMark(angle: .value("Amount", category.personalNetEURMinor), innerRadius: .ratio(0.58),
+                                   angularInset: 1.5)
+                            .foregroundStyle(categoryColor(category))
+                    }
+                    .frame(height: 220)
+                    .chartLegend(.hidden)
+                    .accessibilityLabel("Positive trip spending by category")
+                    ForEach(snapshot.positiveCategories) { category in
+                        HStack {
+                            Circle().fill(categoryColor(category)).frame(width: 10, height: 10)
+                            Text(category.name)
+                            Spacer()
+                            VStack(alignment: .trailing) {
+                                Text(Money.format(category.personalNetEURMinor)).monospacedDigit()
+                                Text(percent(category, total: snapshot.positiveCategoryTotalEURMinor))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                    Text("Percentages use positive category spending only. Refunds and other non-positive adjustments are listed separately below.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            if let adjustments = snapshot?.nonPositiveCategories, !adjustments.isEmpty {
+                Section("Refunds and non-positive adjustments") {
+                    ForEach(adjustments) { category in
+                        LabeledContent(category.name, value: Money.format(category.personalNetEURMinor))
+                    }
+                }
+            }
+            Section("Linked expenses") {
+                if transactions.isEmpty {
+                    ContentUnavailableView("No linked expenses", systemImage: "tray",
+                        description: Text("Assign a trip explicitly from a transaction."))
+                }
+                ForEach(transactions) { item in
+                    NavigationLink { TransactionEditor(item: item) } label: { TransactionRow(item: item) }
+                }
+            }
+        }
+        .listRowSpacing(theme.listRowSpacing)
+        .navigationTitle(trip?.name ?? "Trip")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) {
+            Button("Rename") { editingTrip = trip }.disabled(trip == nil)
+        } }
+        .sheet(item: $editingTrip) { trip in NavigationStack { TripEditorView(trip: trip) } }
+    }
+
+    private func categoryColor(_ category: TripCategoryAggregate) -> Color {
+        category.categoryID.flatMap { id in store.ledgerCategories.first { $0.id == id } }
+            .map { LedgerColor.color($0.colorName) } ?? .gray
+    }
+
+    private func percent(_ category: TripCategoryAggregate, total: Int64) -> String {
+        guard total > 0 else { return "—" }
+        let value = NSDecimalNumber(decimal: Decimal(category.personalNetEURMinor) * 100 / Decimal(total))
+        return "\(value.rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 1,
+            raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false,
+            raiseOnDivideByZero: false)))%"
     }
 }
 

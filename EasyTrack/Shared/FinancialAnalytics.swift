@@ -288,7 +288,63 @@ struct FinancialAnalyticsSnapshot: Equatable {
 
 }
 
+struct TripCategoryAggregate: Equatable, Identifiable {
+    let key: String
+    let categoryID: UUID?
+    let name: String
+    let personalNetEURMinor: Int64
+    var id: String { key }
+}
+
+struct TripAnalyticsSnapshot: Equatable {
+    let personalNetEURMinor: Int64
+    let categories: [TripCategoryAggregate]
+    let transactionIDs: [UUID]
+    let missingEURTransactionCount: Int
+    var positiveCategories: [TripCategoryAggregate] { categories.filter { $0.personalNetEURMinor > 0 } }
+    var nonPositiveCategories: [TripCategoryAggregate] { categories.filter { $0.personalNetEURMinor <= 0 } }
+    var positiveCategoryTotalEURMinor: Int64 {
+        positiveCategories.reduce(0) { $0 + $1.personalNetEURMinor }
+    }
+}
+
 enum FinancialAnalytics {
+    static func tripSnapshot(transactions: [Transaction], tripID: String,
+                             categoryNames: [UUID: String] = [:]) throws -> TripAnalyticsSnapshot {
+        let items = transactions.filter {
+            $0.deletedAt == nil && $0.tripID == tripID && [.expense, .reimbursement].contains($0.kind)
+        }
+        var total: Int64 = 0
+        var missing = 0
+        var categories: [String: (UUID?, String, Int64)] = [:]
+        for item in items {
+            let personal = item.personalExpenseEURMinor ??
+                (item.kind == .expense && item.currency == "EUR" ? item.amountMinor : nil)
+            guard let personal else { missing += 1; continue }
+            try addChecked(personal, to: &total)
+            let trimmed = item.category.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = item.categoryID.flatMap { categoryNames[$0] } ??
+                (trimmed.isEmpty ? "Uncategorized" : trimmed)
+            let key = item.categoryID.map { "id:\($0.uuidString)" } ??
+                (trimmed.isEmpty ? "uncategorized" : "label:\(trimmed.lowercased())")
+            var value = categories[key] ?? (item.categoryID, name, 0)
+            try addChecked(personal, to: &value.2)
+            categories[key] = value
+        }
+        let values = categories.map { key, value in
+            TripCategoryAggregate(key: key, categoryID: value.0, name: value.1,
+                                  personalNetEURMinor: value.2)
+        }.sorted {
+            if $0.personalNetEURMinor != $1.personalNetEURMinor {
+                return $0.personalNetEURMinor > $1.personalNetEURMinor
+            }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        return TripAnalyticsSnapshot(personalNetEURMinor: total, categories: values,
+            transactionIDs: items.sorted { $0.occurredAt > $1.occurredAt }.map(\.id),
+            missingEURTransactionCount: missing)
+    }
+
     static func snapshot(transactions: [Transaction], period: FinancialPeriod,
                          baseFilter: TransactionFilter = .init(),
                          categoryNames: [UUID: String] = [:],
