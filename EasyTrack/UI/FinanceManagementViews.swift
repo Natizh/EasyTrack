@@ -400,6 +400,7 @@ struct CategoriesView: View {
             if !archived.isEmpty {
                 Section("Archived") { ForEach(archived) { category in categoryRow(category) } }
             }
+            CategorySuggestionSections()
             Section {
                 Text("Categories are optional. Archiving a category leaves past transactions untouched. Notification formats never assign one automatically.")
                     .font(.footnote).foregroundStyle(.secondary)

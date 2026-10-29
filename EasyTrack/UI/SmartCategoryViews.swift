@@ -91,11 +91,18 @@ struct SaveCategoryRuleView: View {
 }
 
 struct CategorySuggestionSettingsView: View {
+    var body: some View {
+        List { CategorySuggestionSections() }
+            .navigationTitle("Category Suggestions")
+    }
+}
+
+struct CategorySuggestionSections: View {
     @EnvironmentObject private var store: FinanceStore
     @State private var selectedRule: CategoryKeywordRule?
 
     var body: some View {
-        List {
+        Group {
             Section {
                 Toggle("Category suggestions", isOn: Binding {
                     store.categorySuggestionsEnabled
@@ -128,7 +135,6 @@ struct CategorySuggestionSettingsView: View {
                 }
             }
         }
-        .navigationTitle("Category Suggestions")
         .sheet(item: $selectedRule) { rule in
             NavigationStack { CategoryKeywordRuleEditor(rule: rule) }
         }

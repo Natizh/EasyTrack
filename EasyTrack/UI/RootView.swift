@@ -1857,10 +1857,6 @@ private struct SettingsView: View {
                     Label("Trips", systemImage: "airplane")
                 }
                 .accessibilityIdentifier("settingsTripsLink")
-                NavigationLink { CategorySuggestionSettingsView() } label: {
-                    Label("Category suggestions", systemImage: "lightbulb")
-                }
-                .accessibilityIdentifier("settingsCategorySuggestionsLink")
                 NavigationLink { BudgetsAndGoalsView() } label: {
                     Label("Budgets & goals", systemImage: "target")
                 }
