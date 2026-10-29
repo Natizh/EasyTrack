@@ -1,0 +1,99 @@
+{
+  "mapping_version": 1,
+  "entities": {
+    "movements": {
+      "sheet": "Movements",
+      "header_row": 1,
+      "stable_id": {
+        "namespace": "movement",
+        "fields": ["source_technical_id"]
+      },
+      "fields": {
+        "id": {"header": "Stable ID", "type": "string"},
+        "source_technical_id": {"header": "Source ID", "type": "string", "required": true},
+        "occurred_at": {"header": "Date", "type": "datetime", "required": true},
+        "currency": {"header": "Currency", "type": "currency", "required": true},
+        "amount_minor": {"header": "Amount", "type": "minor", "currency_field": "currency", "required": true},
+        "eur_minor": {"header": "EUR value", "type": "minor", "currency": "EUR"},
+        "eur_value_source": {"header": "EUR source", "type": "string"},
+        "exchange_rate_eur": {"header": "EUR rate", "type": "decimal"},
+        "exchange_rate_date": {"header": "Rate date", "type": "datetime"},
+        "exchange_rate_provider": {"header": "Rate provider", "type": "string"},
+        "description": {"header": "Description", "type": "string", "required": true},
+        "kind": {
+          "header": "Type",
+          "type": "string",
+          "required": true,
+          "values": {
+            "Expense": "Spesa",
+            "Income": "Entrata",
+            "PAC": "Investimento PAC",
+            "Advance": "Anticipo per altri",
+            "Reimbursement": "Rimborso",
+            "Deposit": "Deposito",
+            "Deposit refund": "Rimborso deposito"
+          }
+        },
+        "category": {"header": "Category", "type": "string"},
+        "subcategory": {"header": "Subcategory", "type": "string"},
+        "account": {"header": "Account", "type": "string"},
+        "account_currency": {"header": "Account currency", "type": "currency"},
+        "account_amount_minor": {"header": "Account amount", "type": "minor", "currency_field": "account_currency"},
+        "trip_id": {"header": "Trip ID", "type": "string"},
+        "paid_by": {"header": "Paid by", "type": "string"},
+        "affects_my_accounts": {"header": "Affects my accounts", "type": "boolean"},
+        "personal_expense_eur_minor": {"header": "Personal EUR", "type": "minor", "currency": "EUR"},
+        "recoverable_eur_minor": {"header": "Recoverable EUR", "type": "minor", "currency": "EUR"},
+        "note": {"header": "Note", "type": "string"}
+      },
+      "constants": {
+        "needs_review": 0,
+        "origin": "xlsx-converter-v1"
+      }
+    },
+    "accounts": {
+      "sheet": "Accounts",
+      "header_row": 1,
+      "fields": {
+        "name": {"header": "Name", "type": "string", "required": true},
+        "kind": {"header": "Kind", "type": "string"},
+        "currency": {"header": "Currency", "type": "currency"},
+        "opening_at": {"header": "Opening date", "type": "datetime"},
+        "opening_eur_minor": {"header": "Opening EUR", "type": "minor", "currency": "EUR"},
+        "is_active": {"header": "Active", "type": "boolean"},
+        "note": {"header": "Note", "type": "string"}
+      }
+    },
+    "trips": {
+      "sheet": "Trips",
+      "header_row": 1,
+      "fields": {
+        "id": {"header": "Trip ID", "type": "string", "required": true},
+        "name": {"header": "Name", "type": "string", "required": true},
+        "destination": {"header": "Destination", "type": "string"},
+        "starts_at": {"header": "Start", "type": "datetime"},
+        "ends_at": {"header": "End", "type": "datetime"},
+        "currency": {"header": "Currency", "type": "currency"},
+        "note": {"header": "Note", "type": "string"}
+      }
+    },
+    "recurring_rules": {
+      "sheet": "Recurring",
+      "header_row": 1,
+      "fields": {
+        "id": {"header": "Rule ID", "type": "string", "required": true},
+        "rule_kind": {"header": "Rule kind", "type": "string", "required": true},
+        "name": {"header": "Name", "type": "string", "required": true},
+        "currency": {"header": "Currency", "type": "currency", "required": true},
+        "amount_minor": {"header": "Amount", "type": "minor", "currency_field": "currency", "required": true},
+        "frequency": {"header": "Frequency", "type": "string"},
+        "nominal_day": {"header": "Nominal day", "type": "integer"},
+        "starts_at": {"header": "Start", "type": "datetime"},
+        "ends_at": {"header": "End", "type": "datetime"},
+        "account": {"header": "Account", "type": "string"},
+        "is_active": {"header": "Active", "type": "boolean"},
+        "note": {"header": "Note", "type": "string"}
+      }
+    }
+  }
+}
