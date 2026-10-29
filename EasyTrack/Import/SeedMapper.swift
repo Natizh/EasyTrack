@@ -32,7 +32,7 @@ enum SeedImportError: LocalizedError, CustomStringConvertible {
 }
 
 struct ImportedMovement {
-    let transaction: Transaction
+    var transaction: Transaction
     let sourceFingerprint: String
     let sourcePayloadJSON: String
 }
@@ -70,13 +70,39 @@ struct HistoricalImportPreview {
     let unmatchedAccountLabels: Int
     let missingAccountLabels: Int
     let sourceChanged: Bool
+    let missingFromSource: Int = 0
     var recurringConflicts: [HistoricalImportConflict] = []
+    var rowConflicts: [HistoricalRowConflict] = []
+    var duplicateCandidates: [HistoricalDuplicateCandidate] = []
     var incomingTotals: LedgerTotals? = nil
 
     var canImport: Bool { changedIdentities == 0 && !sourceChanged }
 }
 
-enum HistoricalImportDecision: String, Codable { case samePayment, separatePayment }
+enum HistoricalImportDecision: String, Codable {
+    case samePayment, separatePayment
+    case keepLocal, applySource
+    case importSeparately, skipIncoming
+}
+
+struct HistoricalRowConflict: Identifiable {
+    let sourceID: String
+    let imported: Transaction
+    let existing: Transaction
+    let localEdited: Bool
+    let protectedReason: String?
+
+    var id: String { "changed:\(sourceID)" }
+    var canApplySource: Bool { !localEdited && protectedReason == nil }
+}
+
+struct HistoricalDuplicateCandidate: Identifiable {
+    let sourceID: String
+    let imported: Transaction
+    let existing: [Transaction]
+
+    var id: String { "duplicate:\(sourceID)" }
+}
 
 struct HistoricalImportConflict: Identifiable {
     let occurrenceID: String
@@ -184,13 +210,14 @@ final class SeedMapper {
     }
 
     func read(url: URL) throws -> ValidatedSeed {
-        guard try scalar("SELECT value FROM migration_meta WHERE key = 'schema_version'") == "1" else {
-            throw SeedImportError.invalidSchema("migration_meta.schema_version must be 1")
+        guard let versionText = try scalar("SELECT value FROM migration_meta WHERE key = 'schema_version'"),
+              let schemaVersion = Int(versionText), [1, 2].contains(schemaVersion) else {
+            throw SeedImportError.invalidSchema("migration_meta.schema_version must be 1 or 2")
         }
         guard try scalar("PRAGMA quick_check") == "ok" else {
             throw SeedImportError.invalidSchema("SQLite integrity check failed")
         }
-        let required: [String: Set<String>] = [
+        var required: [String: Set<String>] = [
             "movements": ["id", "occurred_at", "amount_minor", "currency", "eur_minor", "exchange_rate_eur", "description", "kind", "category", "subcategory", "account", "trip_id", "paid_by", "affects_my_accounts", "personal_expense_eur_minor", "recoverable_eur_minor", "needs_review", "review_reason", "origin", "entered_at", "note", "home_type", "source_sheet", "source_row", "source_technical_id", "cached_personal_value", "import_fingerprint"],
             "accounts": ["name", "kind", "currency", "opening_at", "opening_eur_minor", "is_active", "note", "source_sheet", "source_row", "cell_values_json"],
             "trips": ["id", "name", "destination", "starts_at", "ends_at", "currency", "note", "source_sheet", "source_row", "cell_values_json"],
@@ -199,6 +226,12 @@ final class SeedMapper {
             "source_rows": ["source_sheet", "source_row", "cell_values_json"],
             "migration_warnings": ["source_sheet", "source_row", "code", "detail"]
         ]
+        if schemaVersion == 2 {
+            required["movements"]?.formUnion([
+                "eur_value_source", "exchange_rate_date", "exchange_rate_provider",
+                "account_amount_minor", "account_currency"
+            ])
+        }
         for (table, columns) in required {
             let stmt = try statement("PRAGMA table_info(\(table))")
             var available = Set<String>()
@@ -218,14 +251,15 @@ final class SeedMapper {
         let sourceRowKeys = Set(sourceRows.map { "\($0.sheet):\($0.row)" })
         let warnings = try readWarnings()
         let accountNames = Set(accounts.map(\.sourceName))
-        let (movements, unmatchedAccounts, missingAccounts) = try readMovements(tripIDs: tripIDs, accountNames: accountNames,
-                                                                                sourceRowKeys: sourceRowKeys, issues: &issues)
+        let (movements, unmatchedAccounts, missingAccounts) = try readMovements(
+            schemaVersion: schemaVersion, tripIDs: tripIDs, accountNames: accountNames,
+            sourceRowKeys: sourceRowKeys, issues: &issues)
         if sourceRows.count != movements.count {
             issues.append(ImportIssue(table: "source_rows", sourceRow: nil, field: "count", reason: "does not match movements"))
         }
         guard issues.isEmpty else { throw SeedImportError.invalidRows(issues) }
         let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
-        return ValidatedSeed(schemaVersion: 1, digest: digest, movements: movements, accounts: accounts,
+        return ValidatedSeed(schemaVersion: schemaVersion, digest: digest, movements: movements, accounts: accounts,
                              trips: trips, rules: rules, rates: rates, sourceRows: sourceRows,
                              warnings: warnings, unmatchedAccountLabels: unmatchedAccounts,
                              missingAccountLabels: missingAccounts)
@@ -274,7 +308,7 @@ final class SeedMapper {
             let row = Int(integer(stmt, 17) ?? 0)
             guard let id = text(stmt, 0), !id.isEmpty, let kind = text(stmt, 1), ["subscription", "investment"].contains(kind),
                   let name = text(stmt, 2), !name.isEmpty, let amount = integer(stmt, 3), amount > 0,
-                  let currency = text(stmt, 4), ["EUR", "CNY", "THB"].contains(currency),
+                  let currency = text(stmt, 4), CurrencyMetadata.supportedCodes.contains(currency),
                   let sheet = text(stmt, 16), row > 0, let json = text(stmt, 18), validateJSON(json) else {
                 issues.append(ImportIssue(table: "recurring_rules", sourceRow: row, field: "kind, amount, currency, or identity", reason: "unsupported or invalid")); continue
             }
@@ -298,7 +332,7 @@ final class SeedMapper {
         while sqlite3_step(stmt) == SQLITE_ROW {
             let row = Int(integer(stmt, 0) ?? 0)
             guard row > 0, let date = text(stmt, 1), dateFormatter.date(from: date) != nil,
-                  let currency = text(stmt, 2), ["EUR", "CNY", "THB"].contains(currency),
+                  let currency = text(stmt, 2), CurrencyMetadata.supportedCodes.contains(currency),
                   let rate = text(stmt, 3), validRate(rate),
                   let json = text(stmt, 7), validateJSON(json) else {
                 issues.append(ImportIssue(table: "exchange_rates", sourceRow: row, field: "date, currency, rate, or raw row", reason: "invalid")); continue
@@ -336,9 +370,12 @@ final class SeedMapper {
         return rows
     }
 
-    private func readMovements(tripIDs: Set<String>, accountNames: Set<String>, sourceRowKeys: Set<String>,
+    private func readMovements(schemaVersion: Int, tripIDs: Set<String>, accountNames: Set<String>, sourceRowKeys: Set<String>,
                                issues: inout [ImportIssue]) throws -> ([ImportedMovement], Int, Int) {
-        let stmt = try statement("SELECT id,occurred_at,amount_minor,currency,eur_minor,exchange_rate_eur,description,kind,category,subcategory,account,trip_id,paid_by,affects_my_accounts,personal_expense_eur_minor,recoverable_eur_minor,needs_review,review_reason,origin,entered_at,note,home_type,source_sheet,source_row,source_technical_id,cached_personal_value,import_fingerprint FROM movements ORDER BY source_row")
+        let buildFiveColumns = schemaVersion == 2
+            ? "eur_value_source,exchange_rate_date,exchange_rate_provider,account_amount_minor,account_currency"
+            : "NULL,NULL,NULL,NULL,NULL"
+        let stmt = try statement("SELECT id,occurred_at,amount_minor,currency,eur_minor,exchange_rate_eur,description,kind,category,subcategory,account,trip_id,paid_by,affects_my_accounts,personal_expense_eur_minor,recoverable_eur_minor,needs_review,review_reason,origin,entered_at,note,home_type,source_sheet,source_row,source_technical_id,cached_personal_value,import_fingerprint,\(buildFiveColumns) FROM movements ORDER BY source_row")
         defer { sqlite3_finalize(stmt) }
         var rows: [ImportedMovement] = []
         var unmatchedAccounts = 0
@@ -348,15 +385,35 @@ final class SeedMapper {
             guard let sourceID = text(stmt, 0), !sourceID.isEmpty,
                   let originalDate = text(stmt, 1), let date = dateFormatter.date(from: originalDate),
                   let amount = integer(stmt, 2), amount > 0,
-                  let currency = text(stmt, 3), ["EUR", "CNY", "THB"].contains(currency),
-                  let eurMinor = integer(stmt, 4), eurMinor > 0,
-                  let rate = text(stmt, 5), validRate(rate),
+                  let currency = text(stmt, 3), CurrencyMetadata.supportedCodes.contains(currency),
                   let description = text(stmt, 6), !description.isEmpty,
                   let sourceKind = text(stmt, 7), let kind = Self.kind(sourceKind),
-                  let personal = integer(stmt, 14), let recoverable = integer(stmt, 15), recoverable >= 0,
                   let sheet = text(stmt, 22), !sheet.isEmpty, sourceRow > 0,
                   let fingerprint = text(stmt, 26), !fingerprint.isEmpty else {
                 issues.append(ImportIssue(table: "movements", sourceRow: sourceRow, field: "kind, date, money, or identity", reason: "missing or unsupported")); continue
+            }
+            let suppliedEUR = integer(stmt, 4)
+            let eurMinor = suppliedEUR ?? (currency == "EUR" ? amount : nil)
+            if let eurMinor, eurMinor <= 0 {
+                issues.append(ImportIssue(table: "movements", sourceRow: sourceRow, field: "eur_minor", reason: "must be positive when present")); continue
+            }
+            let rate = text(stmt, 5)
+            if rate != nil && !validRate(rate) {
+                issues.append(ImportIssue(table: "movements", sourceRow: sourceRow, field: "exchange_rate_eur", reason: "must be positive when present")); continue
+            }
+            let personal = integer(stmt, 14)
+            let recoverable = integer(stmt, 15)
+            if let recoverable, recoverable < 0 {
+                issues.append(ImportIssue(table: "movements", sourceRow: sourceRow, field: "recoverable_eur_minor", reason: "cannot be negative")); continue
+            }
+            if eurMinor == nil && (personal != nil || recoverable != nil) {
+                issues.append(ImportIssue(table: "movements", sourceRow: sourceRow, field: "EUR allocations", reason: "cannot exist without a represented EUR value")); continue
+            }
+            let accountAmount = integer(stmt, 30)
+            let accountCurrency = text(stmt, 31)
+            if (accountAmount == nil) != (accountCurrency == nil) || accountAmount.map({ $0 <= 0 }) == true ||
+                accountCurrency.map({ !CurrencyMetadata.supportedCodes.contains($0) }) == true {
+                issues.append(ImportIssue(table: "movements", sourceRow: sourceRow, field: "account amount and currency", reason: "must be a valid pair when present")); continue
             }
             if !sourceRowKeys.contains("\(sheet):\(sourceRow)") {
                 issues.append(ImportIssue(table: "movements", sourceRow: sourceRow, field: "source_rows", reason: "original spreadsheet row missing"))
@@ -388,6 +445,15 @@ final class SeedMapper {
             item.sourceRow = sourceRow
             item.sourceOccurredAt = originalDate
             item.sourceKind = sourceKind
+            if let source = text(stmt, 27).flatMap(EURValueSource.init(rawValue:)) {
+                item.eurValueSource = source
+            } else if eurMinor != nil {
+                item.eurValueSource = currency == "EUR" ? .confirmed : .historical
+            }
+            item.exchangeRateDate = text(stmt, 28)
+            item.exchangeRateProvider = text(stmt, 29)
+            item.accountAmountMinor = accountAmount ?? amount
+            item.accountCurrency = accountCurrency ?? currency
             rows.append(ImportedMovement(transaction: item, sourceFingerprint: fingerprint,
                                          sourcePayloadJSON: try originalJSON(stmt)))
         }
