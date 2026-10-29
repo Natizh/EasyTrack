@@ -38,4 +38,31 @@ final class VoiceEntryTests: XCTestCase {
         XCTAssertNil(ambiguous.kind)
         XCTAssertFalse(ambiguous.issues.isEmpty)
     }
+
+    func testLanguageDefaultsPersistenceAndSpeechParserAlignment() {
+        XCTAssertEqual(VoiceEntryLanguage.restored(nil), .italian)
+        XCTAssertEqual(VoiceEntryLanguage.restored("unknown"), .italian)
+        XCTAssertEqual(VoiceEntryLanguage.restored("en-US"), .english)
+        XCTAssertEqual(VoiceEntryLanguage.italian.locale.identifier, "it-IT")
+        XCTAssertEqual(VoiceEntryLanguage.english.locale.identifier, "en-US")
+        let italian = VoiceEntryParser.parse("Ho speso dodici euro", locale: VoiceEntryLanguage.italian.locale)
+        let english = VoiceEntryParser.parse("Spent twelve dollars", locale: VoiceEntryLanguage.english.locale)
+        XCTAssertEqual(italian.amountMinor, 1_200)
+        XCTAssertEqual(english.amountMinor, 1_200)
+    }
+
+    func testSessionGateRejectsLateFinalTimeoutCancelAndRestartCallbacks() {
+        var gate = VoiceSessionTokenGate()
+        let first = gate.begin()
+        XCTAssertTrue(gate.accepts(first))
+        gate.cancel()
+        XCTAssertFalse(gate.accepts(first))
+        let second = gate.begin()
+        XCTAssertFalse(gate.accepts(first))
+        XCTAssertTrue(gate.accepts(second))
+        XCTAssertFalse(gate.finish(first))
+        XCTAssertTrue(gate.accepts(second))
+        XCTAssertTrue(gate.finish(second))
+        XCTAssertFalse(gate.accepts(second))
+    }
 }

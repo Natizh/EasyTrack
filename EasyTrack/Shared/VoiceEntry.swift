@@ -1,5 +1,39 @@
 import Foundation
 
+enum VoiceEntryLanguage: String, Codable, CaseIterable, Identifiable {
+    case italian = "it-IT"
+    case english = "en-US"
+
+    var id: String { rawValue }
+    var title: String { self == .italian ? "Italiano" : "English" }
+    var locale: Locale { Locale(identifier: rawValue) }
+
+    static func restored(_ rawValue: String?) -> VoiceEntryLanguage {
+        rawValue.flatMap(VoiceEntryLanguage.init(rawValue:)) ?? .italian
+    }
+}
+
+struct VoiceSessionTokenGate: Equatable {
+    private(set) var generation = 0
+    private(set) var activeGeneration: Int?
+
+    mutating func begin() -> Int {
+        generation += 1
+        activeGeneration = generation
+        return generation
+    }
+
+    func accepts(_ token: Int) -> Bool { activeGeneration == token }
+
+    mutating func finish(_ token: Int) -> Bool {
+        guard accepts(token) else { return false }
+        activeGeneration = nil
+        return true
+    }
+
+    mutating func cancel() { activeGeneration = nil }
+}
+
 struct VoiceTransactionDraft: Equatable {
     var kind: TransactionKind?
     var amountMinor: Int64?
