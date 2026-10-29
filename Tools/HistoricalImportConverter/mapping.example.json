@@ -4,6 +4,8 @@
     "movements": {
       "sheet": "Movements",
       "header_row": 1,
+      "date_system": "1900",
+      "source_timezone": "Europe/Rome",
       "stable_id": {
         "namespace": "movement",
         "fields": ["source_technical_id"]
@@ -54,6 +56,8 @@
     "accounts": {
       "sheet": "Accounts",
       "header_row": 1,
+      "date_system": "1900",
+      "source_timezone": "Europe/Rome",
       "fields": {
         "name": {"header": "Name", "type": "string", "required": true},
         "kind": {"header": "Kind", "type": "string"},
@@ -67,6 +71,8 @@
     "trips": {
       "sheet": "Trips",
       "header_row": 1,
+      "date_system": "1900",
+      "source_timezone": "Europe/Rome",
       "fields": {
         "id": {"header": "Trip ID", "type": "string", "required": true},
         "name": {"header": "Name", "type": "string", "required": true},
@@ -80,6 +86,8 @@
     "recurring_rules": {
       "sheet": "Recurring",
       "header_row": 1,
+      "date_system": "1900",
+      "source_timezone": "Europe/Rome",
       "fields": {
         "id": {"header": "Rule ID", "type": "string", "required": true},
         "rule_kind": {"header": "Rule kind", "type": "string", "required": true},

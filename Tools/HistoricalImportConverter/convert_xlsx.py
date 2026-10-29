@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 from xml.etree import ElementTree as ET
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
       "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
@@ -181,7 +182,7 @@ def decimal_value(value: Any) -> decimal.Decimal:
         raise ConversionError(f"not a decimal: {value}") from error
 
 
-def parse_datetime(value: Any, date_system: str) -> str:
+def parse_datetime(value: Any, date_system: str, source_timezone: str) -> str:
     if isinstance(value, decimal.Decimal):
         parsed = excel_datetime(value, date_system)
     else:
@@ -198,12 +199,18 @@ def parse_datetime(value: Any, date_system: str) -> str:
                 parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
             except ValueError as error:
                 raise ConversionError(f"not a supported date: {value}") from error
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
-    return parsed.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        source_zone = ZoneInfo(source_timezone)
+        target_zone = ZoneInfo("Europe/Rome")
+    except ZoneInfoNotFoundError as error:
+        raise ConversionError(f"unknown timezone: {error}") from error
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=source_zone)
+    return parsed.astimezone(target_zone).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def convert_value(value: Any, specification: dict[str, Any], row: dict[str, Any], date_system: str) -> Any:
+def convert_value(value: Any, specification: dict[str, Any], row: dict[str, Any],
+                  date_system: str, source_timezone: str) -> Any:
     if value is None or str(value).strip() == "":
         return specification.get("default")
     kind = specification.get("type", "string")
@@ -226,7 +233,7 @@ def convert_value(value: Any, specification: dict[str, Any], row: dict[str, Any]
         else:
             raise ConversionError(f"not a boolean: {value}")
     elif kind == "datetime":
-        result = parse_datetime(value, date_system)
+        result = parse_datetime(value, date_system, source_timezone)
     elif kind == "minor":
         currency_field = specification.get("currency_field", "currency")
         currency = str(row.get(currency_field) or specification.get("currency") or "EUR").upper()
@@ -317,7 +324,8 @@ def mapped_rows(workbook: XLSXWorkbook, entity_name: str, entity: dict[str, Any]
             else:
                 value = cell.value if cell else None
             try:
-                mapped[field] = convert_value(value, spec, mapped, entity.get("date_system", "1900"))
+                mapped[field] = convert_value(value, spec, mapped, entity.get("date_system", "1900"),
+                                              entity.get("source_timezone", "Europe/Rome"))
                 if spec.get("required") and mapped[field] in (None, ""):
                     errors.append(f"{field}: required value is empty")
             except (ConversionError, ValueError, TypeError) as error:

@@ -4,7 +4,8 @@ This local, deterministic tool converts a mapped XLSX workbook into an EasyTrack
 
 1. Copy `mapping.example.json` outside the repository and adapt worksheet/header names to the real workbook.
 2. Keep a stable source identifier for every movement. If the workbook has no durable identifier, configure `stable_id.fields` using immutable business fields and review collisions before import.
-3. Run:
+3. Declare `date_system` (`1900` or `1904`) and `source_timezone` for each mapped sheet. Offset-aware cell text is converted to `Europe/Rome`; naive Excel dates use the declared source timezone.
+4. Run:
 
 ```sh
 python3 Tools/HistoricalImportConverter/convert_xlsx.py \

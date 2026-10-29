@@ -119,6 +119,8 @@ class ConverterTests(unittest.TestCase):
             self.assertTrue({"EUR", "USD", "CNY", "GBP", "JPY"}.issubset(currencies))
             self.assertEqual(connection.execute("SELECT amount_minor FROM movements WHERE id='m-jpy'").fetchone()[0], 1250)
             self.assertIsNone(connection.execute("SELECT eur_minor FROM movements WHERE id='m-cny'").fetchone()[0])
+            self.assertEqual(connection.execute("SELECT occurred_at FROM movements WHERE id='m-gbp'").fetchone()[0],
+                             "2026-03-29T01:30:00")
             raw = connection.execute("SELECT cell_values_json FROM source_rows WHERE source_row=2").fetchone()[0]
             self.assertIn('"formula":"1+2"', raw)
             codes = {row[0] for row in connection.execute("SELECT code FROM migration_warnings")}
