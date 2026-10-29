@@ -813,6 +813,27 @@ final class SQLiteDatabase {
         guard sqlite3_step(stmt) == SQLITE_DONE else { throw error() }
     }
 
+    private func upsert(into table: String, columns: [String], conflict: [String],
+                        values: [SQLValue]) throws {
+        precondition(columns.count == values.count && !conflict.isEmpty)
+        let placeholders = Array(repeating: "?", count: values.count).joined(separator: ",")
+        let updates = columns.filter { !conflict.contains($0) }
+            .map { "\($0)=excluded.\($0)" }.joined(separator: ",")
+        let stmt = try statement("""
+            INSERT INTO \(table)(\(columns.joined(separator: ","))) VALUES(\(placeholders))
+            ON CONFLICT(\(conflict.joined(separator: ","))) DO UPDATE SET \(updates)
+            """)
+        defer { sqlite3_finalize(stmt) }
+        for (offset, value) in values.enumerated() {
+            let index = Int32(offset + 1)
+            switch value {
+            case .text(let text): bindOptional(text, at: index, to: stmt)
+            case .integer(let number): bindOptional(number, at: index, to: stmt)
+            }
+        }
+        guard sqlite3_step(stmt) == SQLITE_DONE else { throw error() }
+    }
+
     private func metadata(_ key: String) throws -> String? {
         let stmt = try statement("SELECT value FROM metadata WHERE key=?")
         defer { sqlite3_finalize(stmt) }
@@ -820,20 +841,69 @@ final class SQLiteDatabase {
         return sqlite3_step(stmt) == SQLITE_ROW ? string(stmt, 0) : nil
     }
 
+    private func setMetadata(_ value: String, for key: String) throws {
+        try upsert(into: "metadata", columns: ["key", "value"], conflict: ["key"],
+                   values: [.text(key), .text(value)])
+    }
+
+    private func historicalRevisionKey(_ sourceID: String) -> String {
+        "historical_import_revision:\(sourceID)"
+    }
+
     func historicalImportPreview(_ seed: ValidatedSeed) throws -> HistoricalImportPreview {
-        let stmt = try statement("SELECT source_id,source_fingerprint FROM historical_imported_movements")
+        let stmt = try statement("SELECT source_id,source_fingerprint,transaction_id FROM historical_imported_movements")
         defer { sqlite3_finalize(stmt) }
-        var existing: [String: String] = [:]
-        while sqlite3_step(stmt) == SQLITE_ROW { existing[string(stmt, 0)] = string(stmt, 1) }
+        var existing: [String: (fingerprint: String, transactionID: UUID?)] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            existing[string(stmt, 0)] = (string(stmt, 1), UUID(uuidString: string(stmt, 2)))
+        }
+        let allTransactions = try transactions(includeDeleted: true)
+        let transactionsByID = Dictionary(uniqueKeysWithValues: allTransactions.map { ($0.id, $0) })
         var duplicate = 0
         var changed = 0
+        var rowConflicts: [HistoricalRowConflict] = []
+        var duplicateCandidates: [HistoricalDuplicateCandidate] = []
         for movement in seed.movements {
-            if let old = existing[movement.transaction.sourceMovementID ?? ""] {
-                if old == movement.sourceFingerprint { duplicate += 1 }
-                else { changed += 1 }
+            let sourceID = movement.transaction.sourceMovementID ?? ""
+            if let old = existing[sourceID] {
+                if old.fingerprint == movement.sourceFingerprint { duplicate += 1 }
+                else {
+                    changed += 1
+                    if let id = old.transactionID, let current = transactionsByID[id] {
+                        let baseline = try metadata(historicalRevisionKey(sourceID)).flatMap(Int64.init)
+                        let protectedReason: String?
+                        if current.deletedAt != nil { protectedReason = "The imported movement was deleted in EasyTrack." }
+                        else if current.recurringOccurrenceID != nil { protectedReason = "The movement is linked to a recurrence." }
+                        else if current.sourceEventID != nil { protectedReason = "The movement is linked to a notification event." }
+                        else { protectedReason = nil }
+                        rowConflicts.append(HistoricalRowConflict(sourceID: sourceID,
+                            imported: movement.transaction, existing: current,
+                            localEdited: baseline == nil || baseline != current.revision,
+                            protectedReason: protectedReason))
+                    }
+                }
+            } else {
+                let incoming = movement.transaction
+                let possible = allTransactions.filter { current in
+                    guard current.deletedAt == nil, !current.isDemo, current.sourceMovementID == nil,
+                          current.kind == incoming.kind, current.currency == incoming.currency,
+                          current.amountMinor == incoming.amountMinor else { return false }
+                    let near = abs(current.occurredAt.timeIntervalSince(incoming.occurredAt)) <= 36 * 3_600
+                    let sameMerchant = NotificationParser.normalize(current.merchant) ==
+                        NotificationParser.normalize(incoming.merchant)
+                    let sameAccount = !incoming.account.isEmpty && NotificationParser.normalize(current.account) ==
+                        NotificationParser.normalize(incoming.account)
+                    return near && (sameMerchant || sameAccount)
+                }
+                if !possible.isEmpty {
+                    duplicateCandidates.append(HistoricalDuplicateCandidate(sourceID: sourceID,
+                        imported: incoming, existing: possible.sorted { $0.occurredAt < $1.occurredAt }))
+                }
             }
         }
         let sourceChanged = try metadata("historical_import_digest").map { $0 != seed.digest } ?? false
+        let incomingIDs = Set(seed.movements.compactMap { $0.transaction.sourceMovementID })
+        let missingFromSource = Set(existing.keys).subtracting(incomingIDs).count
         var preview = HistoricalImportPreview(movements: seed.movements.count,
                                        newMovements: seed.movements.count - duplicate - changed,
                                        alreadyImported: duplicate, changedIdentities: changed,
@@ -842,9 +912,18 @@ final class SQLiteDatabase {
                                        migrationWarnings: seed.warnings.count,
                                        unmatchedAccountLabels: seed.unmatchedAccountLabels,
                                        missingAccountLabels: seed.missingAccountLabels,
-                                       sourceChanged: sourceChanged)
-        if preview.newMovements > 0 && preview.canImport {
+                                       sourceChanged: sourceChanged,
+                                       missingFromSource: missingFromSource)
+        preview.rowConflicts = rowConflicts.sorted { $0.id < $1.id }
+        preview.duplicateCandidates = duplicateCandidates.sorted { $0.id < $1.id }
+        if preview.newMovements > 0 {
             preview.recurringConflicts = try historicalImportConflicts(seed)
+            preview.duplicateCandidates.removeAll { candidate in
+                preview.recurringConflicts.contains { conflict in
+                    conflict.imported.sourceMovementID == candidate.sourceID &&
+                        candidate.existing.contains(where: { $0.id == conflict.counted.id })
+                }
+            }
             preview.incomingTotals = LedgerTotals(transactions: seed.movements.map(\.transaction))
         }
         return preview
@@ -897,42 +976,63 @@ final class SQLiteDatabase {
         try execute("BEGIN IMMEDIATE")
         do {
             let preview = try historicalImportPreview(seed)
-            guard preview.canImport else { throw SeedImportError.changedSource(preview.changedIdentities + (preview.sourceChanged ? 1 : 0)) }
             let conflicts = preview.recurringConflicts
-            let ids = Set(conflicts.map(\.id))
+            let ids = Set(conflicts.map(\.id) + preview.rowConflicts.map(\.id) +
+                          preview.duplicateCandidates.map(\.id))
             guard Set(decisions.keys) == ids else {
-                throw SeedImportError.database("Resolve every recurring overlap in the collective preview before importing.")
+                throw SeedImportError.database("Resolve every changed row, possible duplicate, and recurring overlap before importing.")
             }
             let same = conflicts.filter { decisions[$0.id] == .samePayment }
+            guard conflicts.allSatisfy({ [.samePayment, .separatePayment].contains(decisions[$0.id]) }),
+                  preview.rowConflicts.allSatisfy({ [.keepLocal, .applySource].contains(decisions[$0.id]) }),
+                  preview.duplicateCandidates.allSatisfy({ [.importSeparately, .skipIncoming].contains(decisions[$0.id]) }) else {
+                throw SeedImportError.database("One or more import decisions do not match their conflict type.")
+            }
+            guard preview.rowConflicts.allSatisfy({ conflict in
+                decisions[conflict.id] != .applySource || conflict.canApplySource
+            }) else {
+                throw SeedImportError.database("A locally edited, deleted, notified, or recurring movement cannot be overwritten by source data.")
+            }
             guard Set(same.map(\.occurrenceID)).count == same.count,
                   Set(same.map { $0.imported.id }).count == same.count else {
                 throw SeedImportError.database("One payment cannot settle multiple recurring occurrences.")
             }
-            if preview.newMovements == 0 {
+            if preview.newMovements == 0 && preview.rowConflicts.isEmpty && !preview.sourceChanged {
                 try execute("COMMIT")
                 return preview
             }
-            try execute("DELETE FROM operations WHERE entity_id IN (SELECT id FROM transactions WHERE is_demo=1)")
-            try execute("DELETE FROM transactions WHERE is_demo=1")
+            let skipped = Set(preview.duplicateCandidates.compactMap {
+                decisions[$0.id] == .skipIncoming ? $0.sourceID : nil
+            })
+            let applied = Set(preview.rowConflicts.compactMap {
+                decisions[$0.id] == .applySource ? $0.sourceID : nil
+            })
+            if preview.newMovements > skipped.count || !applied.isEmpty {
+                try execute("DELETE FROM operations WHERE entity_id IN (SELECT id FROM transactions WHERE is_demo=1)")
+                try execute("DELETE FROM transactions WHERE is_demo=1")
+            }
 
             for account in seed.accounts {
-                try insert(into: "historical_accounts",
+                try upsert(into: "historical_accounts",
                            columns: ["source_name", "kind", "currency", "opening_at", "opening_eur_minor", "is_active", "note", "source_sheet", "source_row", "cell_values_json"],
+                           conflict: ["source_name"],
                            values: [.text(account.sourceName), .text(account.kind), .text(account.currency),
                                     .text(account.openingAt), .integer(account.openingEURMinor),
                                     .integer(account.isActive.map { $0 ? 1 : 0 }), .text(account.note),
                                     .text(account.sourceSheet), .integer(Int64(account.sourceRow)), .text(account.cellValuesJSON)])
             }
             for trip in seed.trips {
-                try insert(into: "historical_trips",
+                try upsert(into: "historical_trips",
                            columns: ["id", "name", "destination", "starts_at", "ends_at", "currency", "note", "source_sheet", "source_row", "cell_values_json"],
+                           conflict: ["id"],
                            values: [.text(trip.id), .text(trip.name), .text(trip.destination), .text(trip.startsAt),
                                     .text(trip.endsAt), .text(trip.currency), .text(trip.note), .text(trip.sourceSheet),
                                     .integer(Int64(trip.sourceRow)), .text(trip.cellValuesJSON)])
             }
             for rule in seed.rules {
-                try insert(into: "historical_recurring_rules",
+                try upsert(into: "historical_recurring_rules",
                            columns: ["id", "rule_kind", "name", "amount_minor", "currency", "frequency", "nominal_day", "starts_at", "ends_at", "account", "is_active", "investment_kind", "date_rule", "initial_contribution_minor", "initial_contribution_at", "note", "source_sheet", "source_row", "cell_values_json"],
+                           conflict: ["id"],
                            values: [.text(rule.id), .text(rule.ruleKind), .text(rule.name), .integer(rule.amountMinor),
                                     .text(rule.currency), .text(rule.frequency), .integer(rule.nominalDay.map(Int64.init)),
                                     .text(rule.startsAt), .text(rule.endsAt), .text(rule.account),
@@ -942,42 +1042,81 @@ final class SQLiteDatabase {
                                     .integer(Int64(rule.sourceRow)), .text(rule.cellValuesJSON)])
             }
             for rate in seed.rates {
-                try insert(into: "historical_exchange_rates",
+                try upsert(into: "historical_exchange_rates",
                            columns: ["source_row", "date", "currency", "eur_rate", "status", "origin", "source_key", "cell_values_json"],
+                           conflict: ["source_row"],
                            values: [.integer(Int64(rate.sourceRow)), .text(rate.date), .text(rate.currency),
                                     .text(rate.eurRate), .text(rate.status), .text(rate.origin), .text(rate.sourceKey),
                                     .text(rate.cellValuesJSON)])
             }
             for row in seed.sourceRows {
-                try insert(into: "historical_source_rows", columns: ["source_sheet", "source_row", "cell_values_json"],
+                try upsert(into: "historical_source_rows", columns: ["source_sheet", "source_row", "cell_values_json"],
+                           conflict: ["source_sheet", "source_row"],
                            values: [.text(row.sheet), .integer(Int64(row.row)), .text(row.cellValuesJSON)])
             }
             for warning in seed.warnings {
-                try insert(into: "historical_import_warnings", columns: ["source_sheet", "source_row", "code", "detail"],
+                try upsert(into: "historical_import_warnings", columns: ["source_sheet", "source_row", "code", "detail"],
+                           conflict: ["source_sheet", "source_row", "code"],
                            values: [.text(warning.sheet), .integer(Int64(warning.row)), .text(warning.code), .text(warning.detail)])
             }
+            let existingSourceStatement = try statement("SELECT source_id FROM historical_imported_movements")
+            var existingSourceIDs = Set<String>()
+            while sqlite3_step(existingSourceStatement) == SQLITE_ROW {
+                existingSourceIDs.insert(string(existingSourceStatement, 0))
+            }
+            sqlite3_finalize(existingSourceStatement)
+
+            for conflict in preview.rowConflicts {
+                guard let movement = seed.movements.first(where: {
+                    $0.transaction.sourceMovementID == conflict.sourceID
+                }) else { throw SeedImportError.database("A changed source row disappeared during validation.") }
+                if decisions[conflict.id] == .applySource {
+                    var item = movement.transaction
+                    item.id = conflict.existing.id
+                    item.accountID = conflict.existing.accountID
+                    item.categoryID = conflict.existing.categoryID
+                    item.recurringOccurrenceID = conflict.existing.recurringOccurrenceID
+                    let saved = try save(item, manageTransaction: false)
+                    try setMetadata(String(saved.revision), for: historicalRevisionKey(conflict.sourceID))
+                }
+                let update = try statement("""
+                    UPDATE historical_imported_movements
+                    SET source_fingerprint=?,source_payload_json=? WHERE source_id=?
+                    """)
+                bind(movement.sourceFingerprint, at: 1, to: update)
+                bind(movement.sourcePayloadJSON, at: 2, to: update)
+                bind(conflict.sourceID, at: 3, to: update)
+                guard sqlite3_step(update) == SQLITE_DONE else { sqlite3_finalize(update); throw error() }
+                sqlite3_finalize(update)
+            }
+
             for movement in seed.movements {
                 var item = movement.transaction
+                guard let sourceID = item.sourceMovementID,
+                      !existingSourceIDs.contains(sourceID), !skipped.contains(sourceID) else { continue }
                 if let chosen = same.first(where: { $0.imported.id == item.id }),
                    let occurrence = try recurringOccurrences().first(where: { $0.id == chosen.occurrenceID }),
                    let rule = try recurringRules(includeArchived: true).first(where: { $0.id == occurrence.ruleID }) {
                     item.accountID = rule.accountID // explicit user confirmation; original label stays intact
                 }
-                try save(item, manageTransaction: false)
+                let saved = try save(item, manageTransaction: false)
                 try insert(into: "historical_imported_movements",
                            columns: ["source_id", "transaction_id", "source_fingerprint", "source_sheet", "source_row", "source_payload_json"],
                            values: [.text(item.sourceMovementID), .text(item.id.uuidString),
                                     .text(movement.sourceFingerprint), .text(item.sourceSheet),
                                     .integer(item.sourceRow.map(Int64.init)), .text(movement.sourcePayloadJSON)])
+                try setMetadata(String(saved.revision), for: historicalRevisionKey(sourceID))
             }
-            for chosen in same {
+            for chosen in same where !skipped.contains(chosen.imported.sourceMovementID ?? "") {
                 try linkRecurringTransactionInTransaction(chosen.imported.id,
                                                           to: chosen.occurrenceID, actor: "import-review")
+                if let sourceID = chosen.imported.sourceMovementID,
+                   let revision = try transactions(includeDeleted: true).first(where: { $0.id == chosen.imported.id })?.revision {
+                    try setMetadata(String(revision), for: historicalRevisionKey(sourceID))
+                }
             }
-            try insert(into: "metadata", columns: ["key", "value"],
-                       values: [.text("historical_import_digest"), .text(seed.digest)])
-            try insert(into: "metadata", columns: ["key", "value"],
-                       values: [.text("historical_import_format_version"), .text("1")])
+            try setMetadata(seed.digest, for: "historical_import_digest")
+            try setMetadata(String(seed.schemaVersion), for: "historical_import_format_version")
             try seedHistoricalAccountsAsManaged()
             try execute("COMMIT")
             return preview

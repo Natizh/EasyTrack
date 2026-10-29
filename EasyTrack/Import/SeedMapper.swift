@@ -70,13 +70,13 @@ struct HistoricalImportPreview {
     let unmatchedAccountLabels: Int
     let missingAccountLabels: Int
     let sourceChanged: Bool
-    let missingFromSource: Int = 0
+    let missingFromSource: Int
     var recurringConflicts: [HistoricalImportConflict] = []
     var rowConflicts: [HistoricalRowConflict] = []
     var duplicateCandidates: [HistoricalDuplicateCandidate] = []
     var incomingTotals: LedgerTotals? = nil
 
-    var canImport: Bool { changedIdentities == 0 && !sourceChanged }
+    var canImport: Bool { true }
 }
 
 enum HistoricalImportDecision: String, Codable {

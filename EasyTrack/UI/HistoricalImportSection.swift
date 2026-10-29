@@ -25,6 +25,8 @@ struct HistoricalImportSection: View {
                     count("Movements", preview.movements)
                     count("New movements", preview.newMovements)
                     count("Already imported", preview.alreadyImported)
+                    count("Changed source rows", preview.changedIdentities)
+                    count("Missing from this file", preview.missingFromSource)
                     count("Accounts", preview.accounts)
                     count("Trips", preview.trips)
                     count("Recurring rules", preview.recurringRules)
@@ -39,9 +41,55 @@ struct HistoricalImportSection: View {
                         Text("\(preview.missingAccountLabels) movements have no account label. They remain editable.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    if !preview.canImport {
-                        Text("This seed differs from previously imported source data. No changes will be made.")
-                            .font(.footnote).foregroundStyle(.orange)
+                    if preview.sourceChanged {
+                        Text("The source file changed. Stable row identities are compared individually; missing rows are never deleted.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if !preview.rowConflicts.isEmpty {
+                        Divider()
+                        Text("Changed imported rows · \(preview.rowConflicts.count)").font(.headline)
+                        Text("Keep the EasyTrack version or explicitly apply source changes only when the movement was not edited, deleted, notified, or linked to a recurrence.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        ForEach(preview.rowConflicts) { conflict in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(conflict.imported.merchant).font(.subheadline.bold())
+                                if conflict.localEdited {
+                                    Text("Protected: this movement was edited in EasyTrack.").foregroundStyle(.orange)
+                                }
+                                if let reason = conflict.protectedReason {
+                                    Text("Protected: \(reason)").foregroundStyle(.orange)
+                                }
+                                Menu(decisionTitle(conflict.id)) {
+                                    Button("Keep EasyTrack version") { decisions[conflict.id] = .keepLocal }
+                                    Button("Apply source version") { decisions[conflict.id] = .applySource }
+                                        .disabled(!conflict.canApplySource)
+                                }
+                            }
+                            .font(.caption).padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                        in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                    if !preview.duplicateCandidates.isEmpty {
+                        Divider()
+                        Text("Possible existing duplicates · \(preview.duplicateCandidates.count)").font(.headline)
+                        Text("EasyTrack never merges these automatically. Choose whether each incoming row is a separate movement or should be skipped.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        ForEach(preview.duplicateCandidates) { candidate in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(candidate.imported.merchant).font(.subheadline.bold())
+                                Text("\(candidate.existing.count) similar local movement(s) found.")
+                                Menu(decisionTitle(candidate.id)) {
+                                    Button("Import separately") { decisions[candidate.id] = .importSeparately }
+                                    Button("Skip incoming row") { decisions[candidate.id] = .skipIncoming }
+                                }
+                            }
+                            .font(.caption).padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                        in: RoundedRectangle(cornerRadius: 10))
+                        }
                     }
                     if !preview.recurringConflicts.isEmpty {
                         Divider()
@@ -87,7 +135,7 @@ struct HistoricalImportSection: View {
                 Button(preview.newMovements == 0 ? "Confirm no changes" : "Import \(preview.newMovements) movements") {
                     confirm()
                 }
-                .disabled(busy || !preview.canImport || unresolvedCount(preview) > 0 || hasAmbiguousSame(preview))
+                .disabled(busy || unresolvedCount(preview) > 0 || hasAmbiguousSame(preview))
                 Button("Discard preview", role: .cancel) {
                     self.preview = nil
                     decisions = [:]
@@ -113,12 +161,18 @@ struct HistoricalImportSection: View {
         switch decisions[id] {
         case .samePayment: "Same payment"
         case .separatePayment: "Separate payment"
+        case .keepLocal: "Keep EasyTrack version"
+        case .applySource: "Apply source version"
+        case .importSeparately: "Import separately"
+        case .skipIncoming: "Skip incoming row"
         case nil: "Choose same or separate"
         }
     }
 
     private func unresolvedCount(_ preview: HistoricalImportPreview) -> Int {
-        preview.recurringConflicts.filter { decisions[$0.id] == nil }.count
+        let ids = preview.recurringConflicts.map(\.id) + preview.rowConflicts.map(\.id) +
+            preview.duplicateCandidates.map(\.id)
+        return ids.filter { decisions[$0] == nil }.count
     }
 
     private func sameCount(_ preview: HistoricalImportPreview) -> Int {
