@@ -137,13 +137,15 @@ struct MetricTile: View {
     let value: String
     let symbol: String
     var accessibilityTitle: String? = nil
+    var periodTitle: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(title, systemImage: symbol)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(theme.heroSecondaryText)
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             Text(value)
                 .font(.subheadline.weight(.bold))
                 .monospacedDigit()
@@ -155,7 +157,8 @@ struct MetricTile: View {
         .padding(12)
         .background(theme.heroMetricBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(accessibilityTitle ?? title), \(value)")
+        .accessibilityLabel([accessibilityTitle ?? title, value, periodTitle]
+            .compactMap { $0 }.joined(separator: ", "))
     }
 }
 
@@ -175,15 +178,47 @@ struct FinancialHeroCard: View {
         return Money.format(rounded)
     }
 
-    private var metrics: some View {
-        Group {
-            MetricTile(title: "Income", value: snapshot.map { Money.format($0.totals.incomeEURMinor) } ?? "—",
-                       symbol: "arrow.down.left")
-            MetricTile(title: "PAC", value: snapshot.map { Money.format($0.totals.pacInvestedEURMinor) } ?? "—",
-                       symbol: "chart.line.uptrend.xyaxis")
-            MetricTile(title: "Per day", value: dailyAverage, symbol: "calendar.day.timeline.left",
-                       accessibilityTitle: "Daily average")
+    private var primaryMetrics: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 10) {
+                incomeMetric
+                pacMetric
+            }
+            VStack(spacing: 10) {
+                incomeMetric
+                pacMetric
+            }
         }
+    }
+
+    private var incomeMetric: some View {
+        MetricTile(title: "Income", value: snapshot.map { Money.format($0.totals.incomeEURMinor) } ?? "—",
+                   symbol: "arrow.down.left", periodTitle: periodTitle)
+    }
+
+    private var pacMetric: some View {
+        MetricTile(title: "PAC invested", value: snapshot.map { Money.format($0.totals.pacInvestedEURMinor) } ?? "—",
+                   symbol: "chart.line.uptrend.xyaxis", periodTitle: periodTitle)
+    }
+
+    private var dailyAverageMetric: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Label("Daily average", systemImage: "calendar.day.timeline.left")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.heroSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Text(dailyAverage)
+                .font(.headline.weight(.bold)).monospacedDigit()
+                .foregroundStyle(theme.heroText)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(12)
+        .background(theme.heroMetricBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Daily average, \(dailyAverage), \(periodTitle)")
     }
 
     var body: some View {
@@ -202,11 +237,9 @@ struct FinancialHeroCard: View {
                     .accessibilityIdentifier("homePersonalSpendingTotal")
             }
 
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(spacing: 10) { metrics }
-            } else {
-                HStack(spacing: 10) { metrics }
-            }
+            if dynamicTypeSize.isAccessibilitySize { VStack(spacing: 10) { incomeMetric; pacMetric } }
+            else { primaryMetrics }
+            dailyAverageMetric
 
             if let snapshot, !snapshot.unconvertedTransactions.isEmpty {
                 Label("\(snapshot.unconvertedTransactions.count) movement(s) excluded where EUR value is unavailable",

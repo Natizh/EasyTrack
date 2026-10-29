@@ -422,13 +422,6 @@ private struct HomeView: View {
                     .accessibilityLabel("Next month")
                 }
                 .padding(.horizontal, 4)
-                if selectedMonth != FinancialMonth.current() {
-                    Button("This month") { selectedMonth = FinancialMonth.current() }
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .accessibilityIdentifier("homeCurrentMonthButton")
-                }
-
                 FinancialHeroCard(snapshot: selectedMonthSnapshot, periodTitle: selectedMonthTitle)
 
                 VStack(alignment: .leading, spacing: 11) {
