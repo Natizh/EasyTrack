@@ -64,6 +64,24 @@ struct AccountsView: View {
 
     var body: some View {
         List {
+            Section("New expenses") {
+                Picker("Default for new expenses", selection: Binding(
+                    get: { store.defaultExpenseAccountID },
+                    set: { id in
+                        do { try store.setDefaultExpenseAccountID(id) }
+                        catch { store.errorMessage = error.localizedDescription }
+                    })) {
+                    Text("None").tag(UUID?.none)
+                    ForEach(active) { account in Text(account.name).tag(Optional(account.id)) }
+                }
+                .accessibilityIdentifier("defaultExpenseAccountPicker")
+                if let selected = active.first(where: { $0.id == store.defaultExpenseAccountID }) {
+                    LabeledContent("Selected", value: selected.name)
+                } else {
+                    Text("Without a default, every new expense asks you to choose an account.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
             Section("Active accounts") {
                 if active.isEmpty { Text("Add an account to start recording transactions.").foregroundStyle(.secondary) }
                 ForEach(active) { account in accountRow(account) }

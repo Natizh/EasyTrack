@@ -1025,14 +1025,21 @@ struct TransactionEditor: View {
         _exchangeRate = State(initialValue: item?.exchangeRateEUR ?? "")
         _exchangeRateDate = State(initialValue: item?.exchangeRateDate ?? "")
         _exchangeRateProvider = State(initialValue: item?.exchangeRateProvider ?? "")
-        let initialAccountCurrency = item?.accountCurrency ?? "EUR"
+        let database = try? SQLiteDatabase.open()
+        let availableAccounts = (try? database?.localAccounts()) ?? []
+        let defaultID = try? database?.defaultExpenseAccountID()
+        let prefilledAccount = TransactionAccountPrefill.resolve(original: item, explicitAccountID: nil,
+            defaultAccountID: defaultID ?? nil, accounts: availableAccounts)
+        let initialAccountCurrency = item?.accountCurrency ?? prefilledAccount?.nativeCurrency ?? "EUR"
         _accountCurrency = State(initialValue: initialAccountCurrency)
         _accountAmount = State(initialValue: item?.accountAmountMinor.map {
             Money.editString($0, currency: initialAccountCurrency)
-        } ?? "")
+        } ?? ((prefilledAccount != nil && initialAccountCurrency == initialCurrency) ? initialOriginal.map {
+            Money.editString($0, currency: initialAccountCurrency)
+        } : nil) ?? "")
         _merchant = State(initialValue: item?.merchant ?? receiptDraft?.merchant ?? voiceDraft?.merchant ?? "")
-        _account = State(initialValue: item?.account ?? "")
-        _accountID = State(initialValue: item?.accountID)
+        _account = State(initialValue: item?.account ?? prefilledAccount?.name ?? "")
+        _accountID = State(initialValue: item?.accountID ?? prefilledAccount?.id)
         _category = State(initialValue: item?.category ?? "")
         _categoryID = State(initialValue: item?.categoryID)
         _subcategory = State(initialValue: item?.subcategory ?? "")

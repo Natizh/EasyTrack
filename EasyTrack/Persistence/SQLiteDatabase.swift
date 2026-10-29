@@ -413,6 +413,33 @@ final class SQLiteDatabase {
         guard sqlite3_step(save) == SQLITE_DONE else { throw error() }
     }
 
+    func defaultExpenseAccountID() throws -> UUID? {
+        guard let raw = try appPreference("defaultExpenseAccountID"),
+              let id = UUID(uuidString: raw) else { return nil }
+        let query = try statement("SELECT 1 FROM local_accounts WHERE id=? AND archived_at IS NULL")
+        defer { sqlite3_finalize(query) }
+        bind(id.uuidString, at: 1, to: query)
+        guard sqlite3_step(query) == SQLITE_ROW else {
+            try setAppPreference("", for: "defaultExpenseAccountID")
+            return nil
+        }
+        return id
+    }
+
+    func setDefaultExpenseAccountID(_ id: UUID?) throws {
+        if let id {
+            let query = try statement("SELECT 1 FROM local_accounts WHERE id=? AND archived_at IS NULL")
+            defer { sqlite3_finalize(query) }
+            bind(id.uuidString, at: 1, to: query)
+            guard sqlite3_step(query) == SQLITE_ROW else {
+                throw DatabaseError.sqlite("Choose an active account as the default.")
+            }
+            try setAppPreference(id.uuidString, for: "defaultExpenseAccountID")
+        } else {
+            try setAppPreference("", for: "defaultExpenseAccountID")
+        }
+    }
+
     func automationSetupMilestones() throws -> Set<AutomationSetupMilestone> {
         guard let value = try appPreference("automationSetupMilestones"),
               let data = value.data(using: .utf8),

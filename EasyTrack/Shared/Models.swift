@@ -61,6 +61,15 @@ struct Transaction: Identifiable, Codable, Equatable {
     var accountCurrency: String? = nil
 }
 
+enum TransactionAccountPrefill {
+    static func resolve(original: Transaction?, explicitAccountID: UUID?, defaultAccountID: UUID?,
+                        accounts: [LocalAccount]) -> LocalAccount? {
+        let requested = original?.accountID ?? explicitAccountID ?? (original == nil ? defaultAccountID : nil)
+        guard let requested else { return nil }
+        return accounts.first { $0.id == requested && ($0.archivedAt == nil || original?.accountID == requested) }
+    }
+}
+
 enum Money {
     static func parseMinor(_ input: String) -> Int64? {
         parseMinor(input, currency: "EUR")

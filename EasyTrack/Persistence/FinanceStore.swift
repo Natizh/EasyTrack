@@ -27,6 +27,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var automationSetupMilestones: Set<AutomationSetupMilestone> = []
     @Published private(set) var appearancePreferences = AppearancePreferences.default
     @Published private(set) var backupReminderPreferences = BackupReminderPreferences.default
+    @Published private(set) var defaultExpenseAccountID: UUID?
     @Published private(set) var shouldPresentOnboarding = false
     @Published var errorMessage: String?
 
@@ -79,6 +80,7 @@ final class FinanceStore: ObservableObject {
             automationSetupMilestones = try database.automationSetupMilestones()
             appearancePreferences = try database.appearancePreferences()
             backupReminderPreferences = try database.backupReminderPreferences()
+            defaultExpenseAccountID = try database.defaultExpenseAccountID()
             shouldPresentOnboarding = try database.shouldPresentOnboarding()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -136,6 +138,11 @@ final class FinanceStore: ObservableObject {
         let saved = try SQLiteDatabase.open().saveLocalAccount(account)
         reload()
         return saved
+    }
+
+    func setDefaultExpenseAccountID(_ id: UUID?) throws {
+        try SQLiteDatabase.open().setDefaultExpenseAccountID(id)
+        reload()
     }
 
     @discardableResult func saveTrip(id: String? = nil, name: String) throws -> HistoricalTrip {
