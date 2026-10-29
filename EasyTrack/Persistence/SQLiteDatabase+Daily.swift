@@ -70,11 +70,22 @@ extension SQLiteDatabase {
         }
     }
 
-    private func insertManagedAccountIfAbsent(_ name: String, symbol: String = "creditcard.fill",
+    private func insertManagedAccountIfAbsent(_ name: String, nativeCurrency: String = "EUR",
+                                              symbol: String = "creditcard.fill",
                                               color: String = "teal") throws {
         let normalized = NotificationParser.normalize(name)
         guard !normalized.isEmpty else { return }
-        let stmt = try statement("""
+        let columns = try statement("PRAGMA table_info(local_accounts)")
+        var supportsNativeCurrency = false
+        while sqlite3_step(columns) == SQLITE_ROW {
+            if string(columns, 1) == "native_currency" { supportsNativeCurrency = true; break }
+        }
+        sqlite3_finalize(columns)
+        let stmt = try statement(supportsNativeCurrency ? """
+            INSERT OR IGNORE INTO local_accounts
+            (id,name,normalized_name,created_at,symbol_name,color_name,updated_at,revision,native_currency)
+            VALUES(?,?,?,?,?,?,?,1,?)
+            """ : """
             INSERT OR IGNORE INTO local_accounts
             (id,name,normalized_name,created_at,symbol_name,color_name,updated_at,revision)
             VALUES(?,?,?,?,?,?,?,1)
@@ -88,15 +99,20 @@ extension SQLiteDatabase {
         bind(symbol, at: 5, to: stmt)
         bind(color, at: 6, to: stmt)
         sqlite3_bind_double(stmt, 7, now)
+        if supportsNativeCurrency {
+            bind(CurrencyMetadata.supportedCodes.contains(nativeCurrency) ? nativeCurrency : "EUR", at: 8, to: stmt)
+        }
         guard sqlite3_step(stmt) == SQLITE_DONE else { throw error() }
     }
 
     func seedHistoricalAccountsAsManaged() throws {
-        let stmt = try statement("SELECT source_name FROM historical_accounts ORDER BY source_name")
-        var names: [String] = []
-        while sqlite3_step(stmt) == SQLITE_ROW { names.append(string(stmt, 0)) }
+        let stmt = try statement("SELECT source_name,currency FROM historical_accounts ORDER BY source_name")
+        var accounts: [(String, String)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            accounts.append((string(stmt, 0), optionalString(stmt, 1) ?? "EUR"))
+        }
         sqlite3_finalize(stmt)
-        for name in names { try insertManagedAccountIfAbsent(name) }
+        for (name, currency) in accounts { try insertManagedAccountIfAbsent(name, nativeCurrency: currency) }
     }
 
     private func seedDefaultCategories() throws {
