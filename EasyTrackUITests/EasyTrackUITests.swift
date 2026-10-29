@@ -34,6 +34,68 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
+    func testUpdatedMonthHeroAndUnifiedEverydayNavigation() throws {
+        let app = XCUIApplication()
+        app.launch()
+        let total = app.staticTexts["homePersonalSpendingTotal"]
+        XCTAssertTrue(total.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Income"].exists)
+        XCTAssertTrue(app.staticTexts["PAC invested"].exists)
+        XCTAssertTrue(app.staticTexts["Daily average"].exists)
+
+        let month = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Selected month,")).firstMatch
+        let previous = app.buttons["Previous month"]
+        let next = app.buttons["Next month"]
+        XCTAssertTrue(month.waitForExistence(timeout: 5))
+        let currentLabel = month.label
+        previous.tap()
+        XCTAssertNotEqual(month.label, currentLabel)
+        XCTAssertTrue(total.exists)
+        XCTAssertFalse(app.buttons["homeCurrentMonthButton"].exists)
+
+        var foundEmptyMonth = app.staticTexts["No transactions"].exists
+        for _ in 0..<72 where !foundEmptyMonth {
+            previous.tap()
+            foundEmptyMonth = app.staticTexts["No transactions"].exists
+        }
+        XCTAssertTrue(foundEmptyMonth, "Expected to reach a visually empty historical month")
+        XCTAssertTrue(total.exists)
+        XCTAssertTrue(app.staticTexts["Daily average"].exists)
+        attach(app, name: "home-empty-month-adaptive-hero")
+        for _ in 0..<73 where next.isEnabled { next.tap() }
+        XCTAssertEqual(month.label, currentLabel)
+
+        app.tabBars.buttons["Settings"].tap()
+        let categories = app.buttons["settingsCategoriesLink"]
+        for _ in 0..<5 where !categories.isHittable { app.swipeUp() }
+        XCTAssertTrue(categories.isHittable, app.debugDescription)
+        XCTAssertFalse(app.buttons["settingsCategorySuggestionsLink"].exists)
+        categories.tap()
+        XCTAssertTrue(app.navigationBars["Categories"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["addCategoryButton"].exists)
+        let suggestionToggle = app.switches["Category suggestions"]
+        for _ in 0..<8 where !suggestionToggle.exists { app.swipeUp() }
+        XCTAssertTrue(suggestionToggle.waitForExistence(timeout: 5), app.debugDescription)
+        app.navigationBars.buttons["Settings"].tap()
+
+        let trips = app.buttons["settingsTripsLink"]
+        for _ in 0..<5 where !trips.isHittable { app.swipeUp() }
+        XCTAssertTrue(trips.isHittable)
+        trips.tap()
+        XCTAssertTrue(app.navigationBars["Trips"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["addTripButton"].exists)
+        app.navigationBars.buttons["Settings"].tap()
+
+        let accounts = app.buttons["settingsAccountsLink"]
+        for _ in 0..<5 where !accounts.isHittable { app.swipeDown() }
+        XCTAssertTrue(accounts.isHittable)
+        accounts.tap()
+        XCTAssertTrue(app.navigationBars["Accounts"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["defaultExpenseAccountPicker"].exists)
+        attach(app, name: "accounts-default-and-everyday-navigation")
+    }
+
+    @MainActor
     func testEditPersistsAfterRelaunch() throws {
         let app = XCUIApplication()
         app.launch()
