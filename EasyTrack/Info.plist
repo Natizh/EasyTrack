@@ -10,7 +10,7 @@
     <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.2</string>
-    <key>CFBundleVersion</key><string>7</string>
+    <key>CFBundleVersion</key><string>8</string>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>NSCameraUsageDescription</key><string>EasyTrack uses the camera only when you choose to scan one receipt on this device.</string>
     <key>NSMicrophoneUsageDescription</key><string>EasyTrack uses the microphone only during a voice entry you start and never stores the audio.</string>
