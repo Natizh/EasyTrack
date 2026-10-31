@@ -23,7 +23,6 @@
 		A6B7C8D9E0F1234A5B6C7D8E /* RecurringViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C7D8E9F0123A4B5C6D7E8F /* RecurringViews.swift */; };
 		7A80DE1DB7692C8D8D9F7CCC /* EasyTrackApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 897736F4E2C9255993032DC1 /* EasyTrackApp.swift */; };
 		9ADC2A7193059F92875DA6EC /* SeedMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B801ABAC1EDE6A456443944 /* SeedMapper.swift */; };
-		B32C870AED59B3CBC1BD155F /* FolderProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2334F00EBB10C86D9FD0B158 /* FolderProbe.swift */; };
 		B6E8ED92FB2C4C4C38C1FBC3 /* SQLiteDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73DEACB48A2F3A61EF2789DA /* SQLiteDatabase.swift */; };
 		A4B5C6D7E8F9012A3B4C5D6E /* SQLiteDatabase+Daily.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C5D6E7F8091A2B3C4D5E6F /* SQLiteDatabase+Daily.swift */; };
 		A9C0D1E2F3A4B5C6D7E8F901 /* SQLiteDatabase+Reconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C0D1E2F3A4B5C6D7E8F901 /* SQLiteDatabase+Reconciliation.swift */; };
@@ -73,7 +72,6 @@
 		0929DFA64B2D17F75F079643 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		0B801ABAC1EDE6A456443944 /* SeedMapper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SeedMapper.swift; sourceTree = "<group>"; };
 		15B213F8546319D3AE8F801F /* SystemDocumentPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemDocumentPicker.swift; sourceTree = "<group>"; };
-		2334F00EBB10C86D9FD0B158 /* FolderProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FolderProbe.swift; sourceTree = "<group>"; };
 		341165D6549EA4F1E5BB7F44 /* Icon-60@2x.png */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.png; path = "Icon-60@2x.png"; sourceTree = "<group>"; };
 		3D24BCD975ADF170B117F140 /* Icon-60@3x.png */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.png; path = "Icon-60@3x.png"; sourceTree = "<group>"; };
 		6B97F59D3F2D4FB49B75B6B6 /* EasyTrackUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EasyTrackUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -143,15 +141,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		00D99D729D5A8E807483D538 /* Exchange */ = {
-			isa = PBXGroup;
-			children = (
-				2334F00EBB10C86D9FD0B158 /* FolderProbe.swift */,
-			);
-			name = Exchange;
-			path = Exchange;
-			sourceTree = "<group>";
-		};
 		4B79B96D4AC917B211DA03F6 /* UI */ = {
 			isa = PBXGroup;
 			children = (
@@ -236,7 +225,6 @@
 			isa = PBXGroup;
 			children = (
 				E1D605168AF9293A9EBA202E /* App */,
-				00D99D729D5A8E807483D538 /* Exchange */,
 				8980BF810ACF4EC6A95B08A2 /* Export */,
 				92B16144B1A2A02A8A54DF9F /* Import */,
 				9B36B1DDD29153BE0400EEFF /* Intake */,
@@ -424,7 +412,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				7A80DE1DB7692C8D8D9F7CCC /* EasyTrackApp.swift in Sources */,
-				B32C870AED59B3CBC1BD155F /* FolderProbe.swift in Sources */,
 				470A6B14777234C0A329F645 /* SeedImportCoordinator.swift in Sources */,
 				9ADC2A7193059F92875DA6EC /* SeedMapper.swift in Sources */,
 				1353CBE7B1BD9C5E2455FE9F /* CaptureNotificationIntent.swift in Sources */,

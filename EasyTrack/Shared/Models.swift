@@ -391,19 +391,6 @@ struct NotificationEvent: Identifiable, Codable, Equatable {
     }
 }
 
-struct ExchangeOperation: Codable, Equatable {
-    let schemaVersion: Int
-    let operationID: UUID
-    let createdAt: Date
-    let kind: String
-    let marker: String
-
-    static func folderProbe() -> ExchangeOperation {
-        ExchangeOperation(schemaVersion: 1, operationID: UUID(), createdAt: .now,
-                          kind: "folder-probe", marker: "EasyTrack folder write/read test")
-    }
-}
-
 struct BackupEnvelope: Codable {
     let schemaVersion: Int
     let exportID: UUID
