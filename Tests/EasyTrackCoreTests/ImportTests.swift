@@ -100,6 +100,48 @@ final class ImportTests: XCTestCase {
         XCTAssertEqual(try SeedMapper(url: url).read(url: url).schemaVersion, 1)
     }
 
+    func testSchemaThreePreservesBuildFiveMetadataFromRawSQLiteIntoLedger() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-seed-v3-currency-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("seed.sqlite")
+        try makeSchemaTwoSeed(at: url)
+        var handle: OpaquePointer?
+        guard sqlite3_open(url.path, &handle) == SQLITE_OK, let handle else {
+            throw NSError(domain: "seed-v3", code: 1)
+        }
+        let sql = """
+        UPDATE migration_meta SET value='3' WHERE key='schema_version';
+        CREATE TABLE reimbursement_reconciliations(
+            link_id TEXT PRIMARY KEY, expense_source_id TEXT NOT NULL,
+            expected_eur_minor INTEGER NOT NULL, receipt_source_id TEXT,
+            received_eur_minor INTEGER NOT NULL, status TEXT NOT NULL, note TEXT);
+        UPDATE movements SET exchange_rate_date='2026-01-02',
+            exchange_rate_provider='Synthetic rates' WHERE id='jpy-historical';
+        """
+        let rc = sqlite3_exec(handle, sql, nil, nil, nil)
+        sqlite3_close(handle)
+        XCTAssertEqual(rc, SQLITE_OK)
+
+        let seed = try SeedMapper(url: url).read(url: url)
+        XCTAssertEqual(seed.schemaVersion, 3)
+        let sourceJPY = try XCTUnwrap(seed.movements.first { $0.transaction.sourceMovementID == "jpy-historical" }?.transaction)
+        XCTAssertEqual(sourceJPY.eurValueSource, .historical)
+        XCTAssertEqual(sourceJPY.exchangeRateDate, "2026-01-02")
+        XCTAssertEqual(sourceJPY.exchangeRateProvider, "Synthetic rates")
+        XCTAssertEqual(sourceJPY.accountAmountMinor, 1_250)
+        XCTAssertEqual(sourceJPY.accountCurrency, "JPY")
+
+        let db = try SQLiteDatabase(url: folder.appendingPathComponent("ledger.sqlite"))
+        _ = try db.importHistoricalSeed(seed)
+        let stored = try XCTUnwrap(db.transactions().first { $0.sourceMovementID == "jpy-historical" })
+        XCTAssertEqual(stored.eurValueSource, .historical)
+        XCTAssertEqual(stored.exchangeRateDate, "2026-01-02")
+        XCTAssertEqual(stored.exchangeRateProvider, "Synthetic rates")
+        XCTAssertEqual(stored.accountAmountMinor, 1_250)
+        XCTAssertEqual(stored.accountCurrency, "JPY")
+    }
+
     func testIncrementalAddChangeRemovalAndLocalEditProtection() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-incremental-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
