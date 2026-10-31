@@ -69,7 +69,6 @@ final class EasyTrackUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Local database · available offline"].exists)
         XCTAssertFalse(app.buttons["Choose folder in Files"].exists)
         XCTAssertFalse(app.buttons["Write and read test file"].exists)
-        XCTAssertTrue(app.buttons["Choose SQLite seed"].exists)
         let categories = app.buttons["settingsCategoriesLink"]
         for _ in 0..<5 where !categories.isHittable { app.swipeUp() }
         XCTAssertTrue(categories.isHittable, app.debugDescription)
@@ -97,6 +96,10 @@ final class EasyTrackUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Accounts"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["defaultExpenseAccountPicker"].exists)
         attach(app, name: "accounts-default-and-everyday-navigation")
+        app.navigationBars.buttons["Settings"].tap()
+        let seedImport = app.buttons["Choose SQLite seed"]
+        for _ in 0..<10 where !seedImport.exists { app.swipeUp() }
+        XCTAssertTrue(seedImport.waitForExistence(timeout: 5), app.debugDescription)
     }
 
     @MainActor
