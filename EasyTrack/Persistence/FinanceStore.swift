@@ -34,7 +34,7 @@ final class FinanceStore: ObservableObject {
     init() {
         do {
             let database = try SQLiteDatabase.open()
-            try database.seedDemoIfNeeded()
+            try database.prepareProductionLedger()
             _ = try database.materializeDueRecurring()
             _ = try database.purgeExpiredNotificationContents()
         }

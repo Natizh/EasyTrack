@@ -102,10 +102,30 @@ final class ReimbursementTests: XCTestCase {
             }
             let wrongAccount = try database.save(transaction(kind: .reimbursement, cents: 1_000,
                 day: "2026-11-03", accountID: UUID(), merchant: "Fictional wrong account"))
-            XCTAssertThrowsError(try database.linkReimbursement(expenseID: expense.id,
-                                                                 reimbursementID: wrongAccount.id)) {
-                XCTAssertEqual($0 as? ReimbursementError, .accountMismatch)
-            }
+            try database.linkReimbursement(expenseID: expense.id, reimbursementID: wrongAccount.id)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 2_000)
+        }
+    }
+
+    func testAdvancePlanAllowsCrossAccountReceiptBeforeExpenseWithoutDoubleCounting() throws {
+        try withDatabase { database, _ in
+            let receipt = try database.save(transaction(kind: .reimbursement, cents: 3_339,
+                day: "2026-10-12", accountID: UUID(), merchant: "Fictional early receipt"))
+            var advance = transaction(kind: .advanceForOthers, cents: 3_339,
+                day: "2026-10-14", accountID: UUID(), merchant: "Fictional later advance")
+            advance.personalExpenseEURMinor = 0
+            advance.recoverableEURMinor = 3_339
+            advance = try database.save(advance)
+            try database.configureExpectedReimbursement(expenseID: advance.id, expectedEURMinor: 3_339)
+            try database.linkReimbursement(expenseID: advance.id, reimbursementID: receipt.id)
+            let status = try XCTUnwrap(database.reimbursementStatuses().first)
+            XCTAssertEqual(status.receivedEURMinor, 3_339)
+            XCTAssertEqual(status.outstandingEURMinor, 0)
+            let active = try database.transactions()
+            XCTAssertEqual(active.first { $0.id == advance.id }?.personalExpenseEURMinor, 0)
+            XCTAssertEqual(active.first { $0.id == receipt.id }?.personalExpenseEURMinor, 0)
+            XCTAssertEqual(LedgerTotals(transactions: active).personalSpendingEURMinor, 0)
+            try database.checkDatabase()
         }
     }
 

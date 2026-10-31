@@ -31,6 +31,7 @@ struct HistoricalImportSection: View {
                     count("Trips", preview.trips)
                     count("Recurring rules", preview.recurringRules)
                     count("Exchange rates", preview.exchangeRates)
+                    count("Reimbursement plans", preview.reimbursements)
                     Text("\(preview.migrationWarnings) legacy warnings are preserved as import metadata.")
                         .font(.caption).foregroundStyle(.secondary)
                     if preview.unmatchedAccountLabels > 0 {

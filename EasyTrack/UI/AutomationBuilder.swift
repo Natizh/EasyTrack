@@ -214,7 +214,9 @@ struct NotificationSetupGuideView: View {
                     stepCard(step)
                 }
 
+#if DEBUG
                 simulationCard
+#endif
                 diagnosticStatus
                 troubleshooting
 

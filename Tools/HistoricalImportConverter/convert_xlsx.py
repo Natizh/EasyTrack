@@ -118,7 +118,9 @@ class XLSXWorkbook:
             relation = sheet.attrib.get(f"{{{NS['r']}}}id")
             target = targets.get(relation or "")
             if target:
-                result[sheet.attrib["name"]] = str(PurePosixPath("xl") / target).replace("xl/xl/", "xl/")
+                normalized_target = target.lstrip("/")
+                result[sheet.attrib["name"]] = (normalized_target if normalized_target.startswith("xl/") else
+                    str(PurePosixPath("xl") / normalized_target)).replace("xl/xl/", "xl/")
         return result
 
     def rows(self, sheet_name: str) -> list[list[Cell | None]]:
@@ -128,6 +130,9 @@ class XLSXWorkbook:
         root = self._xml(path)
         rows: list[list[Cell | None]] = []
         for row in root.findall("m:sheetData/m:row", NS):
+            row_number = int(row.attrib.get("r", len(rows) + 1))
+            while len(rows) < row_number - 1:
+                rows.append([])
             cells: dict[int, Cell] = {}
             for node in row.findall("m:c", NS):
                 ref = node.attrib.get("r", "")
@@ -166,6 +171,8 @@ def excel_datetime(value: decimal.Decimal, date_system: str) -> dt.datetime:
 
 
 def decimal_value(value: Any) -> decimal.Decimal:
+    if isinstance(value, bool):
+        return decimal.Decimal(int(value))
     if isinstance(value, decimal.Decimal):
         return value
     text = str(value).strip().replace("\u00a0", "").replace(" ", "")
@@ -280,8 +287,11 @@ def create_schema(connection: sqlite3.Connection) -> None:
       PRIMARY KEY(source_sheet,source_row));
     CREATE TABLE migration_warnings(source_sheet TEXT,source_row INTEGER,code TEXT,detail TEXT,
       PRIMARY KEY(source_sheet,source_row,code));
+    CREATE TABLE reimbursement_reconciliations(
+      link_id TEXT PRIMARY KEY,expense_source_id TEXT NOT NULL,expected_eur_minor INTEGER NOT NULL,
+      receipt_source_id TEXT,received_eur_minor INTEGER NOT NULL,status TEXT NOT NULL,note TEXT);
     """)
-    connection.execute("INSERT INTO migration_meta VALUES('schema_version','2')")
+    connection.execute("INSERT INTO migration_meta VALUES('schema_version','3')")
 
 
 def locate_headers(rows: list[list[Cell | None]], entity: dict[str, Any]) -> tuple[int, dict[str, int]]:
@@ -312,6 +322,13 @@ def mapped_rows(workbook: XLSXWorkbook, entity_name: str, entity: dict[str, Any]
         originals = {str(index + 1): cell.original() for index, cell in enumerate(cells) if cell is not None}
         if not originals or all(cell is None or cell.value in (None, "") for cell in cells):
             continue
+        required_fields = [field for field, raw in fields.items()
+                           if not isinstance(raw, str) and raw.get("required")]
+        if required_fields and all(
+            (indexes.get(field) is None or indexes[field] >= len(cells) or cells[indexes[field]] is None or
+             cells[indexes[field]].value in (None, "")) for field in required_fields
+        ):
+            continue
         mapped = dict(entity.get("constants", {}))
         errors: list[str] = []
         for field, raw_spec in fields.items():
@@ -319,7 +336,8 @@ def mapped_rows(workbook: XLSXWorkbook, entity_name: str, entity: dict[str, Any]
             index = indexes.get(field)
             cell = cells[index] if index is not None and index < len(cells) else None
             if cell and cell.formula and cell.value is None:
-                errors.append(f"{field}: formula has no cached value")
+                if spec.get("required"):
+                    errors.append(f"{field}: formula has no cached value")
                 value = None
             else:
                 value = cell.value if cell else None
@@ -332,7 +350,8 @@ def mapped_rows(workbook: XLSXWorkbook, entity_name: str, entity: dict[str, Any]
                 errors.append(f"{field}: {error}")
         stable = entity.get("stable_id")
         if stable and not mapped.get("id"):
-            components = [str(mapped.get(field, "")) for field in stable.get("fields", [])]
+            special = {"__source_sheet": sheet, "__source_row": offset}
+            components = [str(special.get(field, mapped.get(field, ""))) for field in stable.get("fields", [])]
             if all(components):
                 mapped["id"] = f"{stable.get('namespace', entity_name)}:{digest(components)}"
         raw_json = canonical_json({"sheet": sheet, "row": offset, "cells": originals})

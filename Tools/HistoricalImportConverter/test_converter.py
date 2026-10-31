@@ -90,7 +90,8 @@ def workbook(path: Path):
         for index, (name, rows) in enumerate(sheets.items(), 1):
             archive.writestr(f"xl/worksheets/sheet{index}.xml", worksheet(rows))
             workbook_sheets.append(f'<sheet name="{escape(name)}" sheetId="{index}" r:id="rId{index}"/>')
-            relationships.append(f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{index}.xml"/>')
+            target = f"/xl/worksheets/sheet{index}.xml" if index == 1 else f"worksheets/sheet{index}.xml"
+            relationships.append(f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="{target}"/>')
             content_types.append(f'<Override PartName="/xl/worksheets/sheet{index}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>')
         content_types.append("</Types>")
         archive.writestr("[Content_Types].xml", "".join(content_types))
@@ -114,7 +115,7 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(result["counts"]["movements"], 8)
             self.assertGreaterEqual(result["warnings"], 3)
             connection = sqlite3.connect(output)
-            self.assertEqual(connection.execute("SELECT value FROM migration_meta WHERE key='schema_version'").fetchone()[0], "2")
+            self.assertEqual(connection.execute("SELECT value FROM migration_meta WHERE key='schema_version'").fetchone()[0], "3")
             currencies = {row[0] for row in connection.execute("SELECT currency FROM movements")}
             self.assertTrue({"EUR", "USD", "CNY", "GBP", "JPY"}.issubset(currencies))
             self.assertEqual(connection.execute("SELECT amount_minor FROM movements WHERE id='m-jpy'").fetchone()[0], 1250)

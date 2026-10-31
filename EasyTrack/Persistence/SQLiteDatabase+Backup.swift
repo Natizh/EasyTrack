@@ -517,11 +517,13 @@ extension SQLiteDatabase {
             JOIN transactions e ON e.id=p.expense_id
             LEFT JOIN (SELECT expense_id,SUM(amount_eur_minor) received
                        FROM expense_reimbursement_links GROUP BY expense_id) s ON s.expense_id=p.expense_id
-            WHERE e.deleted_at IS NOT NULL OR e.kind!='expense' OR
+            WHERE e.deleted_at IS NOT NULL OR e.kind NOT IN ('expense','advanceForOthers') OR
                   p.expected_eur_minor>(CASE WHEN e.currency='EUR' THEN e.amount_minor ELSE e.eur_minor END) OR
                   p.written_off_eur_minor+COALESCE(s.received,0)>p.expected_eur_minor OR
-                  e.personal_expense_eur_minor!=(CASE WHEN e.currency='EUR' THEN e.amount_minor ELSE e.eur_minor END)
-                    -p.expected_eur_minor+p.written_off_eur_minor OR
+                  e.personal_expense_eur_minor!=CASE WHEN e.kind='expense' THEN
+                    (CASE WHEN e.currency='EUR' THEN e.amount_minor ELSE e.eur_minor END)
+                    -p.expected_eur_minor+p.written_off_eur_minor
+                    ELSE p.written_off_eur_minor END OR
                   e.recoverable_eur_minor!=p.expected_eur_minor-p.written_off_eur_minor-COALESCE(s.received,0)
             """)
         guard brokenReimbursements == 0 else { throw BackupError.invalid("Expected reimbursement totals are inconsistent.") }

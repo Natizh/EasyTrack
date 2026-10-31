@@ -30,6 +30,8 @@ final class RealSeedTests: XCTestCase {
         let importedBySource = Dictionary(uniqueKeysWithValues: imported.compactMap { item in
             item.sourceMovementID.map { ($0, item) }
         })
+        let reimbursementExpenseIDs = Set(mapped.reimbursements.map(\.expenseSourceID))
+        let reimbursementReceiptIDs = Set(mapped.reimbursements.compactMap(\.receiptSourceID))
         XCTAssertTrue(mapped.movements.allSatisfy { movement in
             guard let sourceID = movement.transaction.sourceMovementID,
                   let importedItem = importedBySource[sourceID] else { return false }
@@ -38,12 +40,33 @@ final class RealSeedTests: XCTestCase {
                 importedItem.amountMinor == movement.transaction.amountMinor &&
                 importedItem.currency == movement.transaction.currency &&
                 importedItem.eurMinor == movement.transaction.eurMinor &&
-                importedItem.personalExpenseEURMinor == movement.transaction.personalExpenseEURMinor &&
-                importedItem.recoverableEURMinor == movement.transaction.recoverableEURMinor &&
+                (reimbursementExpenseIDs.contains(sourceID) || reimbursementReceiptIDs.contains(sourceID) ||
+                    (importedItem.personalExpenseEURMinor == movement.transaction.personalExpenseEURMinor &&
+                     importedItem.recoverableEURMinor == movement.transaction.recoverableEURMinor)) &&
                 importedItem.sourceRow == movement.transaction.sourceRow
         })
+        var expectedBySource = Dictionary(uniqueKeysWithValues: mapped.movements.compactMap { movement in
+            movement.transaction.sourceMovementID.map { ($0, movement.transaction) }
+        })
+        for reconciliation in mapped.reimbursements {
+            if var expense = expectedBySource[reconciliation.expenseSourceID] {
+                let received = reconciliation.receiptSourceID == nil ? Int64(0) : reconciliation.receivedEURMinor
+                expense.personalExpenseEURMinor = expense.kind == .expense
+                    ? (expense.eurMinor ?? expense.amountMinor) - reconciliation.expectedEURMinor : 0
+                expense.recoverableEURMinor = reconciliation.expectedEURMinor - received
+                expectedBySource[reconciliation.expenseSourceID] = expense
+            }
+            if let receiptID = reconciliation.receiptSourceID, var receipt = expectedBySource[receiptID] {
+                receipt.personalExpenseEURMinor = 0
+                receipt.recoverableEURMinor = 0
+                expectedBySource[receiptID] = receipt
+            }
+        }
         XCTAssertEqual(LedgerTotals(transactions: imported),
-                       LedgerTotals(transactions: mapped.movements.map(\.transaction)))
+                       LedgerTotals(transactions: Array(expectedBySource.values)))
+        XCTAssertEqual(try database.reimbursementStatuses().count, mapped.reimbursements.count)
+        XCTAssertEqual(try database.reimbursementLinks().count,
+                       mapped.reimbursements.compactMap(\.receiptSourceID).count)
         XCTAssertEqual(try database.historicalCounts()["historical_imported_movements"], mapped.movements.count)
         XCTAssertEqual(try database.historicalCounts()["historical_accounts"], mapped.accounts.count)
         XCTAssertEqual(try database.historicalCounts()["historical_trips"], mapped.trips.count)

@@ -536,6 +536,16 @@ final class SQLiteDatabase {
         try execute("INSERT OR REPLACE INTO metadata(key, value) VALUES ('demo_seeded', '1')")
     }
 
+    func prepareProductionLedger() throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            try execute("DELETE FROM operations WHERE entity_id IN (SELECT id FROM transactions WHERE is_demo=1)")
+            try execute("DELETE FROM transactions WHERE is_demo=1")
+            try execute("INSERT OR REPLACE INTO metadata(key,value) VALUES ('demo_seeded','1')")
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+    }
+
     @discardableResult func save(_ input: Transaction, manageTransaction: Bool = true) throws -> Transaction {
         if manageTransaction { try execute("BEGIN IMMEDIATE") }
         do {
@@ -937,6 +947,7 @@ final class SQLiteDatabase {
                                        accounts: seed.accounts.count, trips: seed.trips.count,
                                        recurringRules: seed.rules.count, exchangeRates: seed.rates.count,
                                        migrationWarnings: seed.warnings.count,
+                                       reimbursements: seed.reimbursements.count,
                                        unmatchedAccountLabels: seed.unmatchedAccountLabels,
                                        missingAccountLabels: seed.missingAccountLabels,
                                        sourceChanged: sourceChanged,
@@ -1133,6 +1144,48 @@ final class SQLiteDatabase {
                                     .text(movement.sourceFingerprint), .text(item.sourceSheet),
                                     .integer(item.sourceRow.map(Int64.init)), .text(movement.sourcePayloadJSON)])
                 try setMetadata(String(saved.revision), for: historicalRevisionKey(sourceID))
+            }
+            for reconciliation in seed.reimbursements {
+                guard let expense = try transactions(includeDeleted: true).first(where: {
+                    $0.deletedAt == nil && $0.sourceMovementID == reconciliation.expenseSourceID
+                }) else {
+                    throw SeedImportError.database("Reimbursement \(reconciliation.linkID) references a missing expense identity.")
+                }
+                if let status = try reimbursementStatuses().first(where: { $0.expenseID == expense.id }) {
+                    guard status.expectedEURMinor == reconciliation.expectedEURMinor else {
+                        throw SeedImportError.database("Reimbursement \(reconciliation.linkID) conflicts with an existing plan.")
+                    }
+                } else {
+                    try configureExpectedReimbursement(expenseID: expense.id,
+                        expectedEURMinor: reconciliation.expectedEURMinor, manageTransaction: false)
+                }
+                if let receiptSourceID = reconciliation.receiptSourceID {
+                    guard let receipt = try transactions(includeDeleted: true).first(where: {
+                        $0.deletedAt == nil && $0.sourceMovementID == receiptSourceID
+                    }) else {
+                        throw SeedImportError.database("Reimbursement \(reconciliation.linkID) references a missing receipt identity.")
+                    }
+                    let receiptEUR = receipt.eurMinor ?? (receipt.currency == "EUR" ? receipt.amountMinor : nil)
+                    guard receiptEUR == reconciliation.receivedEURMinor else {
+                        throw SeedImportError.database("Reimbursement \(reconciliation.linkID) receipt amount does not match.")
+                    }
+                    if let existing = try reimbursementLinks().first(where: { $0.reimbursementID == receipt.id }) {
+                        guard existing.expenseID == expense.id,
+                              existing.amountEURMinor == reconciliation.receivedEURMinor else {
+                            throw SeedImportError.database("Reimbursement \(reconciliation.linkID) receipt is linked elsewhere.")
+                        }
+                    } else {
+                        try linkReimbursement(expenseID: expense.id, reimbursementID: receipt.id,
+                                              manageTransaction: false)
+                    }
+                    if let updatedReceipt = try transactions(includeDeleted: true).first(where: { $0.id == receipt.id }) {
+                        try setMetadata(String(updatedReceipt.revision), for: historicalRevisionKey(receiptSourceID))
+                    }
+                }
+                if let updatedExpense = try transactions(includeDeleted: true).first(where: { $0.id == expense.id }) {
+                    try setMetadata(String(updatedExpense.revision),
+                                    for: historicalRevisionKey(reconciliation.expenseSourceID))
+                }
             }
             for chosen in same where !skipped.contains(chosen.imported.sourceMovementID ?? "") {
                 try linkRecurringTransactionInTransaction(chosen.imported.id,

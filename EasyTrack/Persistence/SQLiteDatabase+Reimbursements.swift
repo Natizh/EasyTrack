@@ -117,7 +117,8 @@ extension SQLiteDatabase {
                                         manageTransaction: Bool = true) throws {
         if manageTransaction { try execute("BEGIN IMMEDIATE") }
         do {
-            guard let expense = try transaction(expenseID), expense.kind == .expense else {
+            guard let expense = try transaction(expenseID),
+                  expense.kind == .expense || expense.kind == .advanceForOthers else {
                 throw ReimbursementError.expenseRequired
             }
             guard let gross = verifiedEUR(expense), expectedEURMinor > 0, expectedEURMinor <= gross else {
@@ -160,7 +161,6 @@ extension SQLiteDatabase {
             guard !(try reimbursementLinks().contains { $0.reimbursementID == reimbursementID }) else {
                 throw ReimbursementError.alreadyLinked
             }
-            guard sameAccount(expense, reimbursement) else { throw ReimbursementError.accountMismatch }
             guard verifiedCurrency(expense), verifiedCurrency(reimbursement),
                   let amount = verifiedEUR(reimbursement) else { throw ReimbursementError.conversionRequired }
             guard amount <= status.outstandingEURMinor else { throw ReimbursementError.overpayment }
@@ -257,10 +257,13 @@ extension SQLiteDatabase {
         guard input.deletedAt == nil else { return input }
         var item = input
         if let status = try reimbursementStatuses().first(where: { $0.expenseID == input.id }) {
-            guard input.kind == .expense, let gross = verifiedEUR(input), status.expectedEURMinor <= gross else {
+            guard (input.kind == .expense || input.kind == .advanceForOthers),
+                  let gross = verifiedEUR(input), status.expectedEURMinor <= gross else {
                 throw ReimbursementError.invalidExpectedAmount
             }
-            item.personalExpenseEURMinor = gross - status.expectedEURMinor + status.writtenOffEURMinor
+            item.personalExpenseEURMinor = input.kind == .expense
+                ? gross - status.expectedEURMinor + status.writtenOffEURMinor
+                : status.writtenOffEURMinor
             item.recoverableEURMinor = status.outstandingEURMinor
         }
         if let link = try reimbursementLinks().first(where: { $0.reimbursementID == input.id }) {
@@ -322,11 +325,6 @@ extension SQLiteDatabase {
 
     private func verifiedCurrency(_ item: Transaction) -> Bool {
         item.currency == "EUR" || (item.eurMinor != nil && item.exchangeRateEUR?.isEmpty == false)
-    }
-
-    private func sameAccount(_ lhs: Transaction, _ rhs: Transaction) -> Bool {
-        if let left = lhs.accountID, let right = rhs.accountID { return left == right }
-        return NotificationParser.normalize(lhs.account) == NotificationParser.normalize(rhs.account)
     }
 
     private static func checkedAdd(_ lhs: Int64, _ rhs: Int64) throws -> Int64 {

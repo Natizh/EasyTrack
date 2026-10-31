@@ -209,6 +209,43 @@ final class ImportTests: XCTestCase {
         try target.checkDatabase()
     }
 
+    func testSeedThreeImportsCrossAccountAdvanceReimbursementIdempotently() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-seed-reimbursement-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let database = try SQLiteDatabase(url: folder.appendingPathComponent("ledger.sqlite"))
+        var advance = movement("advance-source", row: 10)
+        advance.transaction.kind = .advanceForOthers
+        advance.transaction.account = "Synthetic source account"
+        advance.transaction.currency = "EUR"
+        advance.transaction.amountMinor = 1_500
+        advance.transaction.eurMinor = 1_500
+        advance.transaction.personalExpenseEURMinor = 0
+        advance.transaction.recoverableEURMinor = 1_500
+        var receipt = movement("receipt-source", row: 11)
+        receipt.transaction.kind = .reimbursement
+        receipt.transaction.account = "Synthetic destination account"
+        receipt.transaction.currency = "EUR"
+        receipt.transaction.amountMinor = 1_500
+        receipt.transaction.eurMinor = 1_500
+        receipt.transaction.personalExpenseEURMinor = -1_500
+        receipt.transaction.recoverableEURMinor = 0
+        let reconciliation = HistoricalReimbursementReconciliation(linkID: "synthetic-link",
+            expenseSourceID: "advance-source", expectedEURMinor: 1_500,
+            receiptSourceID: "receipt-source", receivedEURMinor: 1_500,
+            status: "received", note: nil)
+        let historical = seed([advance, receipt], digest: "reimbursement-v3",
+                              reimbursements: [reconciliation])
+        _ = try database.importHistoricalSeed(historical)
+        XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 0)
+        XCTAssertEqual(try database.reimbursementLinks().count, 1)
+        XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 0)
+        let repeated = try database.importHistoricalSeed(historical)
+        XCTAssertEqual(repeated.newMovements, 0)
+        XCTAssertEqual(try database.transactions().count, 2)
+        XCTAssertEqual(try database.reimbursementLinks().count, 1)
+    }
+
     private func movement(_ sourceID: String, row: Int) -> ImportedMovement {
         var item = Transaction(id: UUID(), kind: .advanceForOthers, amountMinor: 1_500,
                                currency: "CNY", merchant: "Synthetic advance", account: "Synthetic account",
@@ -224,9 +261,12 @@ final class ImportTests: XCTestCase {
     }
 
     private func seed(_ movements: [ImportedMovement], digest: String,
-                      accounts: [HistoricalAccount] = []) -> ValidatedSeed {
-        ValidatedSeed(schemaVersion: 2, digest: digest, movements: movements, accounts: accounts, trips: [], rules: [],
-                      rates: [], sourceRows: [], warnings: [], unmatchedAccountLabels: 0, missingAccountLabels: 0)
+                      accounts: [HistoricalAccount] = [],
+                      reimbursements: [HistoricalReimbursementReconciliation] = []) -> ValidatedSeed {
+        ValidatedSeed(schemaVersion: reimbursements.isEmpty ? 2 : 3, digest: digest,
+                      movements: movements, accounts: accounts, trips: [], rules: [],
+                      rates: [], sourceRows: [], warnings: [], reimbursements: reimbursements,
+                      unmatchedAccountLabels: 0, missingAccountLabels: 0)
     }
 
     private func makeSchemaTwoSeed(at url: URL) throws {

@@ -37,6 +37,16 @@ struct ImportedMovement {
     let sourcePayloadJSON: String
 }
 
+struct HistoricalReimbursementReconciliation: Equatable {
+    let linkID: String
+    let expenseSourceID: String
+    let expectedEURMinor: Int64
+    let receiptSourceID: String?
+    let receivedEURMinor: Int64
+    let status: String
+    let note: String?
+}
+
 struct ValidatedSeed {
     let schemaVersion: Int
     let digest: String
@@ -47,13 +57,15 @@ struct ValidatedSeed {
     let rates: [HistoricalExchangeRate]
     let sourceRows: [HistoricalSourceRow]
     let warnings: [HistoricalImportWarning]
+    let reimbursements: [HistoricalReimbursementReconciliation]
     let unmatchedAccountLabels: Int
     let missingAccountLabels: Int
 
     var counts: [String: Int] {
         ["movements": movements.count, "accounts": accounts.count, "trips": trips.count,
          "recurring rules": rules.count, "exchange rates": rates.count,
-         "source rows": sourceRows.count, "migration warnings": warnings.count]
+         "source rows": sourceRows.count, "migration warnings": warnings.count,
+         "reimbursements": reimbursements.count]
     }
 }
 
@@ -67,6 +79,7 @@ struct HistoricalImportPreview {
     let recurringRules: Int
     let exchangeRates: Int
     let migrationWarnings: Int
+    let reimbursements: Int
     let unmatchedAccountLabels: Int
     let missingAccountLabels: Int
     let sourceChanged: Bool
@@ -211,8 +224,8 @@ final class SeedMapper {
 
     func read(url: URL) throws -> ValidatedSeed {
         guard let versionText = try scalar("SELECT value FROM migration_meta WHERE key = 'schema_version'"),
-              let schemaVersion = Int(versionText), [1, 2].contains(schemaVersion) else {
-            throw SeedImportError.invalidSchema("migration_meta.schema_version must be 1 or 2")
+              let schemaVersion = Int(versionText), [1, 2, 3].contains(schemaVersion) else {
+            throw SeedImportError.invalidSchema("migration_meta.schema_version must be 1, 2, or 3")
         }
         guard try scalar("PRAGMA quick_check") == "ok" else {
             throw SeedImportError.invalidSchema("SQLite integrity check failed")
@@ -226,11 +239,15 @@ final class SeedMapper {
             "source_rows": ["source_sheet", "source_row", "cell_values_json"],
             "migration_warnings": ["source_sheet", "source_row", "code", "detail"]
         ]
-        if schemaVersion == 2 {
+        if schemaVersion >= 2 {
             required["movements"]?.formUnion([
                 "eur_value_source", "exchange_rate_date", "exchange_rate_provider",
                 "account_amount_minor", "account_currency"
             ])
+        }
+        if schemaVersion >= 3 {
+            required["reimbursement_reconciliations"] = ["link_id", "expense_source_id",
+                "expected_eur_minor", "receipt_source_id", "received_eur_minor", "status", "note"]
         }
         for (table, columns) in required {
             let stmt = try statement("PRAGMA table_info(\(table))")
@@ -250,6 +267,7 @@ final class SeedMapper {
         let sourceRows = try readSourceRows(&issues)
         let sourceRowKeys = Set(sourceRows.map { "\($0.sheet):\($0.row)" })
         let warnings = try readWarnings()
+        let reimbursements = schemaVersion >= 3 ? try readReimbursements(&issues) : []
         let accountNames = Set(accounts.map(\.sourceName))
         let (movements, unmatchedAccounts, missingAccounts) = try readMovements(
             schemaVersion: schemaVersion, tripIDs: tripIDs, accountNames: accountNames,
@@ -261,7 +279,8 @@ final class SeedMapper {
         let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
         return ValidatedSeed(schemaVersion: schemaVersion, digest: digest, movements: movements, accounts: accounts,
                              trips: trips, rules: rules, rates: rates, sourceRows: sourceRows,
-                             warnings: warnings, unmatchedAccountLabels: unmatchedAccounts,
+                             warnings: warnings, reimbursements: reimbursements,
+                             unmatchedAccountLabels: unmatchedAccounts,
                              missingAccountLabels: missingAccounts)
     }
 
@@ -368,6 +387,39 @@ final class SeedMapper {
                                                 code: text(stmt, 2) ?? "", detail: text(stmt, 3)))
         }
         return rows
+    }
+
+    private func readReimbursements(_ issues: inout [ImportIssue]) throws -> [HistoricalReimbursementReconciliation] {
+        let stmt = try statement("""
+            SELECT link_id,expense_source_id,expected_eur_minor,receipt_source_id,
+                   received_eur_minor,status,note
+            FROM reimbursement_reconciliations ORDER BY link_id
+            """)
+        defer { sqlite3_finalize(stmt) }
+        var result: [HistoricalReimbursementReconciliation] = []
+        var ids = Set<String>()
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let linkID = text(stmt, 0) ?? ""
+            let expenseID = text(stmt, 1) ?? ""
+            let expected = integer(stmt, 2) ?? 0
+            let receiptID = text(stmt, 3)
+            let received = integer(stmt, 4) ?? 0
+            let status = text(stmt, 5) ?? ""
+            guard !linkID.isEmpty, ids.insert(linkID).inserted, !expenseID.isEmpty,
+                  expected > 0, received >= 0, received <= expected,
+                  ["pending", "received"].contains(status),
+                  (status == "received") == (receiptID?.isEmpty == false),
+                  (status == "received" ? received > 0 : received == 0) else {
+                issues.append(ImportIssue(table: "reimbursement_reconciliations", sourceRow: nil,
+                    field: "identity, amounts, receipt, or status", reason: "invalid reconciliation"))
+                continue
+            }
+            result.append(HistoricalReimbursementReconciliation(linkID: linkID,
+                expenseSourceID: expenseID, expectedEURMinor: expected,
+                receiptSourceID: receiptID, receivedEURMinor: received,
+                status: status, note: text(stmt, 6)))
+        }
+        return result
     }
 
     private func readMovements(schemaVersion: Int, tripIDs: Set<String>, accountNames: Set<String>, sourceRowKeys: Set<String>,

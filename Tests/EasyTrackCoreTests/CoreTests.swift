@@ -2,6 +2,28 @@ import XCTest
 @testable import EasyTrackCore
 
 final class CoreTests: XCTestCase {
+    func testProductionInitializationRemovesOnlyDemoRowsAndNeverSeedsNewOnes() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("EasyTrack-production-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let database = try SQLiteDatabase(url: folder.appendingPathComponent("ledger.sqlite"))
+        try database.seedDemoIfNeeded()
+        var real = Transaction(id: UUID(), kind: .expense, amountMinor: 100, currency: "EUR",
+            merchant: "Synthetic real row", account: "Synthetic", category: "", note: "",
+            occurredAt: .now, updatedAt: .now, deletedAt: nil, isDemo: false, revision: 0,
+            sourceEventID: nil)
+        real.eurMinor = 100; real.personalExpenseEURMinor = 100
+        _ = try database.save(real)
+        try database.prepareProductionLedger()
+        XCTAssertEqual(try database.transactions().map(\.id), [real.id])
+        XCTAssertFalse(try database.transactions().contains(where: \.isDemo))
+        try database.prepareProductionLedger()
+        XCTAssertEqual(try database.transactions().map(\.id), [real.id])
+
+        let fresh = try SQLiteDatabase(url: folder.appendingPathComponent("fresh.sqlite"))
+        try fresh.prepareProductionLedger()
+        XCTAssertTrue(try fresh.transactions().isEmpty)
+    }
     func testMoneyRejectsExcessPrecisionAndUsesMinorUnits() {
         XCTAssertEqual(Money.parseEUR("12,34"), 1234)
         XCTAssertEqual(Money.parseEUR("0.01"), 1)

@@ -85,7 +85,7 @@ final class RecurringReconciliationTests: XCTestCase {
     private func seed(_ movements: [ImportedMovement]) -> ValidatedSeed {
         ValidatedSeed(schemaVersion: 1, digest: "fictional-bulk-digest",
                       movements: movements, accounts: [], trips: [], rules: [], rates: [],
-                      sourceRows: [], warnings: [], unmatchedAccountLabels: 0,
+                      sourceRows: [], warnings: [], reimbursements: [], unmatchedAccountLabels: 0,
                       missingAccountLabels: 0)
     }
 

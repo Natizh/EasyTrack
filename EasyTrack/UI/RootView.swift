@@ -150,12 +150,10 @@ struct OnboardingView: View {
     }
 }
 
-private struct DemoBanner: View {
+private struct HistoricalImportBanner: View {
     @Environment(\.easyTrackTheme) private var theme
-    let hasDemo: Bool
     var body: some View {
-        Label(hasDemo ? "Demo entries are marked · History not imported" : "Historical seed not imported",
-              systemImage: "info.circle")
+        Label("Historical seed not imported", systemImage: "info.circle")
             .font(.caption.weight(.medium))
             .foregroundStyle(theme.accent)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -447,7 +445,7 @@ private struct HomeView: View {
                         }
                     }
                     if !store.hasHistoricalImport {
-                        DemoBanner(hasDemo: store.transactions.contains { $0.isDemo })
+                        HistoricalImportBanner()
                     }
                 }
 
@@ -877,7 +875,7 @@ private struct TransactionsView: View {
             }
             List {
                 if !store.hasHistoricalImport {
-                    Section { DemoBanner(hasDemo: store.transactions.contains { $0.isDemo })
+                    Section { HistoricalImportBanner()
                         .listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 }
                 Section("Transactions · \(filtered.count)") {
