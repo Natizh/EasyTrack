@@ -424,7 +424,7 @@ final class SeedMapper {
 
     private func readMovements(schemaVersion: Int, tripIDs: Set<String>, accountNames: Set<String>, sourceRowKeys: Set<String>,
                                issues: inout [ImportIssue]) throws -> ([ImportedMovement], Int, Int) {
-        let buildFiveColumns = schemaVersion == 2
+        let buildFiveColumns = schemaVersion >= 2
             ? "eur_value_source,exchange_rate_date,exchange_rate_provider,account_amount_minor,account_currency"
             : "NULL,NULL,NULL,NULL,NULL"
         let stmt = try statement("SELECT id,occurred_at,amount_minor,currency,eur_minor,exchange_rate_eur,description,kind,category,subcategory,account,trip_id,paid_by,affects_my_accounts,personal_expense_eur_minor,recoverable_eur_minor,needs_review,review_reason,origin,entered_at,note,home_type,source_sheet,source_row,source_technical_id,cached_personal_value,import_fingerprint,\(buildFiveColumns) FROM movements ORDER BY source_row")
