@@ -1809,13 +1809,10 @@ private struct BackupDocument: FileDocument {
 private struct SettingsView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.easyTrackTheme) private var theme
-    private enum PickerPurpose { case seed, folder, backup }
+    private enum PickerPurpose { case seed, backup }
     @State private var showingFilePicker = false
     @State private var pickerPurpose: PickerPurpose = .seed
     @State private var selectedSeedFile: URL?
-    @State private var folderSelected = false
-    @State private var probeStatus = "No folder selected"
-    @State private var probing = false
     @State private var backupDocument: BackupDocument?
     @State private var showingExporter = false
     @State private var backupStatus: String?
@@ -1897,27 +1894,11 @@ private struct SettingsView: View {
                     .font(.footnote).foregroundStyle(.secondary)
                 if let notificationStatus { Text(notificationStatus).font(.footnote).foregroundStyle(.secondary) }
             }
-            Section("Storage") {
-                Label("Local database · available offline", systemImage: "internaldrive")
-                Text("EasyTrack.sqlite stays in this app’s private storage. Updates should keep it; deleting the app removes it.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
             HistoricalImportSection(selectedFile: $selectedSeedFile) {
                 pickerPurpose = .seed
                 showingFilePicker = true
             }
             HistoricalReferenceSection()
-            Section("Folder access prototype") {
-                Text("Select a folder in Files, then write and reread a small JSON test file. This does not synchronize transactions.")
-                    .font(.footnote).foregroundStyle(.secondary)
-                Button("Choose folder in Files") {
-                    pickerPurpose = .folder
-                    showingFilePicker = true
-                }
-                Button(probing ? "Testing…" : "Write and read test file") { runProbe() }
-                    .disabled(!folderSelected || probing)
-                Text(probeStatus).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
-            }
             Section("Backup") {
                 Toggle("Backup reminder", isOn: Binding(
                     get: { store.backupReminderPreferences.isEnabled },
@@ -2020,19 +2001,11 @@ private struct SettingsView: View {
         }
         .listRowSpacing(theme.listRowSpacing)
         .navigationTitle("Settings")
-        .task { folderSelected = await FolderProbe.shared.hasSavedFolder(); if folderSelected { probeStatus = "Folder bookmark saved" } }
         .sheet(isPresented: $showingFilePicker) {
-            SystemDocumentPicker(contentTypes: pickerPurpose == .folder ? [.folder] :
-                                 pickerPurpose == .backup ? [.json] : [.data]) { url in
+            SystemDocumentPicker(contentTypes: pickerPurpose == .backup ? [.json] : [.data]) { url in
                 showingFilePicker = false
                 if pickerPurpose == .seed { selectedSeedFile = url }
-                else if pickerPurpose == .backup { stageBackup(url) }
-                else {
-                    Task {
-                        do { try await FolderProbe.shared.select(url); folderSelected = true; probeStatus = "Folder bookmark saved" }
-                        catch { probeStatus = error.localizedDescription }
-                    }
-                }
+                else { stageBackup(url) }
             } onCancel: {
                 showingFilePicker = false
             }
@@ -2110,15 +2083,4 @@ private struct SettingsView: View {
         }
     }
 
-    private func runProbe() {
-        probing = true
-        probeStatus = "Writing and rereading…"
-        Task {
-            do {
-                let operation = try await FolderProbe.shared.writeAndRead()
-                probeStatus = "Read back OK · operation \(operation.operationID.uuidString)"
-            } catch { probeStatus = error.localizedDescription }
-            probing = false
-        }
-    }
 }
