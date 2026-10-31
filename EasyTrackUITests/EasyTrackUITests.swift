@@ -66,6 +66,10 @@ final class EasyTrackUITests: XCTestCase {
         XCTAssertEqual(month.label, currentLabel)
 
         app.tabBars.buttons["Settings"].tap()
+        XCTAssertFalse(app.staticTexts["Local database · available offline"].exists)
+        XCTAssertFalse(app.buttons["Choose folder in Files"].exists)
+        XCTAssertFalse(app.buttons["Write and read test file"].exists)
+        XCTAssertTrue(app.buttons["Choose SQLite seed"].exists)
         let categories = app.buttons["settingsCategoriesLink"]
         for _ in 0..<5 where !categories.isHittable { app.swipeUp() }
         XCTAssertTrue(categories.isHittable, app.debugDescription)
@@ -133,7 +137,7 @@ final class EasyTrackUITests: XCTestCase {
         app.navigationBars.buttons["Automations"].tap()
 
         app.tabBars.buttons["Settings"].tap()
-        XCTAssertTrue(app.staticTexts["Local database · available offline"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Choose SQLite seed"].exists)
         attach(app, name: "settings-demo-only")
     }
@@ -231,57 +235,6 @@ final class EasyTrackUITests: XCTestCase {
         search.typeText("Synthetic Account")
         XCTAssertTrue(app.staticTexts["Synthetic Edited Purchase"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", newAmount)).firstMatch.exists)
-    }
-
-    @MainActor
-    func testFolderProbeWriteAndRead() throws {
-        let app = XCUIApplication()
-        app.launch()
-        app.tabBars.buttons["Settings"].tap()
-        let oneImported = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 historical movements imported")).firstMatch
-        guard oneImported.waitForExistence(timeout: 5) else {
-            throw XCTSkip("Requires the synthetic imported fixture")
-        }
-        app.swipeUp()
-        if !app.staticTexts["Folder bookmark saved"].exists {
-            let chooseFolder = app.buttons["Choose folder in Files"]
-            for _ in 0..<3 where !chooseFolder.isHittable { app.swipeUp() }
-            XCTAssertTrue(chooseFolder.waitForExistence(timeout: 5))
-            chooseFolder.tap()
-            let browse = app.buttons["Browse"]
-            XCTAssertTrue(browse.waitForExistence(timeout: 20))
-            browse.tap()
-            let local = app.staticTexts["On My iPhone"]
-            if local.exists { local.tap() }
-            let folder = app.staticTexts["EasyTrack"]
-            XCTAssertTrue(folder.waitForExistence(timeout: 10), app.debugDescription)
-            folder.tap()
-            for label in ["Open", "Choose", "Done"] where app.buttons[label].exists {
-                app.buttons[label].tap()
-                break
-            }
-        }
-        XCTAssertTrue(app.staticTexts["Folder bookmark saved"].waitForExistence(timeout: 10), app.debugDescription)
-        app.tabBars.buttons["Home"].tap()
-        app.tabBars.buttons["Settings"].tap()
-        app.swipeUp()
-        runFolderProbe(in: app)
-        app.terminate()
-        app.launch()
-        app.tabBars.buttons["Settings"].tap()
-        app.swipeUp()
-        XCTAssertTrue(app.staticTexts["Folder bookmark saved"].waitForExistence(timeout: 10))
-        runFolderProbe(in: app)
-    }
-
-    @MainActor
-    private func runFolderProbe(in app: XCUIApplication) {
-        let button = app.buttons["Write and read test file"]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(button.isEnabled, "The folder test button is disabled despite a saved bookmark")
-        button.tap()
-        let success = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Read back OK")).firstMatch
-        XCTAssertTrue(success.waitForExistence(timeout: 15), app.debugDescription)
     }
 
     @MainActor

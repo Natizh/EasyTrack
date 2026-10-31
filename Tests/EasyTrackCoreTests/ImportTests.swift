@@ -120,26 +120,39 @@ final class ImportTests: XCTestCase {
             exchange_rate_provider='Synthetic rates' WHERE id='jpy-historical';
         """
         let rc = sqlite3_exec(handle, sql, nil, nil, nil)
+        var rawStatement: OpaquePointer?
+        XCTAssertEqual(sqlite3_prepare_v2(handle, """
+            SELECT eur_value_source,exchange_rate_date,exchange_rate_provider,
+                   account_amount_minor,account_currency
+            FROM movements WHERE id='jpy-historical'
+            """, -1, &rawStatement, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_step(rawStatement), SQLITE_ROW)
+        let rawSource = String(cString: sqlite3_column_text(rawStatement, 0))
+        let rawDate = String(cString: sqlite3_column_text(rawStatement, 1))
+        let rawProvider = String(cString: sqlite3_column_text(rawStatement, 2))
+        let rawAccountAmount = sqlite3_column_int64(rawStatement, 3)
+        let rawAccountCurrency = String(cString: sqlite3_column_text(rawStatement, 4))
+        sqlite3_finalize(rawStatement)
         sqlite3_close(handle)
         XCTAssertEqual(rc, SQLITE_OK)
 
         let seed = try SeedMapper(url: url).read(url: url)
         XCTAssertEqual(seed.schemaVersion, 3)
         let sourceJPY = try XCTUnwrap(seed.movements.first { $0.transaction.sourceMovementID == "jpy-historical" }?.transaction)
-        XCTAssertEqual(sourceJPY.eurValueSource, .historical)
-        XCTAssertEqual(sourceJPY.exchangeRateDate, "2026-01-02")
-        XCTAssertEqual(sourceJPY.exchangeRateProvider, "Synthetic rates")
-        XCTAssertEqual(sourceJPY.accountAmountMinor, 1_250)
-        XCTAssertEqual(sourceJPY.accountCurrency, "JPY")
+        XCTAssertEqual(sourceJPY.eurValueSource?.rawValue, rawSource)
+        XCTAssertEqual(sourceJPY.exchangeRateDate, rawDate)
+        XCTAssertEqual(sourceJPY.exchangeRateProvider, rawProvider)
+        XCTAssertEqual(sourceJPY.accountAmountMinor, rawAccountAmount)
+        XCTAssertEqual(sourceJPY.accountCurrency, rawAccountCurrency)
 
         let db = try SQLiteDatabase(url: folder.appendingPathComponent("ledger.sqlite"))
         _ = try db.importHistoricalSeed(seed)
         let stored = try XCTUnwrap(db.transactions().first { $0.sourceMovementID == "jpy-historical" })
-        XCTAssertEqual(stored.eurValueSource, .historical)
-        XCTAssertEqual(stored.exchangeRateDate, "2026-01-02")
-        XCTAssertEqual(stored.exchangeRateProvider, "Synthetic rates")
-        XCTAssertEqual(stored.accountAmountMinor, 1_250)
-        XCTAssertEqual(stored.accountCurrency, "JPY")
+        XCTAssertEqual(stored.eurValueSource?.rawValue, rawSource)
+        XCTAssertEqual(stored.exchangeRateDate, rawDate)
+        XCTAssertEqual(stored.exchangeRateProvider, rawProvider)
+        XCTAssertEqual(stored.accountAmountMinor, rawAccountAmount)
+        XCTAssertEqual(stored.accountCurrency, rawAccountCurrency)
     }
 
     func testIncrementalAddChangeRemovalAndLocalEditProtection() throws {
