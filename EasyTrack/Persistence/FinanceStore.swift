@@ -17,6 +17,7 @@ final class FinanceStore: ObservableObject {
     @Published private(set) var historicalTrips: [HistoricalTrip] = []
     @Published private(set) var historicalRules: [HistoricalRecurringRule] = []
     @Published private(set) var dashboardWidgetPreferences: [DashboardWidgetPreference] = []
+    @Published private(set) var dashboardHeroPreferences = DashboardHeroPreferences.default
     @Published private(set) var merchantAliasGroups: [MerchantAliasGroup] = []
     @Published private(set) var reimbursementStatuses: [ExpenseReimbursementStatus] = []
     @Published private(set) var categoryKeywordRules: [CategoryKeywordRule] = []
@@ -70,6 +71,7 @@ final class FinanceStore: ObservableObject {
             historicalTrips = try database.historicalTrips()
             historicalRules = try database.historicalRules()
             dashboardWidgetPreferences = try database.dashboardWidgetPreferences()
+            dashboardHeroPreferences = try database.dashboardHeroPreferences()
             merchantAliasGroups = try database.merchantAliasGroups()
             reimbursementStatuses = try database.reimbursementStatuses()
             categoryKeywordRules = try database.categoryKeywordRules()
@@ -180,6 +182,11 @@ final class FinanceStore: ObservableObject {
     func resetDashboardWidgetPreferences() throws {
         try SQLiteDatabase.open().resetDashboardWidgetPreferences()
         reload()
+    }
+
+    func saveDashboardHeroPreferences(_ preferences: DashboardHeroPreferences) throws {
+        try SQLiteDatabase.open().saveDashboardHeroPreferences(preferences)
+        dashboardHeroPreferences = preferences.resolved
     }
 
     func saveMerchantAliasGroup(_ group: MerchantAliasGroup) throws {

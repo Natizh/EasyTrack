@@ -674,6 +674,11 @@ private struct AutomationSourceView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let detail = attempt.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+            if let ruleID = attempt.ruleID,
+               let matchedRule = rules.first(where: { $0.id == ruleID }) {
+                Label("Format: \(matchedRule.name)", systemImage: "doc.text.magnifyingglass")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if attempt.status == .recurringReview,
                let candidate = store.recurringCandidates.first(where: {
                    $0.eventID == attempt.event.id && $0.status == .pending
@@ -685,13 +690,13 @@ private struct AutomationSourceView: View {
                 .accessibilityIdentifier("reviewRecurringMatch")
             }
             HStack {
-                if [.setupRequired, .unmatched, .failed].contains(attempt.status) {
+                if [.setupRequired, .unmatched, .ambiguous, .failed].contains(attempt.status) {
                     Button(attempt.status == .unmatched ? "Add notification format" : "Set up format") {
                         setupAttempt = attempt
                     }
                         .buttonStyle(.borderedProminent).tint(theme.accent)
                 }
-                if [.failed, .unmatched, .ready, .setupRequired].contains(attempt.status) && !rules.isEmpty {
+                if [.failed, .unmatched, .ambiguous, .ready, .setupRequired].contains(attempt.status) && !rules.isEmpty {
                     Button("Retry") {
                         do { try store.processAttempt(attempt.id) }
                         catch { store.errorMessage = error.localizedDescription }
@@ -715,7 +720,7 @@ private struct AutomationSourceView: View {
         case .recurringReview: "exclamationmark.circle.fill"
         case .duplicateIgnored: "square.on.square"
         case .rejected: "shield.checkered"
-        case .failed: "exclamationmark.triangle.fill"
+        case .failed, .ambiguous: "exclamationmark.triangle.fill"
         case .setupRequired, .unmatched: "wand.and.stars"
         case .captured, .ready: "bell.badge"
         }
@@ -726,7 +731,7 @@ private struct AutomationSourceView: View {
         case .created, .matchedExisting: .green
         case .recurringReview: .orange
         case .rejected: .orange
-        case .failed: .red
+        case .failed, .ambiguous: .red
         case .setupRequired, .unmatched: .orange
         case .duplicateIgnored, .captured, .ready: theme.accent
         }
@@ -836,6 +841,11 @@ private struct ParserBuilderView: View {
     private var preview: ParserPreview {
         NotificationParser.preview(sample.event, config: config, mappedAccount: mappedAccount)
     }
+    private var competingRules: [ParserRule] {
+        store.parserRules.filter { $0.sourceID == source.id && $0.enabled &&
+            $0.id != draftRuleID && NotificationParser.preview(sample.event,
+                config: $0.config, mappedAccount: mappedAccount).ready }
+    }
 
     var body: some View {
         ScrollView {
@@ -861,8 +871,10 @@ private struct ParserBuilderView: View {
                     Picker("Notification matches when", selection: $config.conditionMode) {
                         ForEach(TextMatchMode.allCases.filter { showAdvanced || $0 != .regularExpression }) { Text($0.title).tag($0) }
                     }
-                    TextField("Matching words (optional)", text: $config.conditionText)
+                    TextField("Required words or phrase", text: $config.conditionText)
                         .textInputAutocapitalization(.never)
+                    Text("Choose wording that identifies this movement, such as “paid” or “received”. A shared title alone may match both formats.")
+                        .font(.caption).foregroundStyle(.secondary)
                     DisclosureGroup("Advanced matching", isExpanded: $showAdvanced) {
                         Text("Short regular expressions are allowed. Complex patterns are rejected before saving.")
                             .font(.caption).foregroundStyle(.secondary)
@@ -901,6 +913,12 @@ private struct ParserBuilderView: View {
                       preview.amount.map { Money.format($0.cents) } ?? "No EUR amount found") {
                     TextField("Text immediately before amount (optional)", text: $config.amountPrefix)
                     TextField("Text immediately after amount (optional)", text: $config.amountSuffix)
+                    Picker("Amount sign", selection: $config.requiredAmountSign) {
+                        Text("Any sign").tag(AmountSign?.none)
+                        ForEach(AmountSign.allCases) { sign in
+                            Text(sign.title).tag(Optional(sign))
+                        }
+                    }
                     Text("The number is captured anew for each notification.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -944,10 +962,9 @@ private struct ParserBuilderView: View {
                     .buttonStyle(.bordered).controlSize(.large)
                     .accessibilityIdentifier("testAutomationButton")
                 if tested {
-                    Label(preview.ready ? "Every step passed. Review the transaction below." :
-                            (preview.error ?? "This notification does not match the rule."),
-                          systemImage: preview.ready ? "checkmark.seal.fill" : "exclamationmark.triangle")
-                        .font(.subheadline).foregroundStyle(preview.ready ? .green : .orange)
+                    Label(testResultText,
+                          systemImage: preview.ready && competingRules.isEmpty ? "checkmark.seal.fill" : "exclamationmark.triangle")
+                        .font(.subheadline).foregroundStyle(preview.ready && competingRules.isEmpty ? .green : .orange)
                         .accessibilityIdentifier("parserTestResult")
                 }
                 if let errorMessage { Text(errorMessage).font(.subheadline).foregroundStyle(.red) }
@@ -957,7 +974,7 @@ private struct ParserBuilderView: View {
                 }
                 .buttonStyle(.borderedProminent).controlSize(.large)
                 .frame(maxWidth: .infinity)
-                .disabled(!tested || !preview.ready || saving)
+                .disabled(!tested || !preview.ready || !competingRules.isEmpty || saving)
                 .accessibilityIdentifier("activateAutomationButton")
             }
             .padding(20)
@@ -976,6 +993,18 @@ private struct ParserBuilderView: View {
         } message: {
             Text("The source account mapping is confirmed once. This format will handle later merchants, and the sample can be added exactly once without a category.")
         }
+    }
+
+    private var testResultText: String {
+        guard preview.ready else {
+            let existing = competingRules.map(\.name).joined(separator: ", ")
+            return existing.isEmpty ? (preview.error ?? "This notification does not match the rule.") :
+                "This draft does not match. Existing format: \(existing). \(preview.error ?? "")"
+        }
+        guard competingRules.isEmpty else {
+            return "Also matches \(competingRules.map(\.name).joined(separator: ", ")). Refine the required wording or sign in the rules before activating."
+        }
+        return "Every step passed. Only \(name.isEmpty ? "this format" : name) matches this notification. Review the transaction below."
     }
 
     private var transactionPreview: some View {
@@ -1040,12 +1069,12 @@ private struct ParserBuilderView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { animatedStep = step }
             }
             tested = true
-            UINotificationFeedbackGenerator().notificationOccurred(preview.ready ? .success : .warning)
+            UINotificationFeedbackGenerator().notificationOccurred(preview.ready && competingRules.isEmpty ? .success : .warning)
         }
     }
 
     private func saveRule(createFirst: Bool) {
-        guard tested && preview.ready && !saving else { return }
+        guard tested && preview.ready && competingRules.isEmpty && !saving else { return }
         saving = true
         errorMessage = nil
         var cleanConfig = config

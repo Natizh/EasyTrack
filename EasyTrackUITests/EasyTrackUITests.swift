@@ -39,14 +39,12 @@ final class EasyTrackUITests: XCTestCase {
         app.launch()
         let total = app.staticTexts["homePersonalSpendingTotal"]
         XCTAssertTrue(total.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.staticTexts["Income"].exists)
-        XCTAssertTrue(app.staticTexts["PAC invested"].exists)
-        XCTAssertTrue(app.staticTexts["Daily average"].exists)
 
         let month = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Selected month,")).firstMatch
         let previous = app.buttons["Previous month"]
         let next = app.buttons["Next month"]
         XCTAssertTrue(month.waitForExistence(timeout: 5))
+        for _ in 0..<73 where next.isEnabled { next.tap() }
         let currentLabel = month.label
         previous.tap()
         XCTAssertNotEqual(month.label, currentLabel)
@@ -60,8 +58,6 @@ final class EasyTrackUITests: XCTestCase {
         }
         XCTAssertTrue(foundEmptyMonth, "Expected to reach a visually empty historical month")
         XCTAssertTrue(total.exists)
-        XCTAssertTrue(app.staticTexts["Daily average"].exists)
-        attach(app, name: "home-empty-month-adaptive-hero")
         for _ in 0..<73 where next.isEnabled { next.tap() }
         XCTAssertEqual(month.label, currentLabel)
 
@@ -95,11 +91,60 @@ final class EasyTrackUITests: XCTestCase {
         accounts.tap()
         XCTAssertTrue(app.navigationBars["Accounts"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["defaultExpenseAccountPicker"].exists)
-        attach(app, name: "accounts-default-and-everyday-navigation")
+        XCTAssertFalse(app.staticTexts["Selected"].exists)
         app.navigationBars.buttons["Settings"].tap()
         let seedImport = app.buttons["Choose SQLite seed"]
         for _ in 0..<10 where !seedImport.exists { app.swipeUp() }
         XCTAssertTrue(seedImport.waitForExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor
+    func testHeroCustomizationPersistsAndRestores() throws {
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["customizeHomeButton"].tap()
+        XCTAssertTrue(app.navigationBars["Customize Home"].waitForExistence(timeout: 5))
+        let reset = app.buttons["Restore default layout"]
+        for _ in 0..<8 where !reset.isHittable { app.swipeUp() }
+        reset.tap()
+        app.buttons["Restore defaults"].tap()
+
+        let picker = app.descendants(matching: .any)["homePrimaryMetricPicker"]
+        for _ in 0..<8 where !picker.isHittable { app.swipeDown() }
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        picker.tap()
+        app.buttons["Total expenses"].tap()
+        let previewTotal = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ AND label CONTAINS %@",
+            "homePersonalSpendingTotal", "Total expenses")).firstMatch
+        XCTAssertTrue(previewTotal.exists)
+        app.buttons["Done"].tap()
+        let total = app.staticTexts["homePersonalSpendingTotal"]
+        XCTAssertTrue(total.label.contains("Total expenses"))
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(total.waitForExistence(timeout: 5))
+        XCTAssertTrue(total.label.contains("Total expenses"))
+
+        app.buttons["customizeHomeButton"].tap()
+        for _ in 0..<8 where !reset.isHittable { app.swipeUp() }
+        reset.tap()
+        app.buttons["Restore defaults"].tap()
+        app.buttons["Done"].tap()
+        XCTAssertTrue(total.label.contains("Net personal spending"))
+    }
+
+    @MainActor
+    func testAccountsDefaultPickerHasNoDuplicateSelectionRow() throws {
+        let app = XCUIApplication()
+        app.launch()
+        app.tabBars.buttons["Settings"].tap()
+        let accounts = app.buttons["settingsAccountsLink"]
+        for _ in 0..<8 where !accounts.isHittable { app.swipeUp() }
+        accounts.tap()
+        XCTAssertTrue(app.navigationBars["Accounts"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["defaultExpenseAccountPicker"].exists)
+        XCTAssertFalse(app.staticTexts["Selected"].exists)
     }
 
     @MainActor

@@ -81,11 +81,64 @@ private struct EditableDashboardWidget: Identifiable {
 struct DashboardWidgetEditorView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.dismiss) private var dismiss
+    let snapshot: FinancialAnalyticsSnapshot?
+    let periodTitle: String
     @State private var items: [EditableDashboardWidget] = []
+    @State private var hero = DashboardHeroPreferences.default
     @State private var confirmingReset = false
 
     var body: some View {
         List {
+            Section("Preview") {
+                FinancialHeroCard(snapshot: snapshot, periodTitle: periodTitle, preferences: hero)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+            Section("Main value") {
+                Picker("Show prominently", selection: Binding(
+                    get: { hero.primary },
+                    set: { metric in
+                        hero.primary = metric
+                        hero = hero.resolved
+                        persistHero()
+                    })) {
+                    ForEach(DashboardHeroMetric.allCases) { metric in
+                        Label(metric.title, systemImage: metric.symbol).tag(metric)
+                    }
+                }
+                .accessibilityIdentifier("homePrimaryMetricPicker")
+            }
+            Section {
+                ForEach(hero.secondary) { metric in
+                    HStack {
+                        Label(metric.title, systemImage: metric.symbol)
+                        Spacer()
+                        Button { hero.secondary.removeAll { $0 == metric }; persistHero() } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(metric.title)")
+                    }
+                }
+                .onMove { source, destination in
+                    hero.secondary.move(fromOffsets: source, toOffset: destination)
+                    persistHero()
+                }
+                if !availableMetrics.isEmpty {
+                    Menu {
+                        ForEach(availableMetrics) { metric in
+                            Button { hero.secondary.append(metric); persistHero() } label: {
+                                Label(metric.title, systemImage: metric.symbol)
+                            }
+                        }
+                    } label: { Label("Add metric", systemImage: "plus.circle") }
+                }
+            } header: {
+                Text("Below the main value")
+            } footer: {
+                Text("Drag to reorder. Only the values shown here appear below the main value.")
+            }
             Section {
                 ForEach(items) { item in
                     Toggle(isOn: visibilityBinding(for: item.id)) {
@@ -95,7 +148,7 @@ struct DashboardWidgetEditorView: View {
                 }
                 .onMove(perform: move)
             } footer: {
-                Text("The financial hero and recent activity always remain first.")
+                Text("Recent activity stays below the financial overview.")
             }
             Section {
                 Button("Restore default layout", role: .destructive) { confirmingReset = true }
@@ -107,14 +160,24 @@ struct DashboardWidgetEditorView: View {
             ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
         }
         .onAppear {
+            hero = store.dashboardHeroPreferences
             items = DashboardWidgetRegistry.resolved(preferences: store.dashboardWidgetPreferences)
                 .map { EditableDashboardWidget(descriptor: $0.0, isVisible: $0.1) }
         }
-        .confirmationDialog("Restore the default widget order and visibility?",
+        .confirmationDialog("Restore the default Home layout?",
                             isPresented: $confirmingReset, titleVisibility: .visible) {
             Button("Restore defaults", role: .destructive) { reset() }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private var availableMetrics: [DashboardHeroMetric] {
+        DashboardHeroMetric.allCases.filter { $0 != hero.primary && !hero.secondary.contains($0) }
+    }
+
+    private func persistHero() {
+        do { try store.saveDashboardHeroPreferences(hero) }
+        catch { store.errorMessage = error.localizedDescription }
     }
 
     private func visibilityBinding(for id: DashboardWidgetID) -> Binding<Bool> {
@@ -144,7 +207,9 @@ struct DashboardWidgetEditorView: View {
 
     private func reset() {
         do {
+            try store.saveDashboardHeroPreferences(.default)
             try store.resetDashboardWidgetPreferences()
+            hero = .default
             items = DashboardWidgetRegistry.available.map {
                 EditableDashboardWidget(descriptor: $0, isVisible: true)
             }

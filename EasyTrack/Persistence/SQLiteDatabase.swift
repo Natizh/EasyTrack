@@ -475,6 +475,23 @@ final class SQLiteDatabase {
         try setAppPreference(value, for: "appearance")
     }
 
+    func dashboardHeroPreferences() throws -> DashboardHeroPreferences {
+        guard let value = try appPreference("dashboardHero"),
+              let data = value.data(using: .utf8),
+              let preferences = try? JSONDecoder().decode(DashboardHeroPreferences.self, from: data) else {
+            return .default
+        }
+        return preferences.resolved
+    }
+
+    func saveDashboardHeroPreferences(_ preferences: DashboardHeroPreferences) throws {
+        let data = try JSONEncoder().encode(preferences.resolved)
+        guard let value = String(data: data, encoding: .utf8) else {
+            throw DatabaseError.sqlite("Could not save Home layout")
+        }
+        try setAppPreference(value, for: "dashboardHero")
+    }
+
     func backupReminderPreferences() throws -> BackupReminderPreferences {
         guard let value = try appPreference("backupReminder"),
               let data = value.data(using: .utf8),
@@ -1867,12 +1884,20 @@ extension SQLiteDatabase {
             date: event.receivedAt ?? event.capturedAt, window: window)
     }
 
-    private func semanticDuplicate(key: String, date: Date, window: Int) throws -> UUID? {
-        try existingTransaction(sql: """
-            SELECT transaction_id FROM semantic_dedup
-            WHERE semantic_key=? AND ABS(occurred_at-?)<=?
-            ORDER BY created_at DESC LIMIT 1
-            """, fingerprint: key, date: date, window: window)
+    private func semanticDuplicate(key: String, date: Date, window: Int,
+                                   kind: TransactionKind) throws -> UUID? {
+        let query = try statement("""
+            SELECT d.transaction_id FROM semantic_dedup AS d
+            JOIN transactions AS t ON t.id=d.transaction_id
+            WHERE d.semantic_key=? AND ABS(d.occurred_at-?)<=? AND t.kind=?
+            ORDER BY d.created_at DESC LIMIT 1
+            """)
+        defer { sqlite3_finalize(query) }
+        bind(key, at: 1, to: query)
+        sqlite3_bind_double(query, 2, date.timeIntervalSince1970)
+        sqlite3_bind_double(query, 3, Double(window))
+        bind(kind.rawValue, at: 4, to: query)
+        return sqlite3_step(query) == SQLITE_ROW ? UUID(uuidString: string(query, 0)) : nil
     }
 
     // Shared by ordinary parser creation and a user-confirmed held recurring notification.
@@ -1980,17 +2005,25 @@ extension SQLiteDatabase {
                                 detail: "Choose the account for this notification source.")
                 return try commitAttempt(id)
             }
-            let rules = try parserRules(sourceID: attempt.sourceID).filter { $0.enabled &&
-                (preferredRuleID == nil || $0.id == preferredRuleID) }
-            var chosen: (ParserRule, ParserPreview)?
+            let rules = try parserRules(sourceID: attempt.sourceID).filter(\.enabled)
+            var matches: [(ParserRule, ParserPreview)] = []
             var incomplete: ParserRule?
             for rule in rules {
                 let preview = NotificationParser.preview(event, config: rule.config,
                                                          mappedAccount: accountName)
-                if preview.ready { chosen = (rule, preview); break }
+                if preview.ready { matches.append((rule, preview)) }
                 if preview.conditionMatched && incomplete == nil { incomplete = rule }
             }
-            guard let (rule, preview) = chosen, let amount = preview.amount,
+            if matches.count > 1 {
+                let names = matches.map { $0.0.name }.joined(separator: ", ")
+                try markAttempt(id, status: .ambiguous,
+                                detail: "Multiple formats match: \(names). Refine their required wording or amount sign.")
+                return try commitAttempt(id)
+            }
+            let chosen = matches.first
+            guard let (rule, preview) = chosen,
+                  preferredRuleID == nil || rule.id == preferredRuleID,
+                  let amount = preview.amount,
                   let merchant = preview.merchant else {
                 let status: ParserAttemptStatus = incomplete == nil ? (rules.isEmpty ? .setupRequired : .unmatched) : .failed
                 try markAttempt(id, status: status, rule: incomplete,
@@ -2001,7 +2034,8 @@ extension SQLiteDatabase {
             let semantic = NotificationParser.semanticFingerprint(amountMinor: amount.cents,
                                                                   merchant: merchant, account: accountName)
             if let duplicate = try semanticDuplicate(key: semantic, date: date,
-                                                     window: rule.config.duplicateWindowSeconds) {
+                                                     window: rule.config.duplicateWindowSeconds,
+                                                     kind: rule.config.kind) {
                 try markAttempt(id, status: .duplicateIgnored, rule: rule,
                                 transactionID: duplicate, semantic: semantic,
                                 detail: "A matching transaction was recorded recently.")
