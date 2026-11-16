@@ -43,10 +43,17 @@ enum MerchantMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum AmountSign: String, Codable, CaseIterable, Identifiable {
+    case positive, negative
+    var id: String { rawValue }
+    var title: String { self == .positive ? "Plus (+)" : "Minus (−)" }
+}
+
 struct ParserRuleConfig: Codable, Equatable {
     var inputField: NotificationField = .message
     var amountPrefix = ""
     var amountSuffix = ""
+    var requiredAmountSign: AmountSign? = nil
     var merchantField: NotificationField = .message
     var merchantMode: MerchantMode = .afterAmount
     var merchantPrefix = ""
@@ -129,7 +136,7 @@ struct ParserRuleRevision: Codable, Equatable {
 }
 
 enum ParserAttemptStatus: String, Codable {
-    case captured, setupRequired, unmatched, rejected, failed, duplicateIgnored, created, ready
+    case captured, setupRequired, unmatched, ambiguous, rejected, failed, duplicateIgnored, created, ready
     case recurringReview, matchedExisting
 
     var title: String {
@@ -137,6 +144,7 @@ enum ParserAttemptStatus: String, Codable {
         case .captured: "Captured"
         case .setupRequired: "Set up notification format"
         case .unmatched: "Add notification format"
+        case .ambiguous: "Ambiguous format"
         case .rejected: "Rejected safely"
         case .failed: "Could not create transaction"
         case .duplicateIgnored: "Duplicate ignored"
@@ -176,6 +184,7 @@ struct AmountCapture: Equatable {
     let cents: Int64
     let currency: String
     let token: String
+    let sign: AmountSign?
     let range: Range<String.Index>
 }
 
@@ -248,7 +257,7 @@ enum NotificationParser {
     }
 
     static func detectedAmounts(in text: String) -> [AmountCapture] {
-        guard let regex = try? NSRegularExpression(pattern: #"(?<![A-Za-z0-9])(?:(?:€|EUR)\s*[0-9][0-9.,]*|[0-9][0-9.,]*\s*(?:€|EUR))(?![A-Za-z0-9])"#, options: [.caseInsensitive]),
+        guard let regex = try? NSRegularExpression(pattern: #"(?<![A-Za-z0-9])(?:[+\-−]\s*)?(?:(?:€|EUR)\s*(?:[+\-−]\s*)?[0-9][0-9.,]*|[0-9][0-9.,]*\s*(?:€|EUR))(?![A-Za-z0-9])"#, options: [.caseInsensitive]),
               let number = try? NSRegularExpression(pattern: #"[0-9][0-9.,]*"#) else { return [] }
         let ns = text as NSString
         return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { match in
@@ -257,7 +266,10 @@ enum NotificationParser {
             guard let numberRange = number.firstMatch(in: token, range: NSRange(location: 0, length: tokenNS.length))?.range,
                   let cents = Money.parseMinor(tokenNS.substring(with: numberRange)), cents > 0,
                   let range = Range(match.range, in: text) else { return nil }
-            return AmountCapture(cents: cents, currency: "EUR", token: token, range: range)
+            let signText = tokenNS.substring(to: numberRange.location)
+            let sign: AmountSign? = signText.contains("-") || signText.contains("−") ? .negative :
+                (signText.contains("+") ? .positive : nil)
+            return AmountCapture(cents: cents, currency: "EUR", token: token, sign: sign, range: range)
         }
     }
 
@@ -269,10 +281,20 @@ enum NotificationParser {
         config.conditionText = event.title.isEmpty ? "" : event.title
         if let amount = detectedAmounts(in: config.inputField.text(in: event)).first {
             let text = config.inputField.text(in: event)
+            let leading = String(text[..<amount.range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let words = leading.split(whereSeparator: { $0.isWhitespace })
+            if !leading.contains("|") && !leading.contains("\n") && (1...5).contains(words.count)
+                && !leading.contains(where: { $0.isNumber }) {
+                config.conditionField = config.inputField
+                config.conditionMode = .beginsWith
+                config.conditionText = leading
+            }
+            config.requiredAmountSign = amount.sign
             let trailing = String(text[amount.range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
             config.merchantMode = trailing.isEmpty ? .beforeAmount : .afterAmount
         }
-        if let merchant = preview(event, config: config, mappedAccount: "sample").merchant,
+        if config.conditionField == .title,
+           let merchant = preview(event, config: config, mappedAccount: "sample").merchant,
            !merchant.isEmpty, event.title.localizedCaseInsensitiveContains(merchant) {
             config.conditionText = ""
         }
@@ -303,7 +325,8 @@ enum NotificationParser {
         let amount = detectedAmounts(in: input).first(where: { capture in
             let before = String(input[..<capture.range.lowerBound])
             let after = String(input[capture.range.upperBound...])
-            return (config.amountPrefix.isEmpty || before.lowercased().hasSuffix(config.amountPrefix.lowercased())) &&
+            return (config.requiredAmountSign == nil || capture.sign == config.requiredAmountSign) &&
+                (config.amountPrefix.isEmpty || before.lowercased().hasSuffix(config.amountPrefix.lowercased())) &&
                 (config.amountSuffix.isEmpty || after.lowercased().hasPrefix(config.amountSuffix.lowercased()))
         })
         guard let amount else {

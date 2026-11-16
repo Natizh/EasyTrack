@@ -103,7 +103,7 @@ final class ParserPersistenceTests: XCTestCase {
         }
     }
 
-    func testMultipleFormatsAndPriority() throws {
+    func testMultipleFormatsRequireUniqueMatchRegardlessOfPriority() throws {
         try temporaryDatabase { _, database in
             let first = event("Paid €12,34 at Cedar Books", at: start)
             let captured = try database.captureNotification(first)
@@ -114,9 +114,9 @@ final class ParserPersistenceTests: XCTestCase {
             let high = try database.saveParserRule(rule(source: source, sample: first,
                                                         name: "First income rule", priority: 1, kind: .income))
             let firstResult = try database.processNotificationAttempt(captured.id)
-            XCTAssertEqual(firstResult.ruleID, high.id)
-            XCTAssertEqual(try database.transactions().first?.kind, .income)
-            XCTAssertNotEqual(firstResult.ruleID, low.id)
+            XCTAssertEqual(firstResult.status, .ambiguous)
+            XCTAssertNil(firstResult.ruleID)
+            XCTAssertEqual(try database.transactions().count, 0)
 
             try database.swapParserRulePriorities(low, high)
             let reordered = try database.parserRules(sourceID: source.id)
@@ -126,7 +126,13 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(try database.parserRules(sourceID: source.id).map(\.id), [low.id, high.id])
             let secondPurchase = try database.captureNotification(event("Paid €6,00 at Cedar Books",
                                                                          at: start.addingTimeInterval(120)))
-            XCTAssertEqual(secondPurchase.ruleID, low.id)
+            XCTAssertEqual(secondPurchase.status, .ambiguous)
+            XCTAssertEqual(try database.transactions().count, 0)
+
+            var disabled = try XCTUnwrap(database.parserRules(sourceID: source.id).first { $0.id == high.id })
+            disabled.enabled = false
+            _ = try database.saveParserRule(disabled)
+            XCTAssertEqual(try database.processNotificationAttempt(captured.id).status, .created)
 
             let refund = event("Refund €5,00 from Cedar Books", title: "Refund posted",
                                at: start.addingTimeInterval(360))
@@ -138,6 +144,67 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(result.ruleID, refundRule.id)
             XCTAssertEqual(try database.transactions().first { $0.id == result.transactionID }?.kind,
                            .reimbursement)
+        }
+    }
+
+    func testIncomeExpenseAmbiguityNoMatchAndRepeatedNotifications() throws {
+        try temporaryDatabase { url, database in
+            let sourceName = "Example Wallet (fictional)"
+            let payment = event("Paid −€12,34 at Cedar Books\nCard ending 0000",
+                title: "Wallet update", at: start, source: sourceName)
+            let first = try database.captureNotification(payment)
+            let source = try database.mapParserSource(XCTUnwrap(database.parserSources().first).id,
+                                                      to: "Example wallet account")
+            var expense = rule(source: source, sample: payment, name: "Payments", kind: .expense)
+            XCTAssertEqual(expense.config.conditionText, "Paid")
+            expense = try database.saveParserRule(expense)
+
+            let credit = event("Received +1,234.56 EUR from Cedar Books\nReference XYZ",
+                title: "Wallet update", at: start.addingTimeInterval(60), source: sourceName)
+            var income = rule(source: source, sample: credit, name: "Credits", priority: 2,
+                              kind: .income)
+            XCTAssertEqual(income.config.conditionText, "Received")
+            income = try database.saveParserRule(income)
+
+            let outgoing = try database.processNotificationAttempt(first.id)
+            XCTAssertEqual(outgoing.status, .created)
+            XCTAssertEqual(outgoing.ruleID, expense.id)
+            XCTAssertEqual(try database.transactions().first { $0.id == outgoing.transactionID }?.kind, .expense)
+            let incoming = try database.captureNotification(credit)
+            XCTAssertEqual(incoming.status, .created)
+            XCTAssertEqual(incoming.ruleID, income.id)
+            XCTAssertEqual(try database.transactions().first { $0.id == incoming.transactionID }?.kind, .income)
+
+            let noMerchant = event("Paid −€5,00", title: "Wallet update",
+                at: start.addingTimeInterval(120), source: sourceName)
+            XCTAssertEqual(try database.captureNotification(noMerchant).status, .failed)
+            let unrelated = event("Transfer €9,00 to Savings", title: "Wallet update",
+                at: start.addingTimeInterval(180), source: sourceName)
+            XCTAssertEqual(try database.captureNotification(unrelated).status, .unmatched)
+            XCTAssertEqual(try database.captureNotification(payment).status, .duplicateIgnored)
+
+            var broad = rule(source: source, sample: payment, name: "Broad wallet format", priority: 3,
+                             kind: .income)
+            broad.config.conditionField = .title
+            broad.config.conditionText = "Wallet update"
+            broad.config.requiredAmountSign = nil
+            broad = try database.saveParserRule(broad)
+            let later = event("Paid −€20,00 at Maple Cafe\nReceipt available",
+                title: "Wallet update", at: start.addingTimeInterval(1_200), source: sourceName)
+            let ambiguous = try database.captureNotification(later)
+            XCTAssertEqual(ambiguous.status, .ambiguous)
+            XCTAssertTrue(ambiguous.detail?.contains("Payments") == true)
+            XCTAssertTrue(ambiguous.detail?.contains("Broad wallet format") == true)
+            XCTAssertNil(ambiguous.transactionID)
+            XCTAssertEqual(try database.transactions().count, 2)
+            XCTAssertEqual(try SQLiteDatabase(url: url).parserAttempts().first { $0.id == ambiguous.id }?.status,
+                           .ambiguous)
+
+            broad.enabled = false
+            _ = try database.saveParserRule(broad)
+            XCTAssertEqual(try database.processNotificationAttempt(ambiguous.id).status, .created)
+            XCTAssertEqual(try database.captureNotification(later).status, .duplicateIgnored)
+            XCTAssertEqual(try database.transactions().count, 3)
         }
     }
 
@@ -230,6 +297,7 @@ final class ParserPersistenceTests: XCTestCase {
                                  at: start.addingTimeInterval(120), source: sourceName)
             var incomingRule = rule(source: source, sample: incoming, name: "Incoming transfer",
                                     priority: 2, kind: .income)
+            incomingRule.config.conditionField = .title
             incomingRule.config.conditionText = "Incoming transfer"
             _ = try database.saveParserRule(incomingRule)
             let received = try database.captureNotification(incoming)

@@ -1980,17 +1980,25 @@ extension SQLiteDatabase {
                                 detail: "Choose the account for this notification source.")
                 return try commitAttempt(id)
             }
-            let rules = try parserRules(sourceID: attempt.sourceID).filter { $0.enabled &&
-                (preferredRuleID == nil || $0.id == preferredRuleID) }
-            var chosen: (ParserRule, ParserPreview)?
+            let rules = try parserRules(sourceID: attempt.sourceID).filter(\.enabled)
+            var matches: [(ParserRule, ParserPreview)] = []
             var incomplete: ParserRule?
             for rule in rules {
                 let preview = NotificationParser.preview(event, config: rule.config,
                                                          mappedAccount: accountName)
-                if preview.ready { chosen = (rule, preview); break }
+                if preview.ready { matches.append((rule, preview)) }
                 if preview.conditionMatched && incomplete == nil { incomplete = rule }
             }
-            guard let (rule, preview) = chosen, let amount = preview.amount,
+            if matches.count > 1 {
+                let names = matches.map { $0.0.name }.joined(separator: ", ")
+                try markAttempt(id, status: .ambiguous,
+                                detail: "Multiple formats match: \(names). Refine their required wording or amount sign.")
+                return try commitAttempt(id)
+            }
+            let chosen = matches.first
+            guard let (rule, preview) = chosen,
+                  preferredRuleID == nil || rule.id == preferredRuleID,
+                  let amount = preview.amount,
                   let merchant = preview.merchant else {
                 let status: ParserAttemptStatus = incomplete == nil ? (rules.isEmpty ? .setupRequired : .unmatched) : .failed
                 try markAttempt(id, status: status, rule: incomplete,
