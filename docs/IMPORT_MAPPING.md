@@ -1,6 +1,6 @@
-# Historical seed mapping (source schema version 1)
+# Legacy historical seed mapping (source schema version 1)
 
-This mapping was recorded before importing the seed. The external SQLite file remains outside this repository and is never bundled. The importer accepts only the inspected schema version (`migration_meta.schema_version = 1`) and validates all rows before changing the local database.
+This document records one older schema-v1 source mapping. It is **not** the current first-use Excel guide. For a working XLSX example and the current converter workflow, see [Importing an Excel history](EXCEL_IMPORT.md). The converter now emits seed schema v3; EasyTrack accepts v1, v2, and v3. The external source file remains outside the repository, and every seed is validated before the local database changes.
 
 ## Movements
 
@@ -44,7 +44,7 @@ No source movement is silently mapped to expense. A new or malformed kind aborts
 
 ## Validation and ambiguities
 
-Validation checks required tables/columns, source schema version, SQLite integrity, movement identity, exact kinds, EUR/CNY/THB currencies, movement and exchange-rate timestamps, positive original movement and rule amounts, nonnegative recoverable values, trip references, source-row coverage, recurring kinds, and valid preserved row JSON. Source table primary keys enforce source identity uniqueness. The importer stages a coordinated SQLite snapshot in temporary app storage, validates before showing a preview, then imports all tables and removes Demo records in one local transaction. Failure rolls back all changes. A staged snapshot is deleted after completion or cancellation. An exact reimport is a no-op; changed source identity/fingerprint or a changed seed digest is rejected without overwriting local edits.
+For this legacy seed, validation checks required tables/columns, source schema version, SQLite integrity, movement identity, exact kinds, EUR/CNY/THB currencies, movement and exchange-rate timestamps, positive original movement and rule amounts, nonnegative recoverable values, trip references, source-row coverage, recurring kinds, and valid preserved row JSON. The current v2/v3 contract adds currency and reimbursement fields; see the guide above and `SeedMapper.swift` for those versions. Source table primary keys enforce source identity uniqueness. The importer stages a coordinated SQLite snapshot in temporary app storage, validates before showing a preview, then imports all tables and removes Demo records in one local transaction. Failure rolls back all changes. A staged snapshot is deleted after completion or cancellation. An exact reimport is a no-op; changed rows require an explicit preview decision instead of overwriting local edits silently.
 
 ## Managed accounts and recurrence in local schema 6
 

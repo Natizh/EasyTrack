@@ -1,0 +1,29 @@
+{
+  "mapping_version": 1,
+  "entities": {
+    "movements": {
+      "sheet": "Movements",
+      "header_row": 1,
+      "date_system": "1900",
+      "source_timezone": "Europe/Rome",
+      "fields": {
+        "id": {"header": "Source ID", "type": "string", "required": true},
+        "source_technical_id": {"header": "Source ID", "type": "string"},
+        "occurred_at": {"header": "Date", "type": "datetime", "required": true},
+        "currency": {"type": "currency", "default": "EUR"},
+        "amount_minor": {"header": "Amount (EUR)", "type": "minor", "currency": "EUR", "required": true},
+        "description": {"header": "Description", "type": "string", "required": true},
+        "kind": {
+          "header": "Type", "type": "string", "required": true,
+          "values": {
+            "Expense": "Spesa",
+            "Income": "Entrata",
+            "PAC investment": "Investimento PAC"
+          }
+        },
+        "category": {"header": "Category", "type": "string"}
+      },
+      "constants": {"needs_review": 0, "origin": "easytrack-simple-example-v1"}
+    }
+  }
+}
