@@ -6,6 +6,75 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
+    private func showcaseApp() throws -> XCUIApplication {
+        #if EASYTRACK_SHOWCASE_CAPTURE
+        let app = XCUIApplication()
+        app.launch()
+        return app
+        #else
+        throw XCTSkip("Run only from scripts/capture_showcase.py with an isolated sample app")
+        #endif
+    }
+
+    @MainActor
+    func testCaptureShowcaseHomeActivityAndEntry() throws {
+        let app = try showcaseApp()
+        XCTAssertTrue(app.staticTexts["homePersonalSpendingTotal"].waitForExistence(timeout: 10))
+        attach(app, name: "home")
+        app.tabBars.buttons["Activity"].tap()
+        XCTAssertTrue(app.navigationBars["Activity"].waitForExistence(timeout: 5))
+        attach(app, name: "activity")
+        app.tabBars.buttons["Home"].tap()
+        app.buttons["homeAddTransactionButton"].tap()
+        XCTAssertTrue(app.navigationBars["New transaction"].waitForExistence(timeout: 5))
+        let amount = app.textFields["transactionOriginalAmountField"]
+        amount.tap()
+        amount.typeText("32,40")
+        let description = app.textFields["transactionDescriptionField"]
+        description.tap()
+        description.typeText("Weekly groceries")
+        app.swipeDown()
+        attach(app, name: "quick-entry")
+    }
+
+    @MainActor
+    func testCaptureShowcaseAnalytics() throws {
+        let app = try showcaseApp()
+        XCTAssertTrue(app.staticTexts["homePersonalSpendingTotal"].waitForExistence(timeout: 10))
+        app.swipeUp()
+        attach(app, name: "analytics")
+    }
+
+    @MainActor
+    func testCaptureShowcaseAccounts() throws {
+        let app = try showcaseApp()
+        app.tabBars.buttons["Settings"].tap()
+        let accounts = app.buttons["settingsAccountsLink"]
+        for _ in 0..<8 where !accounts.isHittable { app.swipeUp() }
+        XCTAssertTrue(accounts.isHittable)
+        accounts.tap()
+        XCTAssertTrue(app.navigationBars["Accounts"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Selected"].exists)
+        attach(app, name: "accounts")
+    }
+
+    @MainActor
+    func testCaptureShowcaseAutomation() throws {
+        let app = try showcaseApp()
+        app.tabBars.buttons["Automations"].tap()
+        let source = app.buttons["automationSource-Sample Wallet"]
+        for _ in 0..<5 where !source.isHittable { app.swipeUp() }
+        XCTAssertTrue(source.isHittable)
+        source.tap()
+        let edit = app.buttons["Edit Card payments"]
+        for _ in 0..<5 where !edit.isHittable { app.swipeUp() }
+        XCTAssertTrue(edit.isHittable)
+        edit.tap()
+        XCTAssertTrue(app.navigationBars["Automation setup"].waitForExistence(timeout: 5))
+        attach(app, name: "automation")
+    }
+
+    @MainActor
     func testHomeAndActivitySearch() throws {
         let app = XCUIApplication()
         app.launch()
