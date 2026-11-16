@@ -420,7 +420,8 @@ private struct HomeView: View {
                     .accessibilityLabel("Next month")
                 }
                 .padding(.horizontal, 4)
-                FinancialHeroCard(snapshot: selectedMonthSnapshot, periodTitle: selectedMonthTitle)
+                FinancialHeroCard(snapshot: selectedMonthSnapshot, periodTitle: selectedMonthTitle,
+                                  preferences: store.dashboardHeroPreferences)
 
                 VStack(alignment: .leading, spacing: 11) {
                     HStack {
@@ -477,7 +478,10 @@ private struct HomeView: View {
         .sheet(isPresented: $showingReceiptCapture) { ReceiptCaptureFlow() }
         .sheet(isPresented: $showingVoiceEntry) { VoiceEntryFlow() }
         .sheet(isPresented: $showingDashboardEditor) {
-            NavigationStack { DashboardWidgetEditorView() }
+            NavigationStack {
+                DashboardWidgetEditorView(snapshot: selectedMonthSnapshot,
+                                          periodTitle: selectedMonthTitle)
+            }
         }
         .sheet(isPresented: $showingMonthPicker) {
             NavigationStack {

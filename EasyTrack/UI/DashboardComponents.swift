@@ -132,6 +132,7 @@ extension EnvironmentValues {
 }
 
 struct MetricTile: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.easyTrackTheme) private var theme
     let title: String
     let value: String
@@ -150,8 +151,8 @@ struct MetricTile: View {
                 .font(.subheadline.weight(.bold))
                 .monospacedDigit()
                 .foregroundStyle(theme.heroText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
@@ -165,8 +166,21 @@ struct MetricTile: View {
 struct FinancialHeroCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.easyTrackTheme) private var theme
+    @ScaledMetric(relativeTo: .largeTitle) private var heroFontSize: CGFloat = 43
     let snapshot: FinancialAnalyticsSnapshot?
     let periodTitle: String
+    var preferences: DashboardHeroPreferences = .default
+
+    private func value(for metric: DashboardHeroMetric) -> String {
+        guard let totals = snapshot?.totals else { return "—" }
+        switch metric {
+        case .net: return Money.format(totals.personalNetExpensesEURMinor)
+        case .expenses: return Money.format(totals.grossExpensesEURMinor)
+        case .income: return Money.format(totals.incomeEURMinor)
+        case .pac: return Money.format(totals.pacInvestedEURMinor)
+        case .dailyAverage: return dailyAverage
+        }
+    }
 
     private var dailyAverage: String {
         guard let average = snapshot?.dailyAverage else { return "—" }
@@ -178,68 +192,48 @@ struct FinancialHeroCard: View {
         return Money.format(rounded)
     }
 
-    private var primaryMetrics: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 10) {
-                incomeMetric
-                pacMetric
+    private var secondaryMetrics: some View {
+        let metrics = preferences.resolved.secondary
+        return VStack(spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(Array(metrics.prefix(2))) { metric in metricTile(metric) }
+                }
+                VStack(spacing: 10) {
+                    ForEach(Array(metrics.prefix(2))) { metric in metricTile(metric) }
+                }
             }
-            VStack(spacing: 10) {
-                incomeMetric
-                pacMetric
-            }
+            ForEach(Array(metrics.dropFirst(2))) { metric in metricTile(metric) }
         }
     }
 
-    private var incomeMetric: some View {
-        MetricTile(title: "Income", value: snapshot.map { Money.format($0.totals.incomeEURMinor) } ?? "—",
-                   symbol: "arrow.down.left", periodTitle: periodTitle)
-    }
-
-    private var pacMetric: some View {
-        MetricTile(title: "PAC invested", value: snapshot.map { Money.format($0.totals.pacInvestedEURMinor) } ?? "—",
-                   symbol: "chart.line.uptrend.xyaxis", periodTitle: periodTitle)
-    }
-
-    private var dailyAverageMetric: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Label("Daily average", systemImage: "calendar.day.timeline.left")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(theme.heroSecondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            Text(dailyAverage)
-                .font(.headline.weight(.bold)).monospacedDigit()
-                .foregroundStyle(theme.heroText)
-                .multilineTextAlignment(.trailing)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-        }
-        .padding(12)
-        .background(theme.heroMetricBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Daily average, \(dailyAverage), \(periodTitle)")
+    private func metricTile(_ metric: DashboardHeroMetric) -> some View {
+        MetricTile(title: metric.title, value: value(for: metric),
+                   symbol: metric.symbol, periodTitle: periodTitle)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("\(periodTitle.uppercased()) · NET PERSONAL SPENDING")
+                Text("\(periodTitle.uppercased()) · \(preferences.primary.title.uppercased())")
                     .font(.caption.weight(.bold))
                     .tracking(1.05)
                     .foregroundStyle(theme.heroSecondaryText)
-                Text(snapshot.map { Money.format($0.totals.personalNetExpensesEURMinor) } ?? "—")
-                    .font(.system(size: 43, weight: .bold, design: .rounded))
+                Text(value(for: preferences.primary))
+                    .font(.system(size: heroFontSize, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .minimumScaleFactor(0.65)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                     .foregroundStyle(theme.heroText)
                     .accessibilityIdentifier("homePersonalSpendingTotal")
+                    .accessibilityLabel("\(preferences.primary.title), \(value(for: preferences.primary)), \(periodTitle)")
             }
 
-            if dynamicTypeSize.isAccessibilitySize { VStack(spacing: 10) { incomeMetric; pacMetric } }
-            else { primaryMetrics }
-            dailyAverageMetric
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 10) {
+                    ForEach(preferences.resolved.secondary) { metric in metricTile(metric) }
+                }
+            } else { secondaryMetrics }
 
             if let snapshot, !snapshot.unconvertedTransactions.isEmpty {
                 Label("\(snapshot.unconvertedTransactions.count) movement(s) excluded where EUR value is unavailable",

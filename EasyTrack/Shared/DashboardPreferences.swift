@@ -101,6 +101,42 @@ struct ResolvedDashboardWidget: Equatable {
     let isVisible: Bool
 }
 
+enum DashboardHeroMetric: String, Codable, CaseIterable, Identifiable {
+    case net, expenses, income, pac, dailyAverage
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .net: "Net personal spending"
+        case .expenses: "Total expenses"
+        case .income: "Income"
+        case .pac: "PAC invested"
+        case .dailyAverage: "Daily average"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .net: "sum"
+        case .expenses: "arrow.up.right"
+        case .income: "arrow.down.left"
+        case .pac: "chart.line.uptrend.xyaxis"
+        case .dailyAverage: "calendar.day.timeline.left"
+        }
+    }
+}
+
+struct DashboardHeroPreferences: Codable, Equatable {
+    var primary: DashboardHeroMetric = .net
+    var secondary: [DashboardHeroMetric] = [.income, .pac, .dailyAverage]
+    static let `default` = DashboardHeroPreferences()
+
+    var resolved: DashboardHeroPreferences {
+        var result = self
+        var seen: Set<DashboardHeroMetric> = [primary]
+        result.secondary = secondary.filter { seen.insert($0).inserted }
+        return result
+    }
+}
+
 enum DashboardWidgetPreferenceResolver {
     static func resolve(availableIDs: [String], defaultOrder: [String],
                         preferences: [DashboardWidgetPreference]) -> [ResolvedDashboardWidget] {

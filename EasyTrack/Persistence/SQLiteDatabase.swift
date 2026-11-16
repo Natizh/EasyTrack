@@ -475,6 +475,23 @@ final class SQLiteDatabase {
         try setAppPreference(value, for: "appearance")
     }
 
+    func dashboardHeroPreferences() throws -> DashboardHeroPreferences {
+        guard let value = try appPreference("dashboardHero"),
+              let data = value.data(using: .utf8),
+              let preferences = try? JSONDecoder().decode(DashboardHeroPreferences.self, from: data) else {
+            return .default
+        }
+        return preferences.resolved
+    }
+
+    func saveDashboardHeroPreferences(_ preferences: DashboardHeroPreferences) throws {
+        let data = try JSONEncoder().encode(preferences.resolved)
+        guard let value = String(data: data, encoding: .utf8) else {
+            throw DatabaseError.sqlite("Could not save Home layout")
+        }
+        try setAppPreference(value, for: "dashboardHero")
+    }
+
     func backupReminderPreferences() throws -> BackupReminderPreferences {
         guard let value = try appPreference("backupReminder"),
               let data = value.data(using: .utf8),

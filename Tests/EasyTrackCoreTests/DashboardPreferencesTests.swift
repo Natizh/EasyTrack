@@ -54,6 +54,44 @@ final class DashboardPreferencesTests: XCTestCase {
         }
     }
 
+    func testHeroChoicesPersistResolveAndPreserveLedger() throws {
+        try withDatabase { database, url in
+            try database.seedDemoIfNeeded()
+            let before = try database.transactions()
+            XCTAssertEqual(try database.dashboardHeroPreferences(), .default)
+            let selected = DashboardHeroPreferences(primary: .income,
+                secondary: [.expenses, .net, .expenses, .income])
+            try database.saveDashboardHeroPreferences(selected)
+            let reopened = try SQLiteDatabase(url: url)
+            XCTAssertEqual(try reopened.dashboardHeroPreferences(), DashboardHeroPreferences(
+                primary: .income, secondary: [.expenses, .net]))
+            XCTAssertEqual(try reopened.transactions(), before)
+            try reopened.saveDashboardHeroPreferences(.default)
+            XCTAssertEqual(try SQLiteDatabase(url: url).dashboardHeroPreferences(), .default)
+        }
+    }
+
+    func testHeroBackupReplaceAndMergeKeepLocalChoice() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-hero-backup-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let source = try SQLiteDatabase(url: folder.appendingPathComponent("source.sqlite"))
+        try source.seedDemoIfNeeded()
+        let chosen = DashboardHeroPreferences(primary: .expenses, secondary: [.net, .income])
+        try source.saveDashboardHeroPreferences(chosen)
+        let backup = try source.exportBackup()
+        let targetURL = folder.appendingPathComponent("target.sqlite")
+        let target = try SQLiteDatabase(url: targetURL)
+        try target.seedDemoIfNeeded()
+        _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
+        XCTAssertEqual(try SQLiteDatabase(url: targetURL).dashboardHeroPreferences(), chosen)
+        let local = DashboardHeroPreferences(primary: .income, secondary: [.expenses])
+        try target.saveDashboardHeroPreferences(local)
+        _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .merge)
+        XCTAssertEqual(try SQLiteDatabase(url: targetURL).dashboardHeroPreferences(), local)
+    }
+
     func testAppearanceDefaultsPersistenceAndBackupSemantics() throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("EasyTrack-appearance-tests-\(UUID().uuidString)")
