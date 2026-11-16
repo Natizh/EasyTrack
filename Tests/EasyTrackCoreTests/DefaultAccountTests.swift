@@ -12,6 +12,9 @@ final class DefaultAccountTests: XCTestCase {
             var renamed = first; renamed.name = "Primary renamed"
             _ = try database.saveLocalAccount(renamed)
             XCTAssertEqual(try database.defaultExpenseAccountID(), first.id)
+            XCTAssertEqual(TransactionAccountPrefill.resolve(original: nil, explicitAccountID: nil,
+                defaultAccountID: try SQLiteDatabase(url: url).defaultExpenseAccountID(),
+                accounts: try database.localAccounts())?.name, "Primary renamed")
             try database.setDefaultExpenseAccountID(second.id)
             XCTAssertEqual(try database.defaultExpenseAccountID(), second.id)
             try database.setDefaultExpenseAccountID(nil)
