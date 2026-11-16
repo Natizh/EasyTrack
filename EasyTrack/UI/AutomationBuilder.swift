@@ -1004,7 +1004,7 @@ private struct ParserBuilderView: View {
         guard competingRules.isEmpty else {
             return "Also matches \(competingRules.map(\.name).joined(separator: ", ")). Refine the required wording or sign in the rules before activating."
         }
-        return "Only \(name.isEmpty ? "this format" : name) matches this notification. Review the transaction below."
+        return "Every step passed. Only \(name.isEmpty ? "this format" : name) matches this notification. Review the transaction below."
     }
 
     private var transactionPreview: some View {

@@ -159,7 +159,7 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(expense.config.conditionText, "Paid")
             expense = try database.saveParserRule(expense)
 
-            let credit = event("Received +1,234.56 EUR from Cedar Books\nReference XYZ",
+            let credit = event("Received +12.34 EUR from Cedar Books\nReference XYZ",
                 title: "Wallet update", at: start.addingTimeInterval(60), source: sourceName)
             var income = rule(source: source, sample: credit, name: "Credits", priority: 2,
                               kind: .income)
@@ -174,6 +174,10 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(incoming.status, .created)
             XCTAssertEqual(incoming.ruleID, income.id)
             XCTAssertEqual(try database.transactions().first { $0.id == incoming.transactionID }?.kind, .income)
+            XCTAssertEqual(try database.transactions().first { $0.id == incoming.transactionID }?.amountMinor,
+                           1_234)
+            XCTAssertEqual(try database.transactions().first { $0.id == outgoing.transactionID }?.amountMinor,
+                           try database.transactions().first { $0.id == incoming.transactionID }?.amountMinor)
 
             let noMerchant = event("Paid −€5,00", title: "Wallet update",
                 at: start.addingTimeInterval(120), source: sourceName)

@@ -106,6 +106,7 @@ struct DashboardWidgetEditorView: View {
                         Label(metric.title, systemImage: metric.symbol).tag(metric)
                     }
                 }
+                .accessibilityIdentifier("homePrimaryMetricPicker")
             }
             Section {
                 ForEach(hero.secondary) { metric in

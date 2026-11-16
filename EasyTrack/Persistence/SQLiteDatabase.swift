@@ -1884,12 +1884,20 @@ extension SQLiteDatabase {
             date: event.receivedAt ?? event.capturedAt, window: window)
     }
 
-    private func semanticDuplicate(key: String, date: Date, window: Int) throws -> UUID? {
-        try existingTransaction(sql: """
-            SELECT transaction_id FROM semantic_dedup
-            WHERE semantic_key=? AND ABS(occurred_at-?)<=?
-            ORDER BY created_at DESC LIMIT 1
-            """, fingerprint: key, date: date, window: window)
+    private func semanticDuplicate(key: String, date: Date, window: Int,
+                                   kind: TransactionKind) throws -> UUID? {
+        let query = try statement("""
+            SELECT d.transaction_id FROM semantic_dedup AS d
+            JOIN transactions AS t ON t.id=d.transaction_id
+            WHERE d.semantic_key=? AND ABS(d.occurred_at-?)<=? AND t.kind=?
+            ORDER BY d.created_at DESC LIMIT 1
+            """)
+        defer { sqlite3_finalize(query) }
+        bind(key, at: 1, to: query)
+        sqlite3_bind_double(query, 2, date.timeIntervalSince1970)
+        sqlite3_bind_double(query, 3, Double(window))
+        bind(kind.rawValue, at: 4, to: query)
+        return sqlite3_step(query) == SQLITE_ROW ? UUID(uuidString: string(query, 0)) : nil
     }
 
     // Shared by ordinary parser creation and a user-confirmed held recurring notification.
@@ -2026,7 +2034,8 @@ extension SQLiteDatabase {
             let semantic = NotificationParser.semanticFingerprint(amountMinor: amount.cents,
                                                                   merchant: merchant, account: accountName)
             if let duplicate = try semanticDuplicate(key: semantic, date: date,
-                                                     window: rule.config.duplicateWindowSeconds) {
+                                                     window: rule.config.duplicateWindowSeconds,
+                                                     kind: rule.config.kind) {
                 try markAttempt(id, status: .duplicateIgnored, rule: rule,
                                 transactionID: duplicate, semantic: semantic,
                                 detail: "A matching transaction was recorded recently.")
