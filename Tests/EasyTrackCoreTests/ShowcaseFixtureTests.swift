@@ -13,7 +13,10 @@ final class ShowcaseFixtureTests: XCTestCase {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { if requested == nil { try? FileManager.default.removeItem(at: folder) } }
         let url = requested.map { URL(fileURLWithPath: $0) } ?? folder.appendingPathComponent("ledger.sqlite")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "Refusing to overwrite a showcase ledger")
+        guard !FileManager.default.fileExists(atPath: url.path) else {
+            throw NSError(domain: "EasyTrackShowcaseFixture", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Refusing to overwrite a showcase ledger"])
+        }
 
         let database = try SQLiteDatabase(url: url)
         try database.completeOnboarding()
