@@ -9,6 +9,7 @@ private enum AutomationStyle {
 struct AutomationsView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.easyTrackTheme) private var theme
+    @State private var firstSampleToConfigure: ParserAttempt?
 
     var body: some View {
         ScrollView {
@@ -26,6 +27,29 @@ struct AutomationsView: View {
                 .foregroundStyle(theme.heroText)
                 .background(LinearGradient(colors: theme.heroColors, startPoint: .topLeading,
                                            endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 24))
+
+                ForEach(store.parserSources) { source in
+                    if let sample = FirstNotificationSetup.sample(for: source,
+                        rules: store.parserRules, attempts: store.parserAttempts) {
+                        Button { firstSampleToConfigure = sample } label: {
+                            VStack(alignment: .leading, spacing: 9) {
+                                Label("Sample captured from \(source.name)", systemImage: "bell.badge")
+                                    .font(.headline)
+                                Text("This notification is a sample, not a recorded transaction. Set its amount, description and direction so EasyTrack can recognize future messages.")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                                Text("Incoming credits and outgoing payments from the same app may need separate formats.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Label("Set up this sample", systemImage: "arrow.right.circle.fill")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(17)
+                            .background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 20))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("firstCaptureSetup-\(source.id.uuidString)")
+                    }
+                }
 
                 NavigationLink { NotificationSetupGuideView() } label: {
                     HStack(spacing: 14) {
@@ -78,6 +102,11 @@ struct AutomationsView: View {
             do { _ = try store.purgeExpiredNotificationContents() }
             catch { store.errorMessage = error.localizedDescription }
         }
+        .sheet(item: $firstSampleToConfigure) { attempt in
+            if let source = store.parserSources.first(where: { $0.id == attempt.sourceID }) {
+                NavigationStack { ParserBuilderView(source: source, sample: attempt, existingRule: nil) }
+            }
+        }
     }
 
     private func sourceCard(_ source: ParserSource) -> some View {
@@ -123,6 +152,7 @@ struct NotificationSetupGuideView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.openURL) private var openURL
     @Environment(\.easyTrackTheme) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedAccountID: UUID?
     @State private var sourceLabel = ""
     @State private var openStep = 0
@@ -354,7 +384,7 @@ struct NotificationSetupGuideView: View {
                     fieldHelp("Title", "Insert the trigger's Notifica variable, then choose Titolo.")
                     fieldHelp("Subtitle", "Insert Notifica again, then choose Sottotitolo. Leave it empty when the notification has none.")
                     fieldHelp("Message", "Insert Notifica again, then choose Corpo. This is normally the field that carries the amount and merchant.")
-                    fieldHelp("Notification date", "Insert Notifica again, then choose Data. EasyTrack stores a real Date; the Shortcuts date and time format only affects the preview.")
+                    fieldHelp("Notification date", "If Shortcuts offers a Date-typed Data property, map it here. Otherwise leave this optional field empty; EasyTrack uses the capture time.")
                 }
                 Text("Tap the value of a field, not its label. Choose the dynamic variable Notifica from the automation trigger, then tap the inserted blue chip to open its Ottieni menu and pick the property. Repeat independently for each field: the chip keeps the property you selected for that field only.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -362,7 +392,7 @@ struct NotificationSetupGuideView: View {
                     .font(.caption).foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Notification date formatting").font(.caption.weight(.semibold))
-                    Text("After choosing Data, Shortcuts may offer Formato data and Formato ora. Intermedio for both is a safe choice; the picker preview then reads like “15 set 2026, 09:41:00”. That preview is only a display sample: EasyTrack still receives a Date value and stores it canonically, so the ledger is unaffected by the device language or region.")
+                    Text("After choosing Data, Shortcuts may offer Formato data and Formato ora. Intermedio for both can show a preview like “15 set 2026, 09:41:00”. The preview does not prove that EasyTrack receives a Date value. Verify with a harmless live notification on your iPhone; if the Date input is unavailable or incompatible, leave it empty and EasyTrack uses capture time. Stored dates are canonical, not locale-formatted strings.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Text("Apple documents Title, Subtitle and Message as notification FILTERS, but does not guarantee that every field is exposed as an action variable on every iOS build. A dynamic value appears as a blue variable token and changes for each notification. If no matching token is offered, leave that field empty and treat capture as unverified; first test with two harmless notifications containing different text.")
@@ -396,20 +426,32 @@ struct NotificationSetupGuideView: View {
 
     private var fieldMappingTable: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Text("EasyTrack field").font(.caption.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
-                Text("Variable").font(.caption.weight(.semibold)).frame(width: 74, alignment: .leading)
-                Text("Property").font(.caption.weight(.semibold)).frame(width: 84, alignment: .leading)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 6)
-            Divider()
-            ForEach(Self.fieldMappings, id: \.field) { mapping in
+            if !dynamicTypeSize.isAccessibilitySize {
                 HStack(spacing: 8) {
-                    Text(mapping.field).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
-                    Text(mapping.variable).font(.caption).frame(width: 74, alignment: .leading)
-                    Text(mapping.property).font(.caption.weight(.semibold))
-                        .frame(width: 84, alignment: .leading)
+                    Text("EasyTrack field").font(.caption.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Variable").font(.caption.weight(.semibold)).frame(width: 74, alignment: .leading)
+                    Text("Property").font(.caption.weight(.semibold)).frame(width: 84, alignment: .leading)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 6)
+                Divider()
+            }
+            ForEach(Self.fieldMappings, id: \.field) { mapping in
+                Group {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(mapping.field).font(.subheadline.weight(.semibold))
+                            Text("\(mapping.variable) → \(mapping.property)").font(.subheadline)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        HStack(spacing: 8) {
+                            Text(mapping.field).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                            Text(mapping.variable).font(.caption).frame(width: 74, alignment: .leading)
+                            Text(mapping.property).font(.caption.weight(.semibold))
+                                .frame(width: 84, alignment: .leading)
+                        }
+                    }
                 }
                 .padding(.vertical, 6)
                 .accessibilityElement(children: .combine)
@@ -682,8 +724,8 @@ private struct AutomationSourceView: View {
                 }
             } message: {
                 Text(attemptToDelete?.transactionID == nil
-                     ? "Only this captured sample and its stored text are removed. Saved formats, the source account and other samples stay."
-                     : "Only this captured sample and its stored text are removed. The transaction it already created stays in Activity.")
+                     ? "This capture disappears from the list. Shared notification text may remain while another capture or transaction references it; retention still applies. Formats and the source account stay."
+                     : "This capture disappears from the list. Its transaction stays in Activity; underlying notification text follows the retention setting.")
             }
     }
 
@@ -766,6 +808,7 @@ private struct AutomationSourceView: View {
                 .buttonStyle(.borderless)
                 .disabled(pendingReview)
                 .accessibilityLabel("Delete captured notification")
+                .accessibilityIdentifier("deleteCapture-\(attempt.id.uuidString)")
                 .accessibilityHint(pendingReview
                     ? "Review the recurring payment linked to this sample first."
                     : "Removes this sample only. Saved formats and transactions stay.")
