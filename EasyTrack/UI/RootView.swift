@@ -1516,6 +1516,8 @@ private struct ReimbursementSettlementView: View {
     @State private var amount = ""
     @State private var description = "Reimbursement received"
     @State private var occurredAt = Date()
+    @State private var accountID: UUID?
+    @State private var choosingAccount = false
     @State private var validation: String?
 
     private var expense: Transaction? { store.transactions.first { $0.id == expenseID } }
@@ -1530,6 +1532,12 @@ private struct ReimbursementSettlementView: View {
             $0.kind == .reimbursement && !linkedIDs.contains($0.id) && $0.deletedAt == nil
         }
     }
+    private var selectedAccount: LocalAccount? {
+        store.localAccounts.first { $0.id == accountID }
+    }
+    private func accountName(_ id: UUID?) -> String {
+        store.localAccounts.first { $0.id == id }?.name ?? "No account"
+    }
 
     var body: some View {
         Form {
@@ -1542,28 +1550,55 @@ private struct ReimbursementSettlementView: View {
                     Button {
                         link(candidate)
                     } label: {
-                        LabeledContent(candidate.merchant,
-                            value: Money.format(candidate.eurMinor ?? candidate.amountMinor))
+                        VStack(alignment: .leading, spacing: 2) {
+                            LabeledContent(candidate.merchant,
+                                value: Money.format(candidate.eurMinor ?? candidate.amountMinor))
+                            Text(accountName(candidate.accountID))
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
-            Section("Record a new real reimbursement") {
+            Section {
                 LabeledContent("Amount (EUR)") {
                     TextField("0,00", text: $amount).keyboardType(.numbersAndPunctuation)
                         .multilineTextAlignment(.trailing)
                 }
                 TextField("Description", text: $description)
                 DatePicker("Received", selection: $occurredAt)
+                Button {
+                    choosingAccount = true
+                } label: {
+                    LabeledContent("Received into") {
+                        HStack(spacing: 4) {
+                            Text(selectedAccount?.name ?? "Choose account")
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .foregroundStyle(.primary)
                 Button("Record and link") { createAndLink() }
-                    .disabled(expense == nil || status?.outstandingEURMinor == 0)
+                    .disabled(expense == nil || status?.outstandingEURMinor == 0 || selectedAccount == nil)
+            } header: {
+                Text("Record a new real reimbursement")
+            } footer: {
+                Text("The reimbursement can land on a different account than the one that paid the expense.")
             }
             if let validation { Section { Text(validation).foregroundStyle(.red) } }
         }
         .navigationTitle("Rimborso ricevuto")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        .sheet(isPresented: $choosingAccount) {
+            NavigationStack {
+                AccountSelectionView(selectedID: accountID) { accountID = $0.id }
+            }
+        }
         .onAppear {
             if let outstanding = status?.outstandingEURMinor { amount = Money.editString(outstanding) }
+            if accountID == nil { accountID = expense?.accountID ?? store.activeAccounts.first?.id }
         }
     }
 
@@ -1575,7 +1610,10 @@ private struct ReimbursementSettlementView: View {
     }
 
     private func createAndLink() {
-        guard let expense else { return }
+        guard expense != nil else { return }
+        guard let account = selectedAccount else {
+            validation = "Choose the account that received the reimbursement."; return
+        }
         let cents: Int64
         switch Money.validatedPositiveAmount(amount) {
         case .success(let value): cents = value
@@ -1586,13 +1624,17 @@ private struct ReimbursementSettlementView: View {
         }
         var reimbursement = Transaction(id: UUID(), kind: .reimbursement, amountMinor: cents,
             currency: "EUR", merchant: description.trimmingCharacters(in: .whitespacesAndNewlines),
-            account: expense.account, category: "", note: "Linked reimbursement",
+            account: account.name, category: "", note: "Linked reimbursement",
             occurredAt: occurredAt, updatedAt: .now, deletedAt: nil, isDemo: false,
             revision: 0, sourceEventID: nil)
         reimbursement.eurMinor = cents
         reimbursement.personalExpenseEURMinor = -cents
         reimbursement.recoverableEURMinor = 0
-        reimbursement.accountID = expense.accountID
+        reimbursement.accountID = account.id
+        if account.nativeCurrency == reimbursement.currency {
+            reimbursement.accountCurrency = account.nativeCurrency
+            reimbursement.accountAmountMinor = cents
+        }
         do {
             _ = try store.createAndLinkReimbursement(expenseID: expenseID,
                                                      reimbursement: reimbursement)
