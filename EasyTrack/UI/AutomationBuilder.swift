@@ -344,15 +344,28 @@ struct NotificationSetupGuideView: View {
                     .buttonStyle(.bordered)
             }.font(.subheadline)
         case 3:
-            VStack(alignment: .leading, spacing: 8) {
-                fieldHelp("Source app", "Required text: paste the exact EasyTrack source label. Never choose an app here.")
-                fieldHelp("Title", "Optional: insert the Title variable supplied by the Notification trigger, if your iOS version offers it. Do not type sample prose.")
-                fieldHelp("Subtitle", "Optional: insert the trigger's Subtitle variable when available.")
-                fieldHelp("Message", "Optional but normally needed: insert the trigger's Message/body variable when available.")
-                fieldHelp("Notification date", "Optional: insert the trigger date only when offered. Otherwise EasyTrack safely uses receipt time.")
-                Text("Tap a parameter field in Shortcuts and choose the matching variable from the Notification trigger. Available variable names can differ by iOS version; preview only fictional or non-sensitive text.")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Each EasyTrack field receives one property of the same notification. Tap the field's value, insert the blue Notifica variable, then tap that chip and choose the property.")
+                    .font(.subheadline)
+                fieldMappingTable
+                variableChipExample
+                VStack(alignment: .leading, spacing: 8) {
+                    fieldHelp("Source app", "Required text: paste the exact EasyTrack source label. Never choose an app or a notification variable here.")
+                    fieldHelp("Title", "Insert the trigger's Notifica variable, then choose Titolo.")
+                    fieldHelp("Subtitle", "Insert Notifica again, then choose Sottotitolo. Leave it empty when the notification has none.")
+                    fieldHelp("Message", "Insert Notifica again, then choose Corpo. This is normally the field that carries the amount and merchant.")
+                    fieldHelp("Notification date", "Insert Notifica again, then choose Data. EasyTrack stores a real Date; the Shortcuts date and time format only affects the preview.")
+                }
+                Text("Tap the value of a field, not its label. Choose the dynamic variable Notifica from the automation trigger, then tap the inserted blue chip to open its Ottieni menu and pick the property. Repeat independently for each field: the chip keeps the property you selected for that field only.")
                     .font(.caption).foregroundStyle(.secondary)
-                Text("Apple documents Title, Subtitle and Message as notification FILTERS, but does not guarantee that every field is exposed as an action variable on every iOS build. A dynamic value appears as a blue variable token and changes for each notification. Never type a fixed payment example. If no matching token is offered, leave that field empty and treat capture as unverified; first test with two harmless notifications containing different text.")
+                Text("Never type Title, Message, a payment amount or any other fixed example text into the production automation: a literal string is sent unchanged on every event. Never pass the whole Notifica object to a text field without selecting a property.")
+                    .font(.caption).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notification date formatting").font(.caption.weight(.semibold))
+                    Text("After choosing Data, Shortcuts may offer Formato data and Formato ora. Intermedio for both is a safe choice; the picker preview then reads like “15 set 2026, 09:41:00”. That preview is only a display sample: EasyTrack still receives a Date value and stores it canonically, so the ledger is unaffected by the device language or region.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Apple documents Title, Subtitle and Message as notification FILTERS, but does not guarantee that every field is exposed as an action variable on every iOS build. A dynamic value appears as a blue variable token and changes for each notification. If no matching token is offered, leave that field empty and treat capture as unverified; first test with two harmless notifications containing different text.")
                     .font(.caption).foregroundStyle(.orange)
                 Button("I reviewed these fields") { mark(.fieldsReviewed) }
                     .buttonStyle(.bordered)
@@ -380,6 +393,60 @@ struct NotificationSetupGuideView: View {
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }
     }
+
+    private var fieldMappingTable: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("EasyTrack field").font(.caption.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
+                Text("Variable").font(.caption.weight(.semibold)).frame(width: 74, alignment: .leading)
+                Text("Property").font(.caption.weight(.semibold)).frame(width: 84, alignment: .leading)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 6)
+            Divider()
+            ForEach(Self.fieldMappings, id: \.field) { mapping in
+                HStack(spacing: 8) {
+                    Text(mapping.field).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(mapping.variable).font(.caption).frame(width: 74, alignment: .leading)
+                    Text(mapping.property).font(.caption.weight(.semibold))
+                        .frame(width: 84, alignment: .leading)
+                }
+                .padding(.vertical, 6)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(mapping.field) receives \(mapping.variable), property \(mapping.property)")
+                Divider()
+            }
+        }
+        .padding(.horizontal, 12)
+        .background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var variableChipExample: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Before and after").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text("Title").font(.caption).foregroundStyle(.secondary)
+                Text("Notifica").font(.caption.weight(.semibold))
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.blue.opacity(0.16), in: Capsule())
+                    .foregroundStyle(.blue)
+                Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
+                Text("Titolo").font(.caption.weight(.semibold))
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.blue.opacity(0.16), in: Capsule())
+                    .foregroundStyle(.blue)
+            }
+            Text("The chip shows the property you picked. A chip that still reads Notifica has no property selected yet.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private static let fieldMappings: [(field: String, variable: String, property: String)] = [
+        ("Title", "Notifica", "Titolo"),
+        ("Subtitle", "Notifica", "Sottotitolo"),
+        ("Message", "Notifica", "Corpo"),
+        ("Notification date", "Notifica", "Data")
+    ]
 
     private var simulationCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -461,6 +528,19 @@ struct NotificationSetupGuideView: View {
             ], id: \.self) { item in
                 Label(item, systemImage: "chevron.right").font(.caption)
             }
+            Divider()
+            Text("Captured · 0 active").font(.caption.weight(.semibold))
+            Text("A sample arrived but no format is active yet. Open the source, choose the sample and complete the seven setup blocks. This is not a retention or security problem.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Untitled notification").font(.caption.weight(.semibold))
+            Text("The Title field is empty or still holds the whole Notifica object. Reopen the automation, tap the Title value, tap the blue chip and choose Titolo.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("No text in selected field").font(.caption.weight(.semibold))
+            Text("The chip points at a property this notification does not carry, for example Sottotitolo on a message without a subtitle. Check the binding before blaming retention; an empty field is legitimate for some notifications.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("No EUR amount found").font(.caption.weight(.semibold))
+            Text("Corpo is empty or the amount sits in another property. Verify the Message binding first, then adjust the parser's amount prefix or suffix. Retention expiry is a separate possible cause, not the first one to check.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .guideCard()
     }
