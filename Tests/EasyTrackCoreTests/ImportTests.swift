@@ -4,6 +4,47 @@ import XCTest
 @testable import EasyTrackCore
 
 final class ImportTests: XCTestCase {
+    #if os(macOS)
+    func testDownloadableExampleConvertsAndImportsWithoutWarnings() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EasyTrack-example-import-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let seedURL = folder.appendingPathComponent("example-seed.sqlite")
+        let auditURL = folder.appendingPathComponent("example-audit.txt")
+        let converter = Process()
+        converter.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        converter.arguments = ["python3", "Tools/HistoricalImportConverter/convert_xlsx.py",
+            "--input", "docs/examples/EasyTrack-example-import.xlsx",
+            "--mapping", "docs/examples/simple-import-mapping.json",
+            "--output", seedURL.path, "--audit", auditURL.path]
+        converter.currentDirectoryURL = root
+        let output = Pipe()
+        converter.standardOutput = output
+        converter.standardError = output
+        try converter.run()
+        converter.waitUntilExit()
+        let diagnostic = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        XCTAssertEqual(converter.terminationStatus, 0, diagnostic)
+        let seed = try SeedMapper(url: seedURL).read(url: seedURL)
+        XCTAssertEqual(seed.schemaVersion, 3)
+        XCTAssertEqual(seed.movements.count, 3)
+        XCTAssertTrue(seed.warnings.isEmpty)
+        XCTAssertEqual(Set(seed.movements.map { $0.transaction.kind }),
+                       Set([.expense, .income, .pacInvestment]))
+        let database = try SQLiteDatabase(url: folder.appendingPathComponent("ledger.sqlite"))
+        XCTAssertEqual(try database.importHistoricalSeed(seed).newMovements, 3)
+        XCTAssertEqual(try database.importHistoricalSeed(seed).alreadyImported, 3)
+        let totals = LedgerTotals(transactions: try database.transactions())
+        XCTAssertEqual(totals.personalSpendingEURMinor, 2_490)
+        XCTAssertEqual(totals.totalExpensesEURMinor, 2_490)
+        XCTAssertEqual(totals.incomeEURMinor, 245_000)
+        XCTAssertEqual(totals.pacInvestedEURMinor, 15_000)
+    }
+    #endif
+
     func testExactKindMappingAndCurrencyMinorUnits() {
         XCTAssertEqual(SeedMapper.kind("Investimento PAC"), .pacInvestment)
         XCTAssertEqual(SeedMapper.kind("Anticipo per altri"), .advanceForOthers)
