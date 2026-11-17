@@ -2178,4 +2178,51 @@ extension SQLiteDatabase {
     func leaveSampleReady(_ id: UUID) throws {
         try markAttempt(id, status: .ready, detail: "Automation active. This sample was not added to Activity.")
     }
+
+    // Removes one captured sample. Saved formats, the ledger and the shared notification event
+    // survive; the event row is dropped only once nothing else refers to it.
+    func deleteParserAttempt(_ id: UUID) throws {
+        let lookup = try statement("SELECT event_id FROM notification_attempts WHERE id=?")
+        bind(id.uuidString, at: 1, to: lookup)
+        guard sqlite3_step(lookup) == SQLITE_ROW else {
+            sqlite3_finalize(lookup)
+            throw DatabaseError.sqlite("Notification sample was not found")
+        }
+        let eventID = string(lookup, 0)
+        sqlite3_finalize(lookup)
+        let pending = try statement("SELECT COUNT(*) FROM recurring_candidates WHERE event_id=? AND status='pending'")
+        bind(eventID, at: 1, to: pending)
+        let pendingReviews = sqlite3_step(pending) == SQLITE_ROW ? sqlite3_column_int(pending, 0) : 0
+        sqlite3_finalize(pending)
+        guard pendingReviews == 0 else {
+            throw DatabaseError.sqlite("Review the recurring payment linked to this sample first.")
+        }
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let delete = try statement("DELETE FROM notification_attempts WHERE id=?")
+            bind(id.uuidString, at: 1, to: delete)
+            guard sqlite3_step(delete) == SQLITE_DONE else { sqlite3_finalize(delete); throw error() }
+            sqlite3_finalize(delete)
+            try deleteUnreferencedEvent(eventID)
+            try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); throw error }
+    }
+
+    private func deleteUnreferencedEvent(_ eventID: String) throws {
+        let query = try statement("""
+            SELECT (SELECT COUNT(*) FROM notification_attempts WHERE event_id=?) +
+                   (SELECT COUNT(*) FROM transactions WHERE source_event_id=?) +
+                   (SELECT COUNT(*) FROM recurring_candidates WHERE event_id=?)
+            """)
+        bind(eventID, at: 1, to: query)
+        bind(eventID, at: 2, to: query)
+        bind(eventID, at: 3, to: query)
+        let references = sqlite3_step(query) == SQLITE_ROW ? sqlite3_column_int(query, 0) : 1
+        sqlite3_finalize(query)
+        guard references == 0 else { return }
+        let delete = try statement("DELETE FROM notification_events WHERE id=?")
+        bind(eventID, at: 1, to: delete)
+        guard sqlite3_step(delete) == SQLITE_DONE else { sqlite3_finalize(delete); throw error() }
+        sqlite3_finalize(delete)
+    }
 }

@@ -472,6 +472,11 @@ final class FinanceStore: ObservableObject {
         reload()
     }
 
+    func deleteAttempt(_ id: UUID) throws {
+        try SQLiteDatabase.open().deleteParserAttempt(id)
+        reload()
+    }
+
     func backup() throws -> BackupArchive { try SQLiteDatabase.open().exportBackup() }
 
     var hasHistoricalImport: Bool { (historicalCounts["historical_imported_movements"] ?? 0) > 0 }

@@ -600,6 +600,7 @@ private struct AutomationSourceView: View {
     @State private var ruleToDelete: ParserRule?
     @State private var manualEvent: NotificationEvent?
     @State private var showingAccountMapping = false
+    @State private var attemptToDelete: ParserAttempt?
 
     private var currentSource: ParserSource { store.parserSources.first(where: { $0.id == source.id }) ?? source }
     private var attempts: [ParserAttempt] { store.parserAttempts.filter { $0.sourceID == source.id } }
@@ -670,6 +671,20 @@ private struct AutomationSourceView: View {
                     ruleToDelete = nil
                 }
             } message: { Text("Transactions it already created will stay in Activity.") }
+        .confirmationDialog("Delete this captured notification?", isPresented: Binding(
+            get: { attemptToDelete != nil }, set: { if !$0 { attemptToDelete = nil } }),
+            titleVisibility: .visible) {
+                Button("Delete notification", role: .destructive) {
+                    guard let attempt = attemptToDelete else { return }
+                    do { try store.deleteAttempt(attempt.id) }
+                    catch { store.errorMessage = error.localizedDescription }
+                    attemptToDelete = nil
+                }
+            } message: {
+                Text(attemptToDelete?.transactionID == nil
+                     ? "Only this captured sample and its stored text are removed. Saved formats, the source account and other samples stay."
+                     : "Only this captured sample and its stored text are removed. The transaction it already created stays in Activity.")
+            }
     }
 
     private func sectionHeader(_ title: String, symbol: String) -> some View {
@@ -734,7 +749,10 @@ private struct AutomationSourceView: View {
     }
 
     private func sampleCard(_ attempt: ParserAttempt) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
+        let pendingReview = store.recurringCandidates.contains {
+            $0.eventID == attempt.event.id && $0.status == .pending
+        }
+        return VStack(alignment: .leading, spacing: 11) {
             HStack {
                 Image(systemName: symbol(for: attempt.status))
                     .foregroundStyle(color(for: attempt.status))
@@ -742,6 +760,15 @@ private struct AutomationSourceView: View {
                 Spacer()
                 Text(attempt.capturedAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption).foregroundStyle(.secondary)
+                Button(role: .destructive) { attemptToDelete = attempt } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .disabled(pendingReview)
+                .accessibilityLabel("Delete captured notification")
+                .accessibilityHint(pendingReview
+                    ? "Review the recurring payment linked to this sample first."
+                    : "Removes this sample only. Saved formats and transactions stay.")
             }
             Text(attempt.event.title.isEmpty ? "Untitled notification" : attempt.event.title)
                 .font(.headline)
@@ -791,6 +818,12 @@ private struct AutomationSourceView: View {
         }
         .padding(17)
         .background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 20))
+        .contextMenu {
+            Button(role: .destructive) { attemptToDelete = attempt } label: {
+                Label("Delete notification", systemImage: "trash")
+            }
+            .disabled(pendingReview)
+        }
     }
 
     private func symbol(for status: ParserAttemptStatus) -> String {
