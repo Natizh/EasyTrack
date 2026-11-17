@@ -402,6 +402,106 @@ final class ReimbursementTests: XCTestCase {
             XCTAssertEqual(try database.transactions().first { $0.id == linked.id }?.accountID, other.id)
         }
     }
+
+    func testNewReceiptAccountSelectionNeverGuessesAnArchivedOrForeignAccount() {
+        let activeEUR = LocalAccount(id: UUID(), name: "Fictional EUR account", createdAt: .now)
+        var archived = LocalAccount(id: UUID(), name: "Fictional archived account", createdAt: .now)
+        archived.archivedAt = .now
+        let activeUSD = LocalAccount(id: UUID(), name: "Fictional USD account", createdAt: .now,
+                                     nativeCurrency: "USD")
+        let accounts = [archived, activeUSD, activeEUR]
+        XCTAssertEqual(NewReimbursementAccountPolicy.proposed(
+            expenseAccountID: activeEUR.id, accounts: accounts)?.id, activeEUR.id)
+        XCTAssertNil(NewReimbursementAccountPolicy.proposed(expenseAccountID: archived.id,
+            accounts: accounts))
+        XCTAssertNil(NewReimbursementAccountPolicy.proposed(expenseAccountID: activeUSD.id,
+            accounts: accounts))
+        XCTAssertNil(NewReimbursementAccountPolicy.proposed(expenseAccountID: nil,
+            accounts: accounts))
+        XCTAssertFalse(NewReimbursementAccountPolicy.isEligible(archived))
+        XCTAssertFalse(NewReimbursementAccountPolicy.isEligible(activeUSD))
+    }
+
+    func testTwoPartialReceiptsOnDifferentAccountsSurviveBackupReplace() throws {
+        try withDatabase { source, url in
+            try source.prepareProductionLedger()
+            let paying = try source.saveLocalAccount(LocalAccount(id: UUID(), name: "Fictional payer",
+                                                               createdAt: date("2026-10-01")))
+            let bankB = try source.saveLocalAccount(LocalAccount(id: UUID(), name: "Fictional bank B",
+                                                              createdAt: date("2026-10-01")))
+            let bankC = try source.saveLocalAccount(LocalAccount(id: UUID(), name: "Fictional bank C",
+                                                              createdAt: date("2026-10-01")))
+            var expense = transaction(kind: .expense, cents: 10_000, day: "2026-10-01",
+                                      accountID: paying.id, merchant: "Fictional group booking")
+            expense.accountID = paying.id
+            expense.account = paying.name
+            let saved = try source.save(expense, expectedReimbursementEURMinor: 10_000)
+            for (account, cents) in [(bankB, Int64(4_000)), (bankC, 6_000)] {
+                var receipt = transaction(kind: .reimbursement, cents: cents, day: "2026-10-10",
+                                          accountID: account.id, merchant: "Fictional partial refund")
+                receipt.accountID = account.id
+                receipt.account = account.name
+                receipt.accountCurrency = "EUR"
+                receipt.accountAmountMinor = cents
+                _ = try source.createAndLinkReimbursement(expenseID: saved.id, reimbursement: receipt)
+            }
+            let status = try XCTUnwrap(source.reimbursementStatuses().first)
+            XCTAssertEqual(status.receivedEURMinor, 10_000)
+            XCTAssertEqual(status.outstandingEURMinor, 0)
+            XCTAssertEqual(status.linkedTransactionIDs.count, 2)
+            let totals = LedgerTotals(transactions: try source.transactions())
+            XCTAssertEqual(totals.totalExpensesEURMinor, 10_000)
+            XCTAssertEqual(totals.personalSpendingEURMinor, 0)
+            XCTAssertEqual(totals.incomeEURMinor, 0)
+            XCTAssertEqual(Set(try source.transactions().filter { $0.kind == .reimbursement }
+                .compactMap(\.accountID)), Set([bankB.id, bankC.id]))
+
+            let backup = try source.exportBackup()
+            let target = try SQLiteDatabase(url: url.deletingLastPathComponent()
+                .appendingPathComponent("restore.sqlite"))
+            _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
+            XCTAssertEqual(try target.reimbursementStatuses().first?.outstandingEURMinor, 0)
+            XCTAssertEqual(try target.reimbursementLinks().count, 2)
+            XCTAssertEqual(LedgerTotals(transactions: try target.transactions()), totals)
+            try target.checkDatabase()
+        }
+    }
+
+    func testExistingForeignReceiptOnArchivedAccountCanBeLinkedWithVerifiedEUR() throws {
+        try withDatabase { database, _ in
+            let paying = try database.saveLocalAccount(LocalAccount(id: UUID(), name: "Fictional EUR payer",
+                                                                  createdAt: date("2026-10-01")))
+            let archivedUSD = try database.saveLocalAccount(LocalAccount(id: UUID(),
+                name: "Fictional archived USD", createdAt: date("2026-10-01"),
+                archivedAt: date("2026-10-05"), nativeCurrency: "USD"))
+            var expense = transaction(kind: .expense, cents: 5_000, day: "2026-10-01",
+                                      accountID: paying.id, merchant: "Fictional expense")
+            expense.accountID = paying.id
+            expense.account = paying.name
+            let savedExpense = try database.save(expense, expectedReimbursementEURMinor: 5_000)
+            var receipt = transaction(kind: .reimbursement, cents: 6_000, day: "2026-10-06",
+                                      accountID: archivedUSD.id, merchant: "Fictional USD refund")
+            receipt.currency = "USD"
+            receipt.accountID = archivedUSD.id
+            receipt.account = archivedUSD.name
+            receipt.accountCurrency = "USD"
+            receipt.accountAmountMinor = 6_000
+            receipt.eurMinor = 4_600
+            receipt.exchangeRateEUR = "0.7666667"
+            receipt.eurValueSource = .confirmed
+            let existing = try database.save(receipt)
+            try database.linkReimbursement(expenseID: savedExpense.id,
+                                           reimbursementID: existing.id)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 400)
+            XCTAssertEqual(try database.transactions().first { $0.id == existing.id }?.accountID,
+                           archivedUSD.id)
+            let totals = LedgerTotals(transactions: try database.transactions())
+            XCTAssertEqual(totals.totalExpensesEURMinor, 5_000)
+            XCTAssertEqual(totals.personalSpendingEURMinor, 0)
+            XCTAssertEqual(totals.incomeEURMinor, 0)
+            try database.checkDatabase()
+        }
+    }
 }
 
 private extension SQLiteDatabase {
