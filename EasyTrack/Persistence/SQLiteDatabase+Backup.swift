@@ -13,7 +13,7 @@ enum BackupError: LocalizedError {
         switch self {
         case .unsupportedVersion(let version):
             version < 5
-                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 14 backup."
+                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 15 backup."
                 : "Backup format \(version) is newer than this app supports. Update EasyTrack before restoring it."
         case .invalid(let reason): "Backup is incomplete or damaged: \(reason)"
         case .changedSincePreview: "Local data changed after the preview. Choose the backup again."
@@ -43,20 +43,116 @@ struct BackupArchive: Codable {
               let version = header["schemaVersion"] as? Int else {
             throw BackupError.invalid("Missing format version or invalid JSON.")
         }
-        if version == 5 { return try LegacyBackupConverter.convert(data) }
-        guard (6...14).contains(version), version != 13 else { throw BackupError.unsupportedVersion(version) }
+        if version == 5 { return try LegacyBackupConverter.convert(data).upgradedFromFourteenAccounting() }
+        guard (6...15).contains(version), version != 13 else { throw BackupError.unsupportedVersion(version) }
         do {
             let archive = try JSONDecoder().decode(BackupArchive.self, from: data)
-            if version == 6 { return try archive.upgradedFromSix().upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
-            if version == 7 { return try archive.upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
-            if version == 8 { return try archive.upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
-            if version == 9 { return try archive.upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
-            if version == 10 { return try archive.upgradedFromTen().upgradedFromEleven().upgradedFromTwelve() }
-            if version == 11 { return try archive.upgradedFromEleven().upgradedFromTwelve() }
-            if version == 12 { return try archive.upgradedFromTwelve() }
+            if version == 6 { return try archive.upgradedFromSix().upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve().upgradedFromFourteenAccounting() }
+            if version == 7 { return try archive.upgradedFromSeven().upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve().upgradedFromFourteenAccounting() }
+            if version == 8 { return try archive.upgradedFromEight().upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve().upgradedFromFourteenAccounting() }
+            if version == 9 { return try archive.upgradedFromNine().upgradedFromTen().upgradedFromEleven().upgradedFromTwelve().upgradedFromFourteenAccounting() }
+            if version == 10 { return try archive.upgradedFromTen().upgradedFromEleven().upgradedFromTwelve().upgradedFromFourteenAccounting() }
+            if version == 11 { return try archive.upgradedFromEleven().upgradedFromTwelve().upgradedFromFourteenAccounting() }
+            if version == 12 { return try archive.upgradedFromTwelve().upgradedFromFourteenAccounting() }
+            if version == 14 { return try archive.upgradedFromFourteenAccounting() }
             return archive
         }
+        catch let error as BackupError { throw error }
         catch { throw BackupError.invalid("Required fields could not be decoded.") }
+    }
+}
+
+extension BackupArchive {
+    // Format 15 keeps schema 13. Only the derived personal-cost field changes;
+    // the expense, receipt, links, dates and operation history are kept intact.
+    func upgradedFromFourteenAccounting() throws -> BackupArchive {
+        guard schemaVersion == 14, databaseSchemaVersion == 13,
+              tables.map(\.name) == SQLiteDatabase.backupTableNames,
+              try SQLiteDatabase.digest(tables) == contentSHA256,
+              let transactionIndex = tables.firstIndex(where: { $0.name == "transactions" }),
+              let plan = tables.first(where: { $0.name == "expense_reimbursement_plans" }),
+              let links = tables.first(where: { $0.name == "expense_reimbursement_links" }) else {
+            throw BackupError.invalid("The version 14 table list or checksum is invalid.")
+        }
+        let transactions = tables[transactionIndex]
+        func column(_ name: String, in table: BackupTable) throws -> Int {
+            guard let index = table.columns.firstIndex(of: name) else {
+                throw BackupError.invalid("Missing accounting column \(name).")
+            }
+            return index
+        }
+        let idColumn = try column("id", in: transactions)
+        let kindColumn = try column("kind", in: transactions)
+        let currencyColumn = try column("currency", in: transactions)
+        let amountColumn = try column("amount_minor", in: transactions)
+        let eurColumn = try column("eur_minor", in: transactions)
+        let personalColumn = try column("personal_expense_eur_minor", in: transactions)
+        let planID = try column("expense_id", in: plan)
+        let expectedColumn = try column("expected_eur_minor", in: plan)
+        let writtenColumn = try column("written_off_eur_minor", in: plan)
+        let linkID = try column("expense_id", in: links)
+        let linkAmount = try column("amount_eur_minor", in: links)
+        var received: [String: Int64] = [:]
+        for row in links.rows {
+            guard row.count == links.columns.count, let id = row[linkID],
+                  let amount = row[linkAmount].flatMap(Int64.init), amount > 0 else {
+                throw BackupError.invalid("A version 14 reimbursement link is invalid.")
+            }
+            let (sum, overflow) = received[id, default: 0].addingReportingOverflow(amount)
+            guard !overflow else { throw BackupError.invalid("Reimbursement totals overflow.") }
+            received[id] = sum
+        }
+        var plans: [String: (Int64, Int64)] = [:]
+        for row in plan.rows {
+            guard row.count == plan.columns.count, let id = row[planID],
+                  let expected = row[expectedColumn].flatMap(Int64.init),
+                  let written = row[writtenColumn].flatMap(Int64.init),
+                  plans[id] == nil else {
+                throw BackupError.invalid("A version 14 reimbursement plan is invalid.")
+            }
+            plans[id] = (expected, written)
+        }
+        var upgraded = tables
+        let rows = try transactions.rows.map { row -> [String?] in
+            guard row.count == transactions.columns.count else {
+                throw BackupError.invalid("A version 14 transaction row is incomplete.")
+            }
+            guard let id = row[idColumn], let (expected, written) = plans[id] else { return row }
+            let kind = row[kindColumn]
+            let grossText = row[currencyColumn] == "EUR" ? row[amountColumn] : row[eurColumn]
+            guard let gross = grossText.flatMap(Int64.init), expected > 0, expected <= gross,
+                  written >= 0, let oldPersonal = row[personalColumn].flatMap(Int64.init) else {
+                throw BackupError.invalid("A version 14 expected reimbursement is invalid.")
+            }
+            let paid = received[id, default: 0]
+            let (settled, overflow) = paid.addingReportingOverflow(written)
+            guard !overflow, settled <= expected else {
+                throw BackupError.invalid("A version 14 reimbursement exceeds its plan.")
+            }
+            let personal: Int64
+            let legacy: Int64
+            if kind == "expense" {
+                personal = gross - paid
+                legacy = gross - expected + written
+            } else if kind == "advanceForOthers" {
+                personal = written
+                legacy = written
+            } else {
+                throw BackupError.invalid("A version 14 reimbursement plan has the wrong transaction kind.")
+            }
+            guard oldPersonal == legacy || oldPersonal == personal else {
+                throw BackupError.invalid("A version 14 reimbursement cost is inconsistent.")
+            }
+            var corrected = row
+            corrected[personalColumn] = String(personal)
+            return corrected
+        }
+        upgraded[transactionIndex] = BackupTable(name: transactions.name,
+            columns: transactions.columns, rows: rows)
+        return BackupArchive(schemaVersion: 15, databaseSchemaVersion: 13,
+            exportID: exportID, exportedAt: exportedAt,
+            contentSHA256: try SQLiteDatabase.digest(upgraded), tables: upgraded,
+            sourceFormatVersion: sourceFormatVersion ?? 14)
     }
 }
 
@@ -405,7 +501,7 @@ extension SQLiteDatabase {
             try checkDatabase()
             let tables = try backupTables()
             try checkReadableRows(tables)
-            let archive = BackupArchive(schemaVersion: 14, databaseSchemaVersion: 13,
+            let archive = BackupArchive(schemaVersion: 15, databaseSchemaVersion: 13,
                                         exportID: UUID(), exportedAt: .now,
                                         contentSHA256: try Self.digest(tables), tables: tables,
                                         sourceFormatVersion: nil)
@@ -518,27 +614,28 @@ extension SQLiteDatabase {
             LEFT JOIN (SELECT expense_id,SUM(amount_eur_minor) received
                        FROM expense_reimbursement_links GROUP BY expense_id) s ON s.expense_id=p.expense_id
             WHERE e.deleted_at IS NOT NULL OR e.kind NOT IN ('expense','advanceForOthers') OR
+                  (CASE WHEN e.currency='EUR' THEN e.amount_minor ELSE e.eur_minor END) IS NULL OR
                   p.expected_eur_minor>(CASE WHEN e.currency='EUR' THEN e.amount_minor ELSE e.eur_minor END) OR
                   p.written_off_eur_minor+COALESCE(s.received,0)>p.expected_eur_minor OR
-                  e.personal_expense_eur_minor!=CASE WHEN e.kind='expense' THEN
+                  e.personal_expense_eur_minor IS NOT CASE WHEN e.kind='expense' THEN
                     (CASE WHEN e.currency='EUR' THEN e.amount_minor ELSE e.eur_minor END)
-                    -p.expected_eur_minor+p.written_off_eur_minor
+                    -COALESCE(s.received,0)
                     ELSE p.written_off_eur_minor END OR
-                  e.recoverable_eur_minor!=p.expected_eur_minor-p.written_off_eur_minor-COALESCE(s.received,0)
+                  e.recoverable_eur_minor IS NOT p.expected_eur_minor-p.written_off_eur_minor-COALESCE(s.received,0)
             """)
         guard brokenReimbursements == 0 else { throw BackupError.invalid("Expected reimbursement totals are inconsistent.") }
         let brokenReceipts = try countBackupRows("""
             SELECT COUNT(*) FROM expense_reimbursement_links l
             JOIN transactions r ON r.id=l.reimbursement_id
             WHERE r.deleted_at IS NOT NULL OR r.kind!='reimbursement' OR
-                  l.amount_eur_minor!=(CASE WHEN r.currency='EUR' THEN r.amount_minor ELSE r.eur_minor END) OR
-                  r.personal_expense_eur_minor!=0
+                  l.amount_eur_minor IS NOT (CASE WHEN r.currency='EUR' THEN r.amount_minor ELSE r.eur_minor END) OR
+                  r.personal_expense_eur_minor IS NOT 0
             """)
         guard brokenReceipts == 0 else { throw BackupError.invalid("A linked reimbursement is inconsistent.") }
     }
 
     private func validate(_ archive: BackupArchive) throws {
-        guard archive.schemaVersion == 14, archive.databaseSchemaVersion == 13 else {
+        guard archive.schemaVersion == 15, archive.databaseSchemaVersion == 13 else {
             throw BackupError.unsupportedVersion(archive.schemaVersion)
         }
         guard archive.tables.map(\.name) == Self.backupTableNames else {
@@ -609,6 +706,7 @@ extension SQLiteDatabase {
                     inserted += 1
                 }
             }
+            try reconcileReimbursementAccounting(manageTransaction: false)
             try checkDatabase()
             try checkReadableRows(try backupTables())
             if mode == .replace, try backupTables() != archive.tables {

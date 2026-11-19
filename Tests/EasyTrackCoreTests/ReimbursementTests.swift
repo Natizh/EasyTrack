@@ -44,7 +44,8 @@ final class ReimbursementTests: XCTestCase {
                 expectedReimbursementEURMinor: 5_000)
             let totals = LedgerTotals(transactions: try database.transactions())
             XCTAssertEqual(totals.totalExpensesEURMinor, 10_000)
-            XCTAssertEqual(totals.personalSpendingEURMinor, 5_000)
+            XCTAssertEqual(totals.personalSpendingEURMinor, 10_000)
+            XCTAssertEqual(totals.incomeEURMinor, 0)
             XCTAssertEqual(try database.transactions().first { $0.id == expected.id }?.recoverableEURMinor, 5_000)
             XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 5_000)
             XCTAssertEqual(normal.personalExpenseEURMinor, 5_000)
@@ -59,7 +60,8 @@ final class ReimbursementTests: XCTestCase {
                 expectedReimbursementEURMinor: 5_000)
             let refund = try database.save(transaction(kind: .reimbursement, cents: 5_000,
                 day: "2026-10-10", accountID: account, merchant: "Fictional refund"))
-            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, -5_000)
+            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 0)
+            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).incomeEURMinor, 5_000)
             try database.linkReimbursement(expenseID: expense.id, reimbursementID: refund.id)
 
             let active = try database.transactions()
@@ -67,7 +69,7 @@ final class ReimbursementTests: XCTestCase {
             XCTAssertEqual(active.count, 2)
             XCTAssertEqual(totals.totalExpensesEURMinor, 5_000)
             XCTAssertEqual(totals.personalSpendingEURMinor, 0)
-            XCTAssertEqual(totals.incomeEURMinor, 0)
+            XCTAssertEqual(totals.incomeEURMinor, 5_000)
             XCTAssertEqual(active.first { $0.id == refund.id }?.personalExpenseEURMinor, 0)
             XCTAssertEqual(try database.reimbursementStatuses().first?.title, "Rimborsato")
             XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 0)
@@ -92,7 +94,7 @@ final class ReimbursementTests: XCTestCase {
             XCTAssertEqual(status.receivedEURMinor, 5_000)
             XCTAssertEqual(status.outstandingEURMinor, 3_000)
             XCTAssertEqual(status.linkedTransactionIDs.count, 2)
-            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 2_000)
+            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 5_000)
 
             let tooLarge = try database.save(transaction(kind: .reimbursement, cents: 3_001,
                 day: "2026-11-02", accountID: account, merchant: "Fictional too large"))
@@ -147,7 +149,7 @@ final class ReimbursementTests: XCTestCase {
             try database.undoReimbursementWriteOff(expense.id)
             status = try XCTUnwrap(database.reimbursementStatuses().first)
             XCTAssertEqual(status.outstandingEURMinor, 5_000)
-            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 0)
+            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 5_000)
         }
     }
 
@@ -198,7 +200,8 @@ final class ReimbursementTests: XCTestCase {
             XCTAssertEqual(september.totals.grossExpensesEURMinor, 5_000)
             XCTAssertEqual(september.totals.personalNetExpensesEURMinor, 0)
             XCTAssertEqual(october.totals.personalNetExpensesEURMinor, 0)
-            XCTAssertEqual(october.totals.incomeEURMinor, 0)
+            XCTAssertEqual(october.totals.incomeEURMinor, 5_000)
+            XCTAssertEqual(october.totals.cashNetEURMinor, 5_000)
 
             try database.unlinkReimbursement(refund.id)
             XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 5_000)
@@ -228,10 +231,10 @@ final class ReimbursementTests: XCTestCase {
         expense.amountMinor = 4_000
         expense.eurMinor = 4_000
         _ = try source.save(expense, expectedReimbursementEURMinor: 4_000)
-        XCTAssertEqual(try source.transactionExportSnapshotForTest(expense.id)?.personalExpenseEURMinor, 0)
+        XCTAssertEqual(try source.transactionExportSnapshotForTest(expense.id)?.personalExpenseEURMinor, 4_000)
 
         let backup = try source.exportBackup()
-        XCTAssertEqual(backup.schemaVersion, 14)
+        XCTAssertEqual(backup.schemaVersion, 15)
         XCTAssertEqual(backup.databaseSchemaVersion, 13)
         let readOnly = try SQLiteDatabase(readOnlyURL: source.url)
         let export = try readOnly.transactionExportSnapshot().select(filter: .init(), options: {
@@ -261,7 +264,7 @@ final class ReimbursementTests: XCTestCase {
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,
             sourceFormatVersion: nil)
         let upgraded = try BackupArchive.decode(JSONEncoder().encode(old))
-        XCTAssertEqual(upgraded.schemaVersion, 14)
+        XCTAssertEqual(upgraded.schemaVersion, 15)
         XCTAssertEqual(upgraded.sourceFormatVersion, 9)
         XCTAssertEqual(upgraded.tables[29].rows.first?[1], "1")
         XCTAssertTrue(upgraded.tables[30].rows.isEmpty)
@@ -302,7 +305,8 @@ final class ReimbursementTests: XCTestCase {
             XCTAssertEqual(linked.account, receiving.name)
             XCTAssertEqual(linked.accountCurrency, "EUR")
             XCTAssertEqual(linked.accountAmountMinor, 4_000)
-            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 0)
+            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 6_000)
+            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).incomeEURMinor, 4_000)
 
             let reopened = try SQLiteDatabase(url: url)
             status = try XCTUnwrap(reopened.reimbursementStatuses().first)
@@ -336,6 +340,7 @@ final class ReimbursementTests: XCTestCase {
             XCTAssertEqual(status.outstandingEURMinor, 0)
             XCTAssertEqual(try database.transactions().first { $0.kind == .reimbursement }?.accountID, closed.id)
             XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 0)
+            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).incomeEURMinor, 5_000)
         }
     }
 
@@ -452,7 +457,7 @@ final class ReimbursementTests: XCTestCase {
             let totals = LedgerTotals(transactions: try source.transactions())
             XCTAssertEqual(totals.totalExpensesEURMinor, 10_000)
             XCTAssertEqual(totals.personalSpendingEURMinor, 0)
-            XCTAssertEqual(totals.incomeEURMinor, 0)
+            XCTAssertEqual(totals.incomeEURMinor, 10_000)
             XCTAssertEqual(Set(try source.transactions().filter { $0.kind == .reimbursement }
                 .compactMap(\.accountID)), Set([bankB.id, bankC.id]))
 
@@ -497,8 +502,8 @@ final class ReimbursementTests: XCTestCase {
                            archivedUSD.id)
             let totals = LedgerTotals(transactions: try database.transactions())
             XCTAssertEqual(totals.totalExpensesEURMinor, 5_000)
-            XCTAssertEqual(totals.personalSpendingEURMinor, 0)
-            XCTAssertEqual(totals.incomeEURMinor, 0)
+            XCTAssertEqual(totals.personalSpendingEURMinor, 400)
+            XCTAssertEqual(totals.incomeEURMinor, 4_600)
             try database.checkDatabase()
         }
     }

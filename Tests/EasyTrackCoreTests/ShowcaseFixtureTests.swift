@@ -109,7 +109,7 @@ final class ShowcaseFixtureTests: XCTestCase {
         let totals = LedgerTotals(transactions: currentRows)
         XCTAssertEqual(totals.totalExpensesEURMinor, 125_650)
         XCTAssertEqual(totals.personalSpendingEURMinor, 122_450)
-        XCTAssertEqual(totals.incomeEURMinor, 285_000)
+        XCTAssertEqual(totals.incomeEURMinor, 288_200)
         XCTAssertEqual(totals.pacInvestedEURMinor, 22_000)
         XCTAssertEqual(try database.transactions().count, 52)
         XCTAssertEqual(try database.parserRules().count, 2)

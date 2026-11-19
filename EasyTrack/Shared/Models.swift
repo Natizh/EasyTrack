@@ -289,9 +289,9 @@ struct LedgerTotals: Equatable {
             personal += item.personalExpenseEURMinor ?? (item.kind == .expense && item.currency == "EUR" ? item.amountMinor : 0)
             switch item.kind {
             case .expense: expenses += eur
-            case .income: income += eur
+            case .income, .reimbursement: income += eur
             case .pacInvestment: invested += eur
-            case .advanceForOthers, .reimbursement, .deposit, .depositRefund: break
+            case .advanceForOthers, .deposit, .depositRefund: break
             }
         }
         personalSpendingEURMinor = personal

@@ -52,7 +52,7 @@ final class CurrencyTests: XCTestCase {
             }())
 
             let backup = try database.exportBackup()
-            XCTAssertEqual(backup.schemaVersion, 14)
+            XCTAssertEqual(backup.schemaVersion, 15)
             XCTAssertEqual(backup.databaseSchemaVersion, 13)
             let target = try SQLiteDatabase(url: database.url.deletingLastPathComponent()
                 .appendingPathComponent("restored.sqlite"))

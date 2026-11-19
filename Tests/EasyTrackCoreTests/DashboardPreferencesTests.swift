@@ -219,7 +219,7 @@ final class DashboardPreferencesTests: XCTestCase {
         let sourcePreferences = [preference("monthlyTrend", 0, false), preference("recurring", 1, true)]
         try source.saveDashboardWidgetPreferences(sourcePreferences)
         let backup = try source.exportBackup()
-        XCTAssertEqual(backup.schemaVersion, 14)
+        XCTAssertEqual(backup.schemaVersion, 15)
         XCTAssertEqual(backup.databaseSchemaVersion, 13)
 
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
@@ -237,7 +237,7 @@ final class DashboardPreferencesTests: XCTestCase {
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,
             sourceFormatVersion: nil)
         let upgraded = try BackupArchive.decode(JSONEncoder().encode(old))
-        XCTAssertEqual(upgraded.schemaVersion, 14)
+        XCTAssertEqual(upgraded.schemaVersion, 15)
         XCTAssertEqual(upgraded.sourceFormatVersion, 7)
         let legacyTargetURL = folder.appendingPathComponent("legacy-target.sqlite")
         let legacyTarget = try SQLiteDatabase(url: legacyTargetURL)

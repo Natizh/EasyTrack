@@ -284,25 +284,63 @@ final class EasyTrackUITests: XCTestCase {
         for _ in 0..<8 where !picker.isHittable { app.swipeDown() }
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         picker.tap()
-        app.buttons["Total expenses"].tap()
+        app.buttons["Expenses"].tap()
         let previewTotal = app.staticTexts.matching(NSPredicate(
             format: "identifier == %@ AND label CONTAINS %@",
-            "homePersonalSpendingTotal", "Total expenses")).firstMatch
+            "homePersonalSpendingTotal", "Expenses")).firstMatch
         XCTAssertTrue(previewTotal.exists)
         app.buttons["Done"].tap()
         let total = app.staticTexts["homePersonalSpendingTotal"]
-        XCTAssertTrue(total.label.contains("Total expenses"))
+        XCTAssertTrue(total.label.contains("Expenses"))
         app.terminate()
         app.launch()
         XCTAssertTrue(total.waitForExistence(timeout: 5))
-        XCTAssertTrue(total.label.contains("Total expenses"))
+        XCTAssertTrue(total.label.contains("Expenses"))
 
         app.buttons["customizeHomeButton"].tap()
         for _ in 0..<8 where !reset.isHittable { app.swipeUp() }
         reset.tap()
         app.buttons["Restore defaults"].tap()
         app.buttons["Done"].tap()
-        XCTAssertTrue(total.label.contains("Net personal spending"))
+        XCTAssertTrue(total.label.contains("Net"))
+    }
+
+    @MainActor
+    func testHomeIncomeAndExpensesOpenCompletePeriodActivity() throws {
+        #if EASYTRACK_ACCOUNTING_AUDIT
+        let app = XCUIApplication()
+        app.launch()
+        let income = app.buttons["homeIncomeMetric"]
+        XCTAssertTrue(income.waitForExistence(timeout: 10), app.debugDescription)
+        income.tap()
+        XCTAssertTrue(app.navigationBars["Activity"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["activityChartFilter"].exists)
+        let search = app.textFields["transactionSearchField"]
+        replaceText(in: search, with: "Shared weekend refund")
+        XCTAssertTrue(app.staticTexts["Shared weekend refund"].waitForExistence(timeout: 5))
+        replaceText(in: search, with: "Willowmere Home")
+        XCTAssertFalse(app.staticTexts["Willowmere Home"].exists)
+        app.navigationBars["Activity"].buttons["EasyTrack"].tap()
+
+        app.buttons["customizeHomeButton"].tap()
+        XCTAssertTrue(app.navigationBars["Customize Home"].waitForExistence(timeout: 5))
+        let picker = app.descendants(matching: .any)["homePrimaryMetricPicker"]
+        for _ in 0..<8 where !picker.isHittable { app.swipeDown() }
+        picker.tap()
+        app.buttons["Expenses"].tap()
+        app.buttons["Done"].tap()
+        let expenses = app.buttons["homeExpensesMetric"]
+        XCTAssertTrue(expenses.waitForExistence(timeout: 5))
+        expenses.tap()
+        XCTAssertTrue(app.navigationBars["Activity"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["activityChartFilter"].exists)
+        replaceText(in: app.textFields["transactionSearchField"], with: "Willowmere Home")
+        XCTAssertTrue(app.staticTexts["Willowmere Home"].waitForExistence(timeout: 5))
+        replaceText(in: app.textFields["transactionSearchField"], with: "Shared weekend refund")
+        XCTAssertFalse(app.staticTexts["Shared weekend refund"].exists)
+        #else
+        throw XCTSkip("Run with the isolated accounting UI fixture")
+        #endif
     }
 
     @MainActor

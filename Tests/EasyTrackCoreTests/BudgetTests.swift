@@ -143,7 +143,7 @@ final class BudgetTests: XCTestCase {
             targetEURMinor: 80_000, progressEURMinor: 10_000, dueDate: nil,
             createdAt: now, updatedAt: now, archivedAt: nil, revision: 0))
         let backup = try source.exportBackup()
-        XCTAssertEqual(backup.schemaVersion, 14)
+        XCTAssertEqual(backup.schemaVersion, 15)
         XCTAssertEqual(backup.databaseSchemaVersion, 13)
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
         XCTAssertEqual(try target.monthlyBudgets().first?.id, sourceBudget.id)
@@ -166,7 +166,7 @@ final class BudgetTests: XCTestCase {
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,
             sourceFormatVersion: nil)
         let upgraded = try BackupArchive.decode(JSONEncoder().encode(old))
-        XCTAssertEqual(upgraded.schemaVersion, 14)
+        XCTAssertEqual(upgraded.schemaVersion, 15)
         XCTAssertEqual(upgraded.sourceFormatVersion, 11)
         XCTAssertTrue(upgraded.tables[31].rows.isEmpty)
         XCTAssertTrue(upgraded.tables[32].rows.isEmpty)

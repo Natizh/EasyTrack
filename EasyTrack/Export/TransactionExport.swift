@@ -239,9 +239,9 @@ struct TransactionExportTotals: Equatable {
         let eur = row.currentEURMinor ?? 0
         switch row.item.kind {
         case .expense: try Self.addChecked(eur, to: &expenses)
-        case .income: try Self.addChecked(eur, to: &income)
+        case .income, .reimbursement: try Self.addChecked(eur, to: &income)
         case .pacInvestment: try Self.addChecked(eur, to: &pac)
-        case .advanceForOthers, .reimbursement, .deposit, .depositRefund: break
+        case .advanceForOthers, .deposit, .depositRefund: break
         }
     }
 

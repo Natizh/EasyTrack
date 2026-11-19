@@ -84,7 +84,7 @@ final class ImportTests: XCTestCase {
         let totals = LedgerTotals(transactions: [expense, advance, refund, pac, income, deposit, depositRefund])
         XCTAssertEqual(totals.personalSpendingEURMinor, 700)
         XCTAssertEqual(totals.totalExpensesEURMinor, 1_000)
-        XCTAssertEqual(totals.incomeEURMinor, 4_000)
+        XCTAssertEqual(totals.incomeEURMinor, 4_300)
         XCTAssertEqual(totals.pacInvestedEURMinor, 3_000)
     }
 
@@ -336,6 +336,7 @@ final class ImportTests: XCTestCase {
         XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 0)
         XCTAssertEqual(try database.reimbursementLinks().count, 1)
         XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 0)
+        XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).incomeEURMinor, 1_500)
         let repeated = try database.importHistoricalSeed(historical)
         XCTAssertEqual(repeated.newMovements, 0)
         XCTAssertEqual(try database.transactions().count, 2)

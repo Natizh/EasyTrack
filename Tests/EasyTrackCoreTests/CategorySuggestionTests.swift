@@ -141,7 +141,7 @@ final class CategorySuggestionTests: XCTestCase {
         let sourceRule = try source.saveCategoryKeywordRule(rule("fictional cafe", categoryID: category.id,
                                                                  id: stableID))
         let backup = try source.exportBackup()
-        XCTAssertEqual(backup.schemaVersion, 14)
+        XCTAssertEqual(backup.schemaVersion, 15)
         XCTAssertEqual(backup.databaseSchemaVersion, 13)
         _ = try target.restoreBackup(backup, preview: target.previewBackup(backup), mode: .replace)
         let restoredRule = try XCTUnwrap(target.categoryKeywordRules().first)
@@ -167,7 +167,7 @@ final class CategorySuggestionTests: XCTestCase {
             contentSHA256: try SQLiteDatabase.digest(oldTables), tables: oldTables,
             sourceFormatVersion: nil)
         let upgraded = try BackupArchive.decode(JSONEncoder().encode(old))
-        XCTAssertEqual(upgraded.schemaVersion, 14)
+        XCTAssertEqual(upgraded.schemaVersion, 15)
         XCTAssertEqual(upgraded.sourceFormatVersion, 10)
         XCTAssertEqual(upgraded.tables[29].rows.first?[1], "1")
         XCTAssertTrue(upgraded.tables[30].rows.isEmpty)

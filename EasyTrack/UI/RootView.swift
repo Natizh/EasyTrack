@@ -255,6 +255,7 @@ private struct HomeView: View {
     @State private var showingReceiptCapture = false
     @State private var showingVoiceEntry = false
     @State private var showingMonthPicker = false
+    @State private var selectedMetric: DashboardHeroMetric?
     @State private var selectedMonth = FinancialMonth.current()
     @AppStorage("homeSelectedMonth") private var storedMonthKey = ""
 
@@ -266,6 +267,7 @@ private struct HomeView: View {
     private var selectedMonthSnapshot: FinancialAnalyticsSnapshot? {
         try? FinancialAnalytics.snapshot(transactions: homeTransactions,
             period: selectedMonth.period,
+            reimbursementStatuses: store.reimbursementStatuses,
             categoryNames: Dictionary(uniqueKeysWithValues: store.ledgerCategories.map { ($0.id, $0.name) }),
             tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
     }
@@ -421,7 +423,8 @@ private struct HomeView: View {
                 }
                 .padding(.horizontal, 4)
                 FinancialHeroCard(snapshot: selectedMonthSnapshot, periodTitle: selectedMonthTitle,
-                                  preferences: store.dashboardHeroPreferences)
+                                  preferences: store.dashboardHeroPreferences,
+                                  onMetricTap: { selectedMetric = $0 })
 
                 VStack(alignment: .leading, spacing: 11) {
                     HStack {
@@ -486,6 +489,13 @@ private struct HomeView: View {
         .sheet(isPresented: $showingMonthPicker) {
             NavigationStack {
                 HomeMonthPickerView(selection: $selectedMonth, minimumYear: earliestHomeYear)
+            }
+        }
+        .navigationDestination(item: $selectedMetric) { metric in
+            if let snapshot = selectedMonthSnapshot,
+               let filter = HomeMetricDrilldown.filter(for: metric, snapshot: snapshot) {
+                TransactionsView(initialScope: ActivityChartScope(
+                    label: "\(metric.title) · \(selectedMonthTitle)", filter: filter))
             }
         }
         .onAppear {
@@ -785,6 +795,17 @@ private struct TransactionsView: View {
     @State private var selectedTransactionID: UUID?
     @State private var showingReceiptCapture = false
     @State private var showingVoiceEntry = false
+    @State private var initialScopeActive = true
+    private let initialScope: ActivityChartScope?
+
+    init(initialScope: ActivityChartScope? = nil) {
+        self.initialScope = initialScope
+    }
+
+    private var scope: ActivityChartScope? {
+        if let initialScope { return initialScopeActive ? initialScope : nil }
+        return navigation.activityChartScope
+    }
 
     private var categories: [String] { ["All categories"] + Array(Set(store.transactions.map(\.category))).sorted() }
     private var accounts: [String] { Array(Set(store.transactions.map(\.account))).sorted() }
@@ -805,19 +826,22 @@ private struct TransactionsView: View {
                    tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
     }
     private var filtered: [Transaction] {
-        guard let scope = navigation.activityChartScope else { return activityFiltered }
+        guard let scope else { return activityFiltered }
         return scope.filter.apply(to: activityFiltered,
             tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if let scope = navigation.activityChartScope {
+            if let scope {
                 HStack(spacing: 10) {
                     Label(scope.label, systemImage: "chart.bar.xaxis")
                         .font(.subheadline.weight(.semibold)).lineLimit(2)
                     Spacer()
-                    Button("Remove") { navigation.clearChartScope() }
+                    Button("Remove") {
+                        if initialScope != nil { initialScopeActive = false }
+                        else { navigation.clearChartScope() }
+                    }
                         .font(.subheadline.weight(.semibold))
                 }
                 .padding(12)
@@ -905,7 +929,7 @@ private struct TransactionsView: View {
             .scrollContentBackground(.hidden)
             .overlay {
                 if filtered.isEmpty {
-                    if navigation.activityChartScope != nil {
+                    if scope != nil {
                         ContentUnavailableView("No matching transactions", systemImage: "line.3.horizontal.decrease.circle",
                             description: Text("The chart selection and current Activity filters do not overlap."))
                     } else {
@@ -920,7 +944,7 @@ private struct TransactionsView: View {
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
             Button {
                 searchFocused = false
-                exportRequest = ExportRequest(filter: navigation.activityChartScope == nil
+                exportRequest = ExportRequest(filter: scope == nil
                     ? currentActivityFilter
                     : TransactionFilter(transactionIDs: Set(filtered.map(\.id))))
             } label: { Image(systemName: "square.and.arrow.up") }

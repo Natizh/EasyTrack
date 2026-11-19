@@ -139,14 +139,24 @@ struct MetricTile: View {
     let symbol: String
     var accessibilityTitle: String? = nil
     var periodTitle: String? = nil
+    var showsDisclosure = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Label(title, systemImage: symbol)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(theme.heroSecondaryText)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 4) {
+                Label(title, systemImage: symbol)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.heroSecondaryText)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if showsDisclosure {
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(theme.heroSecondaryText)
+                        .accessibilityHidden(true)
+                }
+            }
             Text(value)
                 .font(.subheadline.weight(.bold))
                 .monospacedDigit()
@@ -170,13 +180,18 @@ struct FinancialHeroCard: View {
     let snapshot: FinancialAnalyticsSnapshot?
     let periodTitle: String
     var preferences: DashboardHeroPreferences = .default
+    var onMetricTap: ((DashboardHeroMetric) -> Void)? = nil
+
+    private func isAction(_ metric: DashboardHeroMetric) -> Bool {
+        snapshot != nil && onMetricTap != nil && (metric == .income || metric == .expenses)
+    }
 
     private func value(for metric: DashboardHeroMetric) -> String {
         guard let totals = snapshot?.totals else { return "—" }
         switch metric {
-        case .net: return Money.format(totals.personalNetExpensesEURMinor)
+        case .net: return Money.format(totals.netEURMinor)
         case .expenses: return Money.format(totals.grossExpensesEURMinor)
-        case .income: return Money.format(totals.incomeEURMinor)
+        case .income: return Money.format(totals.grossIncomeEURMinor)
         case .pac: return Money.format(totals.pacInvestedEURMinor)
         case .dailyAverage: return dailyAverage
         }
@@ -207,27 +222,61 @@ struct FinancialHeroCard: View {
         }
     }
 
-    private func metricTile(_ metric: DashboardHeroMetric) -> some View {
-        MetricTile(title: metric.title, value: value(for: metric),
-                   symbol: metric.symbol, periodTitle: periodTitle)
+    @ViewBuilder private func metricTile(_ metric: DashboardHeroMetric) -> some View {
+        if isAction(metric), let onMetricTap {
+            Button { onMetricTap(metric) } label: {
+                MetricTile(title: metric.title, value: value(for: metric), symbol: metric.symbol,
+                           periodTitle: periodTitle, showsDisclosure: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Show all \(metric.title.lowercased()) transactions for \(periodTitle)")
+            .accessibilityIdentifier(metric == .income ? "homeIncomeMetric" : "homeExpensesMetric")
+        } else {
+            MetricTile(title: metric.title, value: value(for: metric),
+                       symbol: metric.symbol, periodTitle: periodTitle)
+        }
+    }
+
+    private var primaryMetricContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("\(periodTitle.uppercased()) · \(preferences.primary.title.uppercased())")
+                    .font(.caption.weight(.bold))
+                    .tracking(1.05)
+                if isAction(preferences.primary) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .accessibilityHidden(true)
+                }
+            }
+            .foregroundStyle(theme.heroSecondaryText)
+            Text(value(for: preferences.primary))
+                .font(.system(size: heroFontSize, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .minimumScaleFactor(0.65)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                .foregroundStyle(theme.heroText)
+                .accessibilityIdentifier("homePersonalSpendingTotal")
+                .accessibilityLabel("\(preferences.primary.title), \(value(for: preferences.primary)), \(periodTitle)")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder private var primaryMetric: some View {
+        if isAction(preferences.primary), let onMetricTap {
+            Button { onMetricTap(preferences.primary) } label: { primaryMetricContent }
+                .buttonStyle(.plain)
+                .accessibilityHint("Show all \(preferences.primary.title.lowercased()) transactions for \(periodTitle)")
+                .accessibilityIdentifier(preferences.primary == .income ? "homeIncomeMetric" : "homeExpensesMetric")
+        } else {
+            primaryMetricContent
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("\(periodTitle.uppercased()) · \(preferences.primary.title.uppercased())")
-                    .font(.caption.weight(.bold))
-                    .tracking(1.05)
-                    .foregroundStyle(theme.heroSecondaryText)
-                Text(value(for: preferences.primary))
-                    .font(.system(size: heroFontSize, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .minimumScaleFactor(0.65)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-                    .foregroundStyle(theme.heroText)
-                    .accessibilityIdentifier("homePersonalSpendingTotal")
-                    .accessibilityLabel("\(preferences.primary.title), \(value(for: preferences.primary)), \(periodTitle)")
-            }
+            primaryMetric
 
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(spacing: 10) {
