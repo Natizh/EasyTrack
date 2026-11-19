@@ -55,3 +55,16 @@ struct ExpenseReimbursementLink: Equatable {
     let amountEURMinor: Int64
     let createdAt: Date
 }
+
+enum ReimbursementTotals {
+    static func pending(_ statuses: [ExpenseReimbursementStatus]) throws -> Int64 {
+        var total: Int64 = 0
+        for status in statuses {
+            guard status.outstandingEURMinor >= 0 else { throw ReimbursementError.invalidExpectedAmount }
+            let (next, overflow) = total.addingReportingOverflow(status.outstandingEURMinor)
+            guard !overflow else { throw FinancialAnalyticsError.amountOverflow }
+            total = next
+        }
+        return total
+    }
+}

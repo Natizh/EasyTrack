@@ -242,5 +242,14 @@ final class CashFlowAccountingTests: XCTestCase {
             now: date("2027-02-01"))) {
             XCTAssertEqual($0 as? FinancialAnalyticsError, .amountOverflow)
         }
+        func outstanding(_ amount: Int64) -> ExpenseReimbursementStatus {
+            ExpenseReimbursementStatus(expenseID: UUID(), expectedEURMinor: amount,
+                receivedEURMinor: 0, writtenOffEURMinor: 0,
+                outstandingEURMinor: amount, linkedTransactionIDs: [], updatedAt: .now)
+        }
+        XCTAssertEqual(try ReimbursementTotals.pending([outstanding(1), outstanding(2)]), 3)
+        XCTAssertThrowsError(try ReimbursementTotals.pending([outstanding(Int64.max), outstanding(1)])) {
+            XCTAssertEqual($0 as? FinancialAnalyticsError, .amountOverflow)
+        }
     }
 }

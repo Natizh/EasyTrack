@@ -272,12 +272,7 @@ struct PendingReimbursementsWidget: View {
     private var pending: [ExpenseReimbursementStatus] {
         store.reimbursementStatuses.filter { $0.outstandingEURMinor > 0 }
     }
-    private var total: Int64 {
-        pending.reduce(0) { result, status in
-            let (value, overflow) = result.addingReportingOverflow(status.outstandingEURMinor)
-            return overflow ? result : value
-        }
-    }
+    private var total: Int64? { try? ReimbursementTotals.pending(pending) }
 
     var body: some View {
         DashboardModuleCard {
@@ -286,6 +281,7 @@ struct PendingReimbursementsWidget: View {
                 navigation.showActivity(label: "Pending reimbursements",
                     filter: TransactionFilter(transactionIDs: ids))
             } label: {
+                VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 13) {
                     Image(systemName: "arrow.uturn.backward.circle.fill")
                         .font(.title2).foregroundStyle(theme.accent)
@@ -295,8 +291,13 @@ struct PendingReimbursementsWidget: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(Money.format(total)).font(.headline).monospacedDigit()
+                    Text(total.map { Money.format($0) } ?? "—").font(.headline).monospacedDigit()
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+                if total == nil {
+                    Text("Pending total is too large to display safely")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 }
                 .contentShape(Rectangle())
             }
