@@ -180,6 +180,23 @@ struct ParserAttempt: Identifiable, Codable {
     var detail: String?
 }
 
+enum FirstNotificationSetup {
+    static func sample(for source: ParserSource, rules: [ParserRule],
+                       attempts: [ParserAttempt]) -> ParserAttempt? {
+        guard !rules.contains(where: {
+            $0.sourceID == source.id && $0.enabled && $0.deletedAt == nil &&
+            (try? NotificationParser.validate($0.config)) != nil
+        }) else { return nil }
+        return attempts.filter {
+            $0.sourceID == source.id && $0.transactionID == nil &&
+            $0.status != .rejected && $0.status != .duplicateIgnored
+        }.sorted {
+            if $0.capturedAt != $1.capturedAt { return $0.capturedAt > $1.capturedAt }
+            return $0.id.uuidString < $1.id.uuidString
+        }.first
+    }
+}
+
 struct AmountCapture: Equatable {
     let cents: Int64
     let currency: String

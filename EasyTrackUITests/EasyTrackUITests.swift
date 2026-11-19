@@ -6,6 +6,108 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
+    func testReview35FirstCapturePromptAndDeletionPersist() throws {
+        #if EASYTRACK_REVIEW35
+        let suffix = String(UUID().uuidString.prefix(8))
+        let sourceName = "Review Wallet \(suffix) (fictional)"
+        let app = XCUIApplication()
+        app.launchEnvironment["EASYTRACK_TEST_SAMPLE_SOURCE"] = sourceName
+        app.launchEnvironment["EASYTRACK_TEST_MERCHANT_SUFFIX"] = suffix
+        app.launch()
+        app.tabBars.buttons["Automations"].tap()
+        app.buttons["Try fictional notification"].tap()
+        app.buttons["Northstar Pay sample"].tap()
+        let prompt = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "firstCaptureSetup-")).firstMatch
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(prompt.label.contains("not a recorded transaction"))
+        XCTAssertTrue(prompt.label.contains("separate formats"))
+        prompt.tap()
+        XCTAssertTrue(app.navigationBars["Automation setup"].waitForExistence(timeout: 8))
+        app.buttons["Cancel"].tap()
+
+        let source = app.buttons["automationSource-\(sourceName)"]
+        XCTAssertTrue(source.waitForExistence(timeout: 8))
+        source.tap()
+        let delete = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "deleteCapture-")).firstMatch
+        for _ in 0..<7 where !delete.isHittable { app.swipeUp() }
+        XCTAssertTrue(delete.isHittable)
+        delete.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(
+            format: "label CONTAINS %@", "This capture disappears from the list")).firstMatch.exists)
+        app.buttons["Delete notification"].tap()
+        XCTAssertTrue(app.staticTexts["0 captured · 0 active"].waitForExistence(timeout: 8))
+        app.terminate()
+        app.launch()
+        app.tabBars.buttons["Automations"].tap()
+        source.tap()
+        XCTAssertTrue(app.staticTexts["0 captured · 0 active"].waitForExistence(timeout: 8))
+        XCTAssertFalse(prompt.exists)
+        #else
+        throw XCTSkip("Run on an isolated PR #35 test bundle")
+        #endif
+    }
+
+    @MainActor
+    func testReview35CrossAccountSettlementPickerAndCancel() throws {
+        #if EASYTRACK_REVIEW35
+        let app = XCUIApplication()
+        let description = "Fictional review expense \(UUID().uuidString.prefix(8))"
+        app.launch()
+        app.buttons["homeAddTransactionButton"].tap()
+        XCTAssertTrue(app.navigationBars["New transaction"].waitForExistence(timeout: 8))
+        replaceText(in: app.textFields["transactionOriginalAmountField"], with: "50,00")
+        replaceText(in: app.textFields["transactionDescriptionField"], with: description)
+        let expecting = app.switches["expectsReimbursementToggle"]
+        for _ in 0..<8 where !expecting.isHittable { app.swipeUp() }
+        XCTAssertTrue(expecting.isHittable)
+        XCTAssertEqual(expecting.value as? String, "0")
+        expecting.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertEqual(expecting.value as? String, "1")
+        app.buttons["Save"].tap()
+
+        app.tabBars.buttons["Activity"].tap()
+        let search = app.textFields["transactionSearchField"]
+        search.tap()
+        search.typeText(description)
+        let row = app.staticTexts[description]
+        XCTAssertTrue(row.waitForExistence(timeout: 8), app.debugDescription)
+        row.tap()
+        let receive = app.buttons["receiveReimbursementButton"]
+        for _ in 0..<8 where !receive.isHittable { app.swipeUp() }
+        XCTAssertTrue(receive.isHittable)
+        receive.tap()
+        XCTAssertTrue(app.navigationBars["Rimborso ricevuto"].waitForExistence(timeout: 8))
+        let picker = app.buttons["reimbursementReceivingAccountPicker"]
+        for _ in 0..<6 where !picker.isHittable { app.swipeUp() }
+        XCTAssertTrue(picker.label.contains("Sample Checking"))
+        picker.tap()
+        XCTAssertTrue(app.navigationBars["Choose account"].waitForExistence(timeout: 5))
+        app.buttons["Sample Savings"].tap()
+        XCTAssertTrue(picker.label.contains("Sample Savings"))
+        app.buttons["Cancel"].tap()
+        XCTAssertFalse(app.navigationBars["Rimborso ricevuto"].exists)
+        XCTAssertTrue(receive.exists)
+        let unlink = app.buttons.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Unlink reimbursement")).firstMatch
+        XCTAssertFalse(unlink.exists)
+
+        receive.tap()
+        picker.tap()
+        app.buttons["Sample Savings"].tap()
+        let record = app.buttons["recordAndLinkReimbursementButton"]
+        for _ in 0..<6 where !record.isHittable { app.swipeUp() }
+        XCTAssertTrue(record.isEnabled)
+        record.tap()
+        XCTAssertTrue(unlink.waitForExistence(timeout: 8))
+        XCTAssertFalse(receive.exists)
+        #else
+        throw XCTSkip("Run on an isolated PR #35 test bundle")
+        #endif
+    }
+
+    @MainActor
     private func showcaseApp() throws -> XCUIApplication {
         #if EASYTRACK_SHOWCASE_CAPTURE
         let app = XCUIApplication()

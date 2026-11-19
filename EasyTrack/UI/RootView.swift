@@ -1516,6 +1516,8 @@ private struct ReimbursementSettlementView: View {
     @State private var amount = ""
     @State private var description = "Reimbursement received"
     @State private var occurredAt = Date()
+    @State private var accountID: UUID?
+    @State private var choosingAccount = false
     @State private var validation: String?
 
     private var expense: Transaction? { store.transactions.first { $0.id == expenseID } }
@@ -1530,6 +1532,16 @@ private struct ReimbursementSettlementView: View {
             $0.kind == .reimbursement && !linkedIDs.contains($0.id) && $0.deletedAt == nil
         }
     }
+    private var selectedAccount: LocalAccount? {
+        store.localAccounts.first { $0.id == accountID && NewReimbursementAccountPolicy.isEligible($0) }
+    }
+    private func accountName(_ item: Transaction) -> String {
+        store.localAccounts.first { $0.id == item.accountID }?.name ??
+            (item.account.isEmpty ? "No account" : item.account)
+    }
+    private func canLinkCurrency(_ item: Transaction) -> Bool {
+        item.currency == "EUR" || (item.eurMinor != nil && item.exchangeRateEUR?.isEmpty == false)
+    }
 
     var body: some View {
         Form {
@@ -1542,28 +1554,69 @@ private struct ReimbursementSettlementView: View {
                     Button {
                         link(candidate)
                     } label: {
-                        LabeledContent(candidate.merchant,
-                            value: Money.format(candidate.eurMinor ?? candidate.amountMinor))
+                        VStack(alignment: .leading, spacing: 2) {
+                            LabeledContent(candidate.merchant,
+                                value: candidate.eurMinor.map { Money.format($0) } ??
+                                    Money.format(candidate.amountMinor, currency: candidate.currency))
+                            Text(accountName(candidate))
+                                .font(.footnote).foregroundStyle(.secondary)
+                            if !canLinkCurrency(candidate) {
+                                Text("Verify its EUR value before linking.")
+                                    .font(.footnote).foregroundStyle(.orange)
+                            }
+                        }
                     }
+                    .disabled(!canLinkCurrency(candidate))
                 }
             }
-            Section("Record a new real reimbursement") {
+            Section {
                 LabeledContent("Amount (EUR)") {
                     TextField("0,00", text: $amount).keyboardType(.numbersAndPunctuation)
                         .multilineTextAlignment(.trailing)
                 }
                 TextField("Description", text: $description)
                 DatePicker("Received", selection: $occurredAt)
+                Button {
+                    choosingAccount = true
+                } label: {
+                    LabeledContent("Received into") {
+                        HStack(spacing: 4) {
+                            Text(selectedAccount?.name ?? "Choose account")
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .foregroundStyle(.primary)
+                .accessibilityIdentifier("reimbursementReceivingAccountPicker")
                 Button("Record and link") { createAndLink() }
-                    .disabled(expense == nil || status?.outstandingEURMinor == 0)
+                    .disabled(expense == nil || status?.outstandingEURMinor == 0 || selectedAccount == nil)
+                    .accessibilityIdentifier("recordAndLinkReimbursementButton")
+            } header: {
+                Text("Record a new real reimbursement")
+            } footer: {
+                Text("Choose the active EUR account that received the money. For a foreign-currency receipt, record its actual amount separately with a verified EUR value, then link it above.")
             }
             if let validation { Section { Text(validation).foregroundStyle(.red) } }
         }
         .navigationTitle("Rimborso ricevuto")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        .sheet(isPresented: $choosingAccount) {
+            NavigationStack {
+                AccountSelectionView(selectedID: selectedAccount?.id,
+                                     allowedCurrency: "EUR", includeArchivedSelected: false) {
+                    accountID = $0.id
+                }
+            }
+        }
         .onAppear {
             if let outstanding = status?.outstandingEURMinor { amount = Money.editString(outstanding) }
+            if accountID == nil {
+                accountID = NewReimbursementAccountPolicy.proposed(
+                    expenseAccountID: expense?.accountID, accounts: store.localAccounts)?.id
+            }
         }
     }
 
@@ -1575,7 +1628,10 @@ private struct ReimbursementSettlementView: View {
     }
 
     private func createAndLink() {
-        guard let expense else { return }
+        guard expense != nil else { return }
+        guard let account = selectedAccount else {
+            validation = "Choose the account that received the reimbursement."; return
+        }
         let cents: Int64
         switch Money.validatedPositiveAmount(amount) {
         case .success(let value): cents = value
@@ -1586,13 +1642,15 @@ private struct ReimbursementSettlementView: View {
         }
         var reimbursement = Transaction(id: UUID(), kind: .reimbursement, amountMinor: cents,
             currency: "EUR", merchant: description.trimmingCharacters(in: .whitespacesAndNewlines),
-            account: expense.account, category: "", note: "Linked reimbursement",
+            account: account.name, category: "", note: "Linked reimbursement",
             occurredAt: occurredAt, updatedAt: .now, deletedAt: nil, isDemo: false,
             revision: 0, sourceEventID: nil)
         reimbursement.eurMinor = cents
         reimbursement.personalExpenseEURMinor = -cents
         reimbursement.recoverableEURMinor = 0
-        reimbursement.accountID = expense.accountID
+        reimbursement.accountID = account.id
+        reimbursement.accountCurrency = "EUR"
+        reimbursement.accountAmountMinor = cents
         do {
             _ = try store.createAndLinkReimbursement(expenseID: expenseID,
                                                      reimbursement: reimbursement)
@@ -1606,12 +1664,17 @@ struct AccountSelectionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.easyTrackTheme) private var theme
     let selectedID: UUID?
+    var allowedCurrency: String? = nil
+    var includeArchivedSelected = true
     let onSelect: (LocalAccount) -> Void
 
     var body: some View {
         List {
             Section("Accounts") {
-                ForEach(store.localAccounts.filter { $0.archivedAt == nil || $0.id == selectedID }) { option in
+                ForEach(store.localAccounts.filter {
+                    ($0.archivedAt == nil || (includeArchivedSelected && $0.id == selectedID)) &&
+                    (allowedCurrency == nil || $0.nativeCurrency == allowedCurrency)
+                }) { option in
                     Button {
                         onSelect(option)
                         dismiss()
@@ -1627,6 +1690,12 @@ struct AccountSelectionView: View {
             }
             Section {
                 NavigationLink { AccountsView() } label: { Label("Manage accounts", systemImage: "plus.circle") }
+            }
+            if allowedCurrency == "EUR" {
+                Section {
+                    Text("New reimbursements require an active EUR account. Existing receipts on archived or foreign-currency accounts can still be linked after their EUR value is verified.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
         }
         .navigationTitle("Choose account")

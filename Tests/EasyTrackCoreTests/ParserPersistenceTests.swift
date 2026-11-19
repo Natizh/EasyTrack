@@ -499,4 +499,153 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(try database.notificationRetentionDays(), 0)
         }
     }
+
+    func testDeletingCaptureRemovesOnlyThatSampleAndSurvivesRelaunch() throws {
+        try temporaryDatabase { url, database in
+            let kept = try database.captureNotification(event("Paid €12,34 at Cedar Books", at: start))
+            let throwaway = try database.captureNotification(event("Paid €3,00 at Test Merchant",
+                                                                   at: start.addingTimeInterval(60),
+                                                                   source: "Boundary Wallet (fictional)"))
+            XCTAssertEqual(try database.parserAttempts().count, 2)
+            XCTAssertEqual(try database.notificationEvents().count, 2)
+
+            try database.deleteParserAttempt(throwaway.id)
+
+            XCTAssertEqual(try database.parserAttempts().map(\.id), [kept.id])
+            XCTAssertEqual(try database.notificationEvents().map(\.id), [kept.event.id])
+            XCTAssertEqual(try database.parserSources().count, 2)
+            XCTAssertTrue(try database.transactions().isEmpty)
+            XCTAssertTrue(try database.parserRules().isEmpty)
+
+            let reopened = try SQLiteDatabase(url: url)
+            XCTAssertEqual(try reopened.parserAttempts().map(\.id), [kept.id])
+            XCTAssertEqual(try reopened.notificationEvents().count, 1)
+            try reopened.checkDatabase()
+        }
+    }
+
+    func testDeletingCaptureKeepsItsTransactionAndSharedEvent() throws {
+        try temporaryDatabase { url, database in
+            try database.prepareProductionLedger()
+            let sample = event("Paid €12,34 at Cedar Books", at: start)
+            let captured = try database.captureNotification(sample)
+            let source = try database.mapParserSource(XCTUnwrap(database.parserSources().first).id,
+                                                      to: "Fictional checking")
+            let saved = try database.saveParserRule(rule(source: source, sample: sample))
+            let created = try database.processNotificationAttempt(captured.id, preferredRuleID: saved.id)
+            XCTAssertEqual(created.status, .created)
+            let transactionID = try XCTUnwrap(created.transactionID)
+
+            try database.deleteParserAttempt(captured.id)
+
+            XCTAssertTrue(try database.parserAttempts().isEmpty)
+            XCTAssertEqual(try database.transactions().map(\.id), [transactionID])
+            XCTAssertEqual(try database.parserRules().count, 1)
+            XCTAssertEqual(try database.notificationEvents().count, 1)
+            XCTAssertEqual(try database.notificationEvents().first?.message, sample.message)
+            XCTAssertEqual(try database.captureNotification(sample).status, .duplicateIgnored)
+            XCTAssertEqual(try database.transactions().count, 1)
+            try database.checkDatabase()
+
+            let backup = try database.exportBackup()
+            let restored = try SQLiteDatabase(url: url.deletingLastPathComponent()
+                .appendingPathComponent("restored.sqlite"))
+            _ = try restored.restoreBackup(backup, preview: restored.previewBackup(backup), mode: .replace)
+            XCTAssertEqual(try restored.transactions().map(\.id), [transactionID])
+            XCTAssertEqual(try restored.notificationEvents().count, 1)
+            try restored.checkDatabase()
+        }
+    }
+
+    func testDeletingOneSharedCapturePreservesTheOtherAndAllowsFreshRecapture() throws {
+        try temporaryDatabase { url, database in
+            let sample = event("Paid €3,20 at Fictional Bakery", at: start)
+            let first = try database.captureNotification(sample)
+            let second = try database.captureNotification(sample)
+            XCTAssertEqual(try database.parserAttempts().count, 2)
+            XCTAssertEqual(try database.notificationEvents().count, 1)
+            try database.deleteParserAttempt(first.id)
+            XCTAssertEqual(try database.parserAttempts().map(\.id), [second.id])
+            XCTAssertEqual(try database.notificationEvents().count, 1)
+            try database.deleteParserAttempt(second.id)
+            XCTAssertTrue(try database.parserAttempts().isEmpty)
+            XCTAssertTrue(try database.notificationEvents().isEmpty)
+
+            let recaptured = try database.captureNotification(
+                event("Paid €3,20 at Fictional Bakery", at: start))
+            XCTAssertEqual(recaptured.status, .setupRequired)
+            XCTAssertNotEqual(recaptured.event.id, first.event.id)
+            XCTAssertEqual(try SQLiteDatabase(url: url).parserAttempts().count, 1)
+            XCTAssertEqual(try database.notificationEvents().count, 1)
+            try database.checkDatabase()
+        }
+    }
+
+    func testDeletingCaptureRollsBackWhenEventDeletionFails() throws {
+        try temporaryDatabase { _, database in
+            let sample = event("Paid €4,20 at Fictional Market", at: start)
+            let captured = try database.captureNotification(sample)
+            try database.execute("""
+                CREATE TRIGGER synthetic_event_delete_failure BEFORE DELETE ON notification_events
+                BEGIN SELECT RAISE(ABORT, 'synthetic delete failure'); END
+                """)
+            XCTAssertThrowsError(try database.deleteParserAttempt(captured.id))
+            XCTAssertEqual(try database.parserAttempts().map(\.id), [captured.id])
+            XCTAssertEqual(try database.notificationEvents().count, 1)
+            try database.checkDatabase()
+        }
+    }
+
+    func testFirstCapturePromptDisappearsWhenRuleIsEnabled() throws {
+        try temporaryDatabase { _, database in
+            let sample = event("Paid €12,34 at Cedar Books", at: start)
+            let capture = try database.captureNotification(sample)
+            let source = try XCTUnwrap(database.parserSources().first)
+            XCTAssertEqual(FirstNotificationSetup.sample(for: source, rules: try database.parserRules(),
+                attempts: try database.parserAttempts())?.id, capture.id)
+            _ = try database.mapParserSource(source.id, to: "Fictional checking")
+            var saved = try database.saveParserRule(rule(source: source, sample: sample))
+            XCTAssertNil(FirstNotificationSetup.sample(for: source, rules: try database.parserRules(),
+                attempts: try database.parserAttempts()))
+            var invalid = saved
+            invalid.config.duplicateWindowSeconds = 42
+            XCTAssertEqual(FirstNotificationSetup.sample(for: source, rules: [invalid],
+                attempts: try database.parserAttempts())?.id, capture.id)
+            saved.enabled = false
+            _ = try database.saveParserRule(saved)
+            XCTAssertEqual(FirstNotificationSetup.sample(for: source, rules: try database.parserRules(),
+                attempts: try database.parserAttempts())?.id, capture.id)
+        }
+    }
+
+    func testDeletingCaptureIsRefusedWhileARecurringReviewIsPending() throws {
+        try temporaryDatabase { _, database in
+            let zone = TimeZone(identifier: "Europe/Rome")!
+            let day = LocalDay(isoString: "2026-10-14")!.noon(in: zone)!
+            let account = try database.saveLocalAccount(LocalAccount(id: UUID(), name: "Fictional checking",
+                                                                     createdAt: start))
+            let recurring = try database.saveRecurringRule(RecurringRule(
+                id: UUID(), name: "Fictional Plan", type: .subscription, amountMinor: 1_250,
+                accountID: account.id, categoryID: nil, startDay: LocalDay(isoString: "2026-10-15")!,
+                frequency: .monthly, nextIndex: 0, endDay: nil,
+                timeZoneIdentifier: zone.identifier, isActive: true, note: "Synthetic rule",
+                createdAt: start, updatedAt: start, archivedAt: nil, revision: 0))
+            try database.approveRecurringPayee("Fictional Plan", for: recurring.id)
+            let sample = event("Paid €12,50 at Fictional Plan", at: day)
+            let captured = try database.captureNotification(sample)
+            let source = try database.mapParserSource(XCTUnwrap(database.parserSources().first).id,
+                                                      to: account.name)
+            let saved = try database.saveParserRule(rule(source: source, sample: sample))
+            XCTAssertEqual(try database.processNotificationAttempt(captured.id,
+                                                                    preferredRuleID: saved.id).status,
+                           .recurringReview)
+            XCTAssertEqual(try database.recurringCandidates().first?.status, .pending)
+
+            XCTAssertThrowsError(try database.deleteParserAttempt(captured.id)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("recurring payment"))
+            }
+            XCTAssertEqual(try database.parserAttempts().count, 1)
+            XCTAssertEqual(try database.recurringCandidates().count, 1)
+        }
+    }
 }

@@ -1,5 +1,16 @@
 import Foundation
 
+enum NewReimbursementAccountPolicy {
+    static func isEligible(_ account: LocalAccount) -> Bool {
+        account.archivedAt == nil && account.nativeCurrency == "EUR"
+    }
+
+    static func proposed(expenseAccountID: UUID?, accounts: [LocalAccount]) -> LocalAccount? {
+        guard let expenseAccountID else { return nil }
+        return accounts.first { $0.id == expenseAccountID && isEligible($0) }
+    }
+}
+
 enum ReimbursementError: LocalizedError, Equatable {
     case expenseRequired, conversionRequired, invalidExpectedAmount, missingPlan
     case reimbursementRequired, alreadyLinked, overpayment, accountMismatch

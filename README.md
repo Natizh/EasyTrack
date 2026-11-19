@@ -93,6 +93,8 @@ python3 -m unittest Tools/HistoricalImportConverter/test_converter.py
 
 Build or run the Xcode scheme on an **existing simulator UUID**; disable parallel testing for Xcode UI tests to avoid simulator clones. The [showcase workflow](docs/SHOWCASE_ASSETS.md) explains how the synthetic screenshots on this page are regenerated without touching an existing EasyTrack installation.
 
+To repeat the two notification and reimbursement UI journeys in PR #35, run `python3 scripts/test_pr35_ui.py --device <existing-iPhone-17-Pro-UUID>`. The runner creates a separate app identifier, installs a fictional ledger, disables parallel Xcode testing, and removes only its own test app afterward. It refuses to use a pre-existing test app container.
+
 Further reading: [notification parsing](docs/NOTIFICATION_PARSER_DESIGN.md) · [recurring reconciliation](docs/RECURRING_RECONCILIATION.md) · [transaction export](docs/TRANSACTION_EXPORT.md) · [legacy import mapping](docs/IMPORT_MAPPING.md).
 
 ## Roadmap and contributions
