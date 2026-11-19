@@ -33,6 +33,7 @@ EasyTrack helps you record daily spending, see where your money goes, and keep a
 
 - **Transactions and accounts:** expenses, income, PAC, reimbursements, categories, account defaults, and searchable Activity history.
 - **Dashboard and reports:** configurable Home KPIs, monthly trend, category and merchant views, budgets, and goals.
+- **Clear cash flow:** Home Net is Income minus gross Expenses. Received reimbursements count as Income; expected but unpaid refunds stay in Net Expenses and Pending Reimbursements. Tap Income or Expenses to see the complete Activity list for the selected month. See the [accounting policy](docs/FINANCIAL_ACCOUNTING.md).
 - **Recurring payments:** scheduled expenses, income, and PAC plans with explicit review when an imported or notified payment might overlap.
 - **Notification capture:** a user-configured **Apple Shortcuts automation** passes notification fields to an App Intent. Local rules extract and check them; ambiguous matches create no transaction. EasyTrack cannot independently read every bank notification.
 - **Ways to enter data:** manual entry, on-device receipt OCR with review, and optional on-device speech entry where supported.
@@ -56,9 +57,12 @@ The repository includes [`scripts/package_unsigned_ipa.sh`](scripts/package_unsi
 
 ```sh
 xcodebuild -project EasyTrack.xcodeproj -scheme EasyTrack -configuration Release \
-  -destination 'generic/platform=iOS' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+  -destination 'generic/platform=iOS' -derivedDataPath DerivedData \
+  PRODUCT_BUNDLE_IDENTIFIER=local.easytrack.finance CODE_SIGNING_ALLOWED=NO build
 sh scripts/package_unsigned_ipa.sh
 ```
+
+The package helper refuses to overwrite an existing IPA. Set `EASYTRACK_IPA_OUTPUT` to a new path to keep older builds, and `EASYTRACK_DERIVED_DATA` if reusing a build cache outside this checkout. Check the resulting IPA's original bundle ID and build number before importing it; an iPhone update still needs a fresh external JSON backup and real-device verification.
 
 There is no prebuilt EasyTrack IPA or App Store release here. [SideStore](https://docs.sidestore.io/docs/installation/install) can sign and install a compatible IPA using your Apple account after its pairing and local VPN setup. Import the local IPA into SideStore and refresh it before its seven-day development signing period expires ([SideStore FAQ](https://docs.sidestore.io/docs/faq.html)). EasyTrack itself does not depend on SideStore at runtime. Physical-device installation and refresh for this project still need the validation tracked in [issue #8](https://github.com/Natizh/EasyTrack/issues/8).
 
@@ -90,6 +94,8 @@ For a development checkout:
 swift test --jobs 2
 python3 -m unittest Tools/HistoricalImportConverter/test_converter.py
 ```
+
+Run `python3 scripts/test_accounting_ui.py --device <existing-iPhone-17-Pro-UUID>` for a focused Home Income/Expenses navigation test with a fictional ledger and a separate simulator app container. It never installs over a pre-existing test app.
 
 Build or run the Xcode scheme on an **existing simulator UUID**; disable parallel testing for Xcode UI tests to avoid simulator clones. The [showcase workflow](docs/SHOWCASE_ASSETS.md) explains how the synthetic screenshots on this page are regenerated without touching an existing EasyTrack installation.
 

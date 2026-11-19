@@ -106,8 +106,8 @@ enum DashboardHeroMetric: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .net: "Net personal spending"
-        case .expenses: "Total expenses"
+        case .net: "Net"
+        case .expenses: "Expenses"
         case .income: "Income"
         case .pac: "PAC invested"
         case .dailyAverage: "Daily average"
