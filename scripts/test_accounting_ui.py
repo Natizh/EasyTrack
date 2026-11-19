@@ -81,7 +81,7 @@ def main():
                       "-configuration", "Debug", "-destination", f"platform=iOS Simulator,id={args.device}",
                       "-derivedDataPath", str(args.derived_data.resolve()),
                       "-parallel-testing-enabled", "NO", "-jobs", "2", "CODE_SIGNING_ALLOWED=NO",
-                      "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG EASYTRACK_ACCOUNTING_AUDIT"]
+                      "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG EASYTRACK_ACCOUNTING_AUDIT EASYTRACK_REVIEW35"]
             run(common + ["build-for-testing"], log=fixture_dir / "build.log")
             print(f"After build: {shutil.disk_usage(ROOT).free / (1024 ** 3):.1f} GiB free", flush=True)
             fixture = fixture_dir / "ledger.sqlite"
@@ -103,10 +103,14 @@ def main():
             if target.exists():
                 raise RuntimeError("The isolated app already has a ledger; refusing overwrite")
             shutil.copy2(fixture, target)
-            tests = ["testHomeIncomeAndExpensesOpenCompletePeriodActivity"]
+            tests = [
+                "testHomeIncomeAndExpensesOpenCompletePeriodActivity",
+                "testReview35FirstCapturePromptAndDeletionPersist",
+                "testReview35CrossAccountSettlementPickerAndCancel",
+            ]
             run(common + [f"-only-testing:EasyTrackUITests/EasyTrackUITests/{name}" for name in tests]
                 + ["test-without-building"], log=fixture_dir / "ui.log")
-            print("Home accounting drill-down UI test passed", flush=True)
+            print("Home and PR #35 UI tests passed", flush=True)
     finally:
         if device_state(args.device) != "Booted":
             run(["xcrun", "simctl", "boot", args.device])
