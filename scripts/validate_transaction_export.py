@@ -93,7 +93,7 @@ with zipfile.ZipFile(folder / "fictional-transactions.xlsx") as archive:
 
     _, summary = read_rows(archive, "xl/worksheets/sheet2.xml")
     require(summary[1]["B"] == ("9", "number"), "Summary count differs")
-    expected = [Decimal("13.75"), Decimal("21.09"), Decimal("250.00"), Decimal("35.00")]
+    expected = [Decimal("13.75"), Decimal("21.09"), Decimal("255.00"), Decimal("35.00")]
     actual = [Decimal(summary[index]["B"][0]) for index in range(2, 6)]
     require(actual == expected, f"Summary totals differ: {actual}")
     for heading in ("By category", "By account", "By month"):

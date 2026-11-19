@@ -39,12 +39,14 @@ enum FinancialAnalyticsError: LocalizedError, Equatable {
     case invalidPeriod
     case periodHasNotStarted
     case amountOverflow
+    case duplicateReimbursementStatus
 
     var errorDescription: String? {
         switch self {
         case .invalidPeriod: "The selected financial period is invalid."
         case .periodHasNotStarted: "The selected financial period has not started yet."
         case .amountOverflow: "The selected history is too large to total safely in cents."
+        case .duplicateReimbursementStatus: "A reimbursement plan appears more than once in the selected history."
         }
     }
 }
@@ -181,10 +183,17 @@ struct FinancialPeriodSelection: Equatable {
 }
 
 struct FinancialTotals: Equatable {
+    // The stored names preserve existing callers; these aliases state the reporting policy.
     var personalNetExpensesEURMinor: Int64 = 0
     var grossExpensesEURMinor: Int64 = 0
     var incomeEURMinor: Int64 = 0
+    var cashNetEURMinor: Int64 = 0
+    var pendingReimbursementsEURMinor: Int64 = 0
     var pacInvestedEURMinor: Int64 = 0
+
+    var grossIncomeEURMinor: Int64 { incomeEURMinor }
+    var netExpensesEURMinor: Int64 { personalNetExpensesEURMinor }
+    var netEURMinor: Int64 { cashNetEURMinor }
 }
 
 struct FinancialDailyAverage: Equatable {
@@ -288,6 +297,23 @@ struct FinancialAnalyticsSnapshot: Equatable {
 
 }
 
+enum HomeMetricDrilldown {
+    static func filter(for metric: DashboardHeroMetric,
+                       snapshot: FinancialAnalyticsSnapshot) -> TransactionFilter? {
+        let kinds: Set<String>
+        switch metric {
+        case .income: kinds = [TransactionKind.income.rawValue, TransactionKind.reimbursement.rawValue]
+        case .expenses: kinds = [TransactionKind.expense.rawValue]
+        case .net, .pac, .dailyAverage: return nil
+        }
+        var filter = TransactionFilter()
+        filter.kindKeys = kinds
+        filter.dateInterval = snapshot.period.effective
+        filter.transactionIDs = snapshot.appliedFilter.transactionIDs
+        return filter
+    }
+}
+
 struct TripCategoryAggregate: Equatable, Identifiable {
     let key: String
     let categoryID: UUID?
@@ -347,21 +373,31 @@ enum FinancialAnalytics {
 
     static func snapshot(transactions: [Transaction], period: FinancialPeriod,
                          baseFilter: TransactionFilter = .init(),
+                         reimbursementStatuses: [ExpenseReimbursementStatus] = [],
                          categoryNames: [UUID: String] = [:],
                          tripNames: [String: String] = [:],
                          timeZone: TimeZone = .current, now: Date = .now) throws -> FinancialAnalyticsSnapshot {
         let selection = try period.selection(now: now, timeZone: timeZone)
+        var reimbursementByExpense: [UUID: ExpenseReimbursementStatus] = [:]
+        for status in reimbursementStatuses {
+            guard reimbursementByExpense[status.expenseID] == nil else {
+                throw FinancialAnalyticsError.duplicateReimbursementStatus
+            }
+            reimbursementByExpense[status.expenseID] = status
+        }
         var currentFilter = baseFilter
         currentFilter.dateInterval = selection.effective
         let currentItems = currentFilter.apply(to: transactions, tripNames: tripNames, timeZone: timeZone)
         let current = try aggregate(currentItems, interval: selection.effective,
-                                    categoryNames: categoryNames, timeZone: timeZone)
+                                    categoryNames: categoryNames, timeZone: timeZone,
+                                    reimbursementByExpense: reimbursementByExpense)
 
         var comparisonFilter = baseFilter
         comparisonFilter.dateInterval = selection.comparison
         let comparisonItems = comparisonFilter.apply(to: transactions, tripNames: tripNames, timeZone: timeZone)
         let previous = try aggregate(comparisonItems, interval: selection.comparison,
-                                     categoryNames: categoryNames, timeZone: timeZone)
+                                     categoryNames: categoryNames, timeZone: timeZone,
+                                     reimbursementByExpense: reimbursementByExpense)
         let change: FinancialPercentageChange?
         if previous.totals.personalNetExpensesEURMinor == 0 {
             change = nil
@@ -421,7 +457,8 @@ enum FinancialAnalytics {
     }
 
     private static func aggregate(_ transactions: [Transaction], interval: LedgerDateInterval,
-                                  categoryNames: [UUID: String], timeZone: TimeZone) throws -> Aggregation {
+                                  categoryNames: [UUID: String], timeZone: TimeZone,
+                                  reimbursementByExpense: [UUID: ExpenseReimbursementStatus]) throws -> Aggregation {
         var totals = FinancialTotals()
         var categoryValues: [String: MutableCategory] = [:]
         var unallocated: Int64 = 0
@@ -438,6 +475,9 @@ enum FinancialAnalytics {
         })
 
         for item in transactions {
+            if let status = reimbursementByExpense[item.id] {
+                try addChecked(status.outstandingEURMinor, to: &totals.pendingReimbursementsEURMinor)
+            }
             let localDay = LocalDay(date: item.occurredAt, timeZone: timeZone)
             let month = LocalDay(year: localDay.year, month: localDay.month, day: 1)
             let eur = item.eurMinor ?? (item.currency == "EUR" ? item.amountMinor : nil)
@@ -492,7 +532,7 @@ enum FinancialAnalytics {
                     selectionIndex.monthlyExpenses[month, default: []].insert(item.id)
                 }
                 else { unavailable.insert(.grossExpenses) }
-            case .income:
+            case .income, .reimbursement:
                 if let eur {
                     try addChecked(eur, to: &totals.incomeEURMinor)
                     if var monthly = monthlyValues[month] {
@@ -512,7 +552,7 @@ enum FinancialAnalytics {
                     selectionIndex.monthlyPAC[month, default: []].insert(item.id)
                 }
                 else { unavailable.insert(.pacInvestment) }
-            case .advanceForOthers, .reimbursement, .deposit, .depositRefund:
+            case .advanceForOthers, .deposit, .depositRefund:
                 break
             }
 
@@ -523,6 +563,8 @@ enum FinancialAnalytics {
             }
         }
 
+        totals.cashNetEURMinor = try subtractChecked(totals.incomeEURMinor,
+                                                     totals.grossExpensesEURMinor)
         let categories = categoryValues.map { key, value in
             FinancialCategoryAggregate(key: key, categoryID: value.categoryID, name: value.name,
                                        personalNetExpensesEURMinor: value.amount)

@@ -79,13 +79,14 @@ final class FinancialAnalyticsTests: XCTestCase {
 
         XCTAssertEqual(snapshot.totals.personalNetExpensesEURMinor, 500)
         XCTAssertEqual(snapshot.totals.grossExpensesEURMinor, 12_000)
-        XCTAssertEqual(snapshot.totals.incomeEURMinor, 50_000)
+        XCTAssertEqual(snapshot.totals.incomeEURMinor, 57_500)
+        XCTAssertEqual(snapshot.totals.cashNetEURMinor, 45_500)
         XCTAssertEqual(snapshot.totals.pacInvestedEURMinor, 3_000)
         XCTAssertEqual(snapshot.dailyAverage,
                        FinancialDailyAverage(personalNetExpensesEURMinor: 500, elapsedDayCount: 15))
         XCTAssertEqual(snapshot.monthlyTrend, [FinancialMonthlyAggregate(
             month: day("2026-10-01"), grossExpensesEURMinor: 12_000,
-            incomeEURMinor: 50_000, pacInvestedEURMinor: 3_000)])
+            incomeEURMinor: 57_500, pacInvestedEURMinor: 3_000)])
         XCTAssertEqual(snapshot.dailySpending.count, 15)
         XCTAssertEqual(snapshot.dailySpending.first { $0.day == day("2026-10-02") }?.personalNetExpensesEURMinor,
                        6_000)
@@ -135,7 +136,7 @@ final class FinancialAnalyticsTests: XCTestCase {
 
         XCTAssertEqual(snapshot.monthlyTrend, [
             FinancialMonthlyAggregate(month: day("2026-09-01"), grossExpensesEURMinor: 1_200),
-            FinancialMonthlyAggregate(month: day("2026-10-01"), incomeEURMinor: 5_000,
+            FinancialMonthlyAggregate(month: day("2026-10-01"), incomeEURMinor: 5_250,
                                       pacInvestedEURMinor: 700)
         ])
         XCTAssertEqual(snapshot.dailySpending.map(\.personalNetExpensesEURMinor), [1_000, 0, -250, 0])

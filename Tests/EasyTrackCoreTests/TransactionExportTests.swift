@@ -87,7 +87,7 @@ final class TransactionExportTests: XCTestCase {
         let totals = try selection.totals()
         XCTAssertEqual(totals.count, 9)
         XCTAssertEqual(totals.expenses, 1_234 + 875)
-        XCTAssertEqual(totals.income, 25_000)
+        XCTAssertEqual(totals.income, 25_500)
         XCTAssertEqual(totals.pac, 3_500)
         XCTAssertEqual(totals.personal, 1_000 - 500 + 875)
         XCTAssertEqual(selection.rows.first { $0.item.sourceMovementID != nil }?.original?.currency, "THB")

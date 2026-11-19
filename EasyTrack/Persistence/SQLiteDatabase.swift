@@ -239,6 +239,7 @@ final class SQLiteDatabase {
             if existingVersion < 11 { try migrateToSchemaEleven() }
             if existingVersion < 12 { try migrateToSchemaTwelve() }
             if existingVersion < 13 { try migrateToSchemaThirteen() }
+            try reconcileReimbursementAccounting()
             try backfillSourceAccountsFromLegacyRules()
             try backfillLegacyNotificationEvents()
         } catch {

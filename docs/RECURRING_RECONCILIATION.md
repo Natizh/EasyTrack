@@ -1,5 +1,7 @@
 # Recurring payment reconciliation
 
+This document describes the original schema-6 reconciliation design and its format-7 tests. The current app uses SQLite schema 13 and JSON backup format 15; see [backup and restore](BACKUP_RESTORE.md). Current reimbursement and cash-flow totals follow the [financial accounting policy](FINANCIAL_ACCOUNTING.md).
+
 EasyTrack keeps scheduled payments and real financial movements separate until a payment is recorded or linked. A recurring due date creates an `expected` occurrence and advances its rule cursor in one SQLite write transaction. It creates **no transaction** and changes no financial total. The due-day scan also proposes eligible existing Activity movements from the same managed account and kind, within the configured local-day window; it never posts a second movement. An overdue occurrence stays expected until the user acts; it never becomes missed automatically. Future dates remain calendar projections until due or a plausible early notification arrives.
 
 ## Local identity and migration

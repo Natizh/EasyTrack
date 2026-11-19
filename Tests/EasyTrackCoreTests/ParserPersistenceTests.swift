@@ -468,7 +468,7 @@ final class ParserPersistenceTests: XCTestCase {
             XCTAssertEqual(try database.notificationEvents().first?.message, "")
 
             let backup = try database.exportBackup()
-            XCTAssertEqual(backup.schemaVersion, 14)
+            XCTAssertEqual(backup.schemaVersion, 15)
             XCTAssertEqual(backup.databaseSchemaVersion, 13)
             let targetURL = database.url.deletingLastPathComponent().appendingPathComponent("restored.sqlite")
             let target = try SQLiteDatabase(url: targetURL)
