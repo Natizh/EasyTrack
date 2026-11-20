@@ -6,6 +6,8 @@ EasyTrack helps you record daily spending, see where your money goes, and keep a
 
 <kbd>SwiftUI</kbd> <kbd>iOS 17+</kbd> <kbd>SQLite</kbd> <kbd>Local-first</kbd>
 
+> **New to Apple Shortcuts? / Mai usato Comandi Rapidi?** Follow the [complete notification setup tutorial](docs/SHORTCUTS_SETUP.md) to connect a payment app to EasyTrack with fictional examples. The essential steps are also below.
+
 ![Three real EasyTrack iPhone screens showing the Home overview, Activity history, and notification rule setup with fictional data](docs/assets/showcase/hero.png)
 
 <sub>Captured from a running EasyTrack build on an iPhone simulator. Every visible transaction and notification is fictional.</sub>
@@ -40,6 +42,28 @@ EasyTrack helps you record daily spending, see where your money goes, and keep a
 - **Control of your data:** manual JSON backup/restore, filtered CSV/XLSX export, and a mapped historical-import path described below.
 
 ## Getting started
+
+### Set up payment notifications with Shortcuts
+
+EasyTrack cannot read every notification by itself. You create a **personal automation** in Apple's **Comandi Rapidi / Shortcuts** that passes one selected app's notification to EasyTrack. The available trigger fields and automatic execution can vary by iOS version and app; a captured notification is not yet a transaction.
+
+1. In **EasyTrack → Automations → Notification setup**, choose the EasyTrack account that should receive this source's movements. Enter a stable **Source app label**, for example `Northstar Pay (fictional)`, tap **Save source and account**, then **Copy name**. Create an account first in Settings → Accounts if needed. Do not enter credentials or card numbers.
+2. Open **Comandi Rapidi → Automazione → + / New Automation → Notifica → App**. Choose the **bank or payment app that sends the notification** in this trigger. Start without narrow Title/Subtitle/Message filters. If iOS offers automatic execution, enable it and accept the required Shortcuts permissions. The app chosen here and the EasyTrack source label are separate choices.
+3. Choose **Add Action → EasyTrack → Capture Payment Notification** (the action summary may say **Capture notification from [source]**). Paste the **exact saved label** into **Source app**. This is fixed text, not a magic variable or an app picker.
+4. For each of the next fields, tap its **value**, insert the blue **🔔 Notifica** variable from the trigger, tap that blue chip to open **Ottieni**, and select the property shown below. Repeat independently for every field; do not type a sample amount or pass the whole Notifica object.
+
+   | EasyTrack action field | Dynamic notification property |
+   | --- | --- |
+   | **Title** | `Notifica → Titolo` |
+   | **Subtitle** | `Notifica → Sottotitolo` (may be empty) |
+   | **Message** | `Notifica → Corpo` |
+   | **Notification date** | `Notifica → Data` **only if Shortcuts supplies a Date-typed value**; otherwise leave it empty and EasyTrack uses capture time |
+
+5. Save the automation. A manual Shortcuts run with **fictional fixed values** checks only that the EasyTrack action can receive input. To check the trigger and dynamic bindings, generate a harmless notification you control, then inspect **EasyTrack → Automations → [source] → Captured notifications**. Two harmless notifications with different text help reveal an accidentally fixed field. A captured sample alone does not add an Activity transaction.
+6. Open the captured sample and choose **Set up format** or **Add notification format**. In the seven setup blocks, verify the account, payment direction, EUR amount, merchant, duplicate protection and proposed transaction; test the draft and explicitly activate the format. Incoming and outgoing notifications may need separate formats. Choose whether the first sample itself should create a transaction. Check Activity and avoid adding a duplicate manually.
+7. If nothing arrives, check the selected trigger app, Shortcuts permissions, automatic execution, exact source label and blue variable properties. If a sample arrives without an amount, check `Message → Corpo` before changing parser anchors. See the [full troubleshooting guide](docs/SHORTCUTS_SETUP.md#troubleshooting--risoluzione-dei-problemi) for missing actions, empty fields, duplicate status, SideStore refresh and locked/background behavior.
+
+Never post real bank notifications, screenshots or amounts in public issues. Real-device Shortcuts delivery is not guaranteed by simulator or parser tests.
 
 ### Build with Xcode
 
