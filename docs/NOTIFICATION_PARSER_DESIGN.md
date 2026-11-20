@@ -1,5 +1,7 @@
 # Local notification parser
 
+This document records how the parser evolved. The current app uses SQLite schema 13 and JSON backup format 15; see [backup restoration](BACKUP_RESTORE.md). For a first-time setup walkthrough, use the [Shortcuts tutorial](SHORTCUTS_SETUP.md).
+
 ## Capture and first setup
 
 An iOS Shortcuts personal automation can pass source app, title, subtitle, message, and optional notification date to **Capture Payment Notification**. The App Intent commits the raw event and a diagnostic attempt before parsing. Captures with no usable format rule remain on their source page with **Set up notification format** or **Add notification format**. The app never creates a transaction with guessed amount, description, or account.
@@ -30,7 +32,7 @@ After exact and semantic deduplication, the parser checks local recurring occurr
 
 The source page links to the occurrence review. The user can confirm, reject, or explicitly treat a held notification as a separate payment. Rejected event/occurrence pairs remain stored so retries do not re-suggest them. A user-confirmed held match corrects the old estimate to the actual EUR amount/date while retaining its transaction UUID and user note/category; source-event, deduplication, candidate, audit, and financial edits commit together. Parser rule versions and raw captures remain available. No review UI runs inside the background App Intent. See [recurring reconciliation](RECURRING_RECONCILIATION.md) for matching and accounting rules.
 
-The app does not send notification content to a server or AI service. Format-7 backups include raw events, attempts, rule history, exact and semantic deduplication, and recurring reconciliation decisions, so exported files must be handled as private financial data. [Backup restoration](BACKUP_RESTORE.md) validates parser rows and their links before a confirmed database change. The local Files folder probe does not synchronize the live database.
+The app does not send notification content to a server or AI service. Current format-15 backups include raw events, attempts, rule history, exact and semantic deduplication, and recurring reconciliation decisions, so exported files must be handled as private financial data. [Backup restoration](BACKUP_RESTORE.md) validates parser rows and their links before a confirmed database change. The local Files folder probe does not synchronize the live database.
 
 ## Verification boundary
 
