@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BudgetHomeWidget: View {
     @EnvironmentObject private var store: FinanceStore
+    @EnvironmentObject private var navigation: AppNavigationModel
     @Environment(\.easyTrackTheme) private var theme
     let financial: FinancialAnalyticsSnapshot?
 
@@ -13,42 +14,61 @@ struct BudgetHomeWidget: View {
     private var activeGoal: SavingsGoal? {
         store.savingsGoals.first { $0.archivedAt == nil }
     }
+    private var displayedProgress: BudgetProgress? {
+        budgetSnapshot?.overall ?? budgetSnapshot?.categories.first
+    }
 
     var body: some View {
         DashboardModuleCard {
-            NavigationLink { BudgetsAndGoalsView() } label: {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Label("Budgets & goals", systemImage: "target")
-                            .font(.title3.bold()).foregroundStyle(theme.primaryText)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                    }
-                    if let progress = budgetSnapshot?.overall {
-                        BudgetProgressContent(progress: progress)
-                    } else if let progress = budgetSnapshot?.categories.first {
-                        BudgetProgressContent(progress: progress)
-                    } else if let goal = activeGoal {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(goal.name).font(.subheadline.weight(.semibold))
-                            ProgressView(value: min(Double(goal.progressEURMinor) /
-                                max(Double(goal.targetEURMinor), 1), 1))
-                            Text("Manual progress \(Money.format(goal.progressEURMinor)) of \(Money.format(goal.targetEURMinor))")
+            VStack(alignment: .leading, spacing: 8) {
+                NavigationLink { BudgetsAndGoalsView() } label: {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Label("Budgets & goals", systemImage: "target")
+                                .font(.title3.bold()).foregroundStyle(theme.primaryText)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        if let progress = displayedProgress {
+                            BudgetProgressContent(progress: progress)
+                        } else if let goal = activeGoal {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(goal.name).font(.subheadline.weight(.semibold))
+                                ProgressView(value: min(Double(goal.progressEURMinor) /
+                                    max(Double(goal.targetEURMinor), 1), 1))
+                                Text("Manual progress \(Money.format(goal.progressEURMinor)) of \(Money.format(goal.targetEURMinor))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text("No budget or savings goal configured.")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        if let count = budgetSnapshot?.missingConversionCount, count > 0 {
+                            Label("\(count) movement(s) lack verified EUR coverage",
+                                  systemImage: "exclamationmark.circle")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                    } else {
-                        Text("No budget or savings goal configured.")
-                            .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    if let count = budgetSnapshot?.missingConversionCount, count > 0 {
-                        Label("\(count) movement(s) lack verified EUR coverage",
-                              systemImage: "exclamationmark.circle")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                if let progress = displayedProgress, let financial {
+                    Button("View spending transactions") {
+                        var filter = financial.appliedFilter
+                        if let categoryID = progress.budget.categoryID {
+                            filter.transactionIDs = financial.chartSelectionIndex.categories[
+                                "id:\(categoryID.uuidString)"] ?? []
+                        } else {
+                            filter.transactionIDs = Set(financial.chartSelectionIndex.dailySpending.values.flatMap { $0 })
+                        }
+                        navigation.showActivity(label: "\(progress.title) · spending",
+                            filter: filter, contributionKind: .netExpenses,
+                            expectedEURMinor: progress.spentEURMinor)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("homeBudgetSpendingDrilldown")
+                }
             }
-            .buttonStyle(.plain)
         }
         .accessibilityIdentifier("homeBudgetsGoalsWidget")
     }

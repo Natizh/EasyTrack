@@ -284,6 +284,22 @@ private struct HomeView: View {
         }
         return date.formatted(.dateTime.month(.wide).year())
     }
+    private func activityScope(for metric: DashboardHeroMetric) -> ActivityChartScope? {
+        guard let snapshot = selectedMonthSnapshot,
+              let filter = HomeMetricDrilldown.filter(for: metric, snapshot: snapshot) else { return nil }
+        let expected: Int64
+        switch metric {
+        case .income: expected = snapshot.totals.incomeEURMinor
+        case .expenses: expected = snapshot.totals.grossExpensesEURMinor
+        case .netExpenses, .dailyAverage: expected = snapshot.totals.personalNetExpensesEURMinor
+        case .net: expected = snapshot.totals.cashNetEURMinor
+        case .pac: expected = snapshot.totals.pacInvestedEURMinor
+        }
+        return ActivityChartScope(label: "\(metric.title) · \(selectedMonthTitle)", filter: filter,
+            contributionKind: HomeMetricDrilldown.contributionKind(for: metric),
+            expectedEURMinor: expected,
+            divisorDays: metric == .dailyAverage ? snapshot.dailyAverage.elapsedDayCount : nil)
+    }
     private var earliestHomeYear: Int {
         homeTransactions.map { LocalDay(date: $0.occurredAt, timeZone: .current).year }.min() ?? selectedMonth.year
     }
@@ -492,10 +508,8 @@ private struct HomeView: View {
             }
         }
         .navigationDestination(item: $selectedMetric) { metric in
-            if let snapshot = selectedMonthSnapshot,
-               let filter = HomeMetricDrilldown.filter(for: metric, snapshot: snapshot) {
-                TransactionsView(initialScope: ActivityChartScope(
-                    label: "\(metric.title) · \(selectedMonthTitle)", filter: filter))
+            if let scope = activityScope(for: metric) {
+                TransactionsView(initialScope: scope)
             }
         }
         .onAppear {
@@ -773,7 +787,7 @@ private struct UncategorizedTransactionsView: View {
     }
 }
 
-private struct TransactionsView: View {
+struct TransactionsView: View {
     private struct ExportRequest: Identifiable {
         let id = UUID()
         let filter: TransactionFilter
@@ -830,19 +844,47 @@ private struct TransactionsView: View {
         return scope.filter.apply(to: activityFiltered,
             tripNames: Dictionary(uniqueKeysWithValues: store.historicalTrips.map { ($0.id, $0.name) }))
     }
+    private var contributionTotal: Int64? {
+        guard let kind = scope?.contributionKind else { return nil }
+        return try? FinancialContributions.total(filtered, kind: kind,
+            reimbursementStatuses: store.reimbursementStatuses)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             if let scope {
-                HStack(spacing: 10) {
-                    Label(scope.label, systemImage: "chart.bar.xaxis")
-                        .font(.subheadline.weight(.semibold)).lineLimit(2)
-                    Spacer()
-                    Button("Remove") {
-                        if initialScope != nil { initialScopeActive = false }
-                        else { navigation.clearChartScope() }
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 10) {
+                        Label(scope.label, systemImage: "chart.bar.xaxis")
+                            .font(.subheadline.weight(.semibold)).lineLimit(2)
+                        Spacer()
+                        Button("Remove") {
+                            if initialScope != nil { initialScopeActive = false }
+                            else { navigation.clearChartScope() }
+                        }
+                            .font(.subheadline.weight(.semibold))
                     }
-                        .font(.subheadline.weight(.semibold))
+                    if let interval = scope.filter.dateInterval {
+                        Text("Selected period: \(interval.start.isoString) – \(interval.end.isoString)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let total = contributionTotal {
+                        Text("Visible contribution: \(Money.format(total))")
+                            .font(.subheadline.weight(.semibold)).monospacedDigit()
+                            .accessibilityIdentifier("activityContributionTotal")
+                        if let expected = scope.expectedEURMinor {
+                            Text(scope.divisorDays == nil
+                                 ? "Selected value: \(Money.format(expected))"
+                                 : "Net Expenses numerator: \(Money.format(expected))")
+                                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        }
+                        if let days = scope.divisorDays {
+                            let average = FinancialDailyAverage(personalNetExpensesEURMinor:
+                                scope.expectedEURMinor ?? 0, elapsedDayCount: days)
+                            Text("Daily average: \(Money.format(average.roundedEURMinorPerDay)) over \(days) elapsed day(s).")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .padding(12)
                 .background(theme.accentWash, in: RoundedRectangle(cornerRadius: 14))
@@ -912,11 +954,29 @@ private struct TransactionsView: View {
                             searchFocused = false
                             selectedTransactionID = item.id
                         } label: {
-                            HStack {
-                                TransactionRow(item: item)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption).foregroundStyle(.tertiary)
-                                    .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    TransactionRow(item: item)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption).foregroundStyle(.tertiary)
+                                        .accessibilityHidden(true)
+                                }
+                                if let kind = scope?.contributionKind,
+                                   let value = kind.value(for: item,
+                                       reimbursementStatuses: store.reimbursementStatuses) {
+                                    Text("Contribution: \(Money.format(value))")
+                                        .font(.caption.weight(.semibold)).monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                    if kind == .netExpenses, item.kind == .expense,
+                                       let status = store.reimbursementStatuses.first(where: { $0.expenseID == item.id }) {
+                                        Text("Gross \(Money.format(FinancialContributions.eurValue(of: item) ?? item.amountMinor)) · Received \(Money.format(status.receivedEURMinor)) · Personal \(Money.format(value))")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    } else if kind == .netExpenses, item.kind == .reimbursement,
+                                              store.reimbursementStatuses.contains(where: { $0.linkedTransactionIDs.contains(item.id) }) {
+                                        Text("Linked receipt attributed to the original expense")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
                             }
                             .contentShape(Rectangle())
                         }
@@ -942,6 +1002,12 @@ private struct TransactionsView: View {
         .navigationTitle("Activity")
         .onDisappear { searchFocused = false }
         .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
+            if initialScope == nil && navigation.activityChartScope != nil {
+                Button("Back to Home") {
+                    navigation.clearChartScope()
+                    navigation.selectedTab = .home
+                }
+            }
             Button {
                 searchFocused = false
                 exportRequest = ExportRequest(filter: scope == nil

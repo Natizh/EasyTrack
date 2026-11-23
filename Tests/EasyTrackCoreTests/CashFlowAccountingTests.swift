@@ -163,7 +163,11 @@ final class CashFlowAccountingTests: XCTestCase {
             let expensesFilter = try XCTUnwrap(HomeMetricDrilldown.filter(for: .expenses, snapshot: december))
             XCTAssertEqual(incomeFilter.apply(to: try db.transactions(), timeZone: zone).map(\.id), [receipt.id])
             XCTAssertEqual(expensesFilter.apply(to: try db.transactions(), timeZone: zone).map(\.id), [expense.id])
-            XCTAssertNil(HomeMetricDrilldown.filter(for: .net, snapshot: january))
+            let netFilter = try XCTUnwrap(HomeMetricDrilldown.filter(for: .net, snapshot: january))
+            let netMovements = netFilter.apply(to: try db.transactions(), timeZone: zone)
+            XCTAssertEqual(netMovements.map(\.id), [receipt.id])
+            XCTAssertEqual(try FinancialContributions.total(netMovements, kind: .net),
+                           january.totals.cashNetEURMinor)
         }
     }
 

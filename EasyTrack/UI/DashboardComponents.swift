@@ -183,7 +183,7 @@ struct FinancialHeroCard: View {
     var onMetricTap: ((DashboardHeroMetric) -> Void)? = nil
 
     private func isAction(_ metric: DashboardHeroMetric) -> Bool {
-        snapshot != nil && onMetricTap != nil && (metric == .income || metric == .expenses)
+        snapshot != nil && onMetricTap != nil
     }
 
     private func value(for metric: DashboardHeroMetric) -> String {
@@ -192,6 +192,7 @@ struct FinancialHeroCard: View {
         case .net: return Money.format(totals.netEURMinor)
         case .expenses: return Money.format(totals.grossExpensesEURMinor)
         case .income: return Money.format(totals.grossIncomeEURMinor)
+        case .netExpenses: return Money.format(totals.netExpensesEURMinor)
         case .pac: return Money.format(totals.pacInvestedEURMinor)
         case .dailyAverage: return dailyAverage
         }
@@ -199,12 +200,7 @@ struct FinancialHeroCard: View {
 
     private var dailyAverage: String {
         guard let average = snapshot?.dailyAverage else { return "—" }
-        let behavior = NSDecimalNumberHandler(roundingMode: .plain, scale: 0,
-                                              raiseOnExactness: false, raiseOnOverflow: false,
-                                              raiseOnUnderflow: false, raiseOnDivideByZero: false)
-        let rounded = NSDecimalNumber(decimal: average.exactEURMinorPerDay)
-            .rounding(accordingToBehavior: behavior).int64Value
-        return Money.format(rounded)
+        return Money.format(average.roundedEURMinorPerDay)
     }
 
     private var secondaryMetrics: some View {
@@ -229,8 +225,8 @@ struct FinancialHeroCard: View {
                            periodTitle: periodTitle, showsDisclosure: true)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Show all \(metric.title.lowercased()) transactions for \(periodTitle)")
-            .accessibilityIdentifier(metric == .income ? "homeIncomeMetric" : "homeExpensesMetric")
+            .accessibilityHint("Show contributing movements for \(metric.title) in \(periodTitle)")
+            .accessibilityIdentifier(metric.accessibilityIdentifier)
         } else {
             MetricTile(title: metric.title, value: value(for: metric),
                        symbol: metric.symbol, periodTitle: periodTitle)
@@ -267,8 +263,8 @@ struct FinancialHeroCard: View {
         if isAction(preferences.primary), let onMetricTap {
             Button { onMetricTap(preferences.primary) } label: { primaryMetricContent }
                 .buttonStyle(.plain)
-                .accessibilityHint("Show all \(preferences.primary.title.lowercased()) transactions for \(periodTitle)")
-                .accessibilityIdentifier(preferences.primary == .income ? "homeIncomeMetric" : "homeExpensesMetric")
+                .accessibilityHint("Show contributing movements for \(preferences.primary.title) in \(periodTitle)")
+                .accessibilityIdentifier(preferences.primary.accessibilityIdentifier)
         } else {
             primaryMetricContent
         }
