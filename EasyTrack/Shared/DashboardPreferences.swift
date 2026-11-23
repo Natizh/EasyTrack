@@ -102,13 +102,14 @@ struct ResolvedDashboardWidget: Equatable {
 }
 
 enum DashboardHeroMetric: String, Codable, CaseIterable, Identifiable {
-    case net, expenses, income, pac, dailyAverage
+    case net, expenses, income, netExpenses, pac, dailyAverage
     var id: String { rawValue }
     var title: String {
         switch self {
         case .net: "Net"
         case .expenses: "Expenses"
         case .income: "Income"
+        case .netExpenses: "Net Expenses"
         case .pac: "PAC invested"
         case .dailyAverage: "Daily average"
         }
@@ -118,8 +119,19 @@ enum DashboardHeroMetric: String, Codable, CaseIterable, Identifiable {
         case .net: "sum"
         case .expenses: "arrow.up.right"
         case .income: "arrow.down.left"
+        case .netExpenses: "arrow.up.right.circle"
         case .pac: "chart.line.uptrend.xyaxis"
         case .dailyAverage: "calendar.day.timeline.left"
+        }
+    }
+    var accessibilityIdentifier: String {
+        switch self {
+        case .net: "homeNetMetric"
+        case .expenses: "homeExpensesMetric"
+        case .income: "homeIncomeMetric"
+        case .netExpenses: "homeNetExpensesMetric"
+        case .pac: "homePACMetric"
+        case .dailyAverage: "homeDailyAverageMetric"
         }
     }
 }

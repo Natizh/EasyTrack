@@ -206,6 +206,8 @@ struct TripDetailView: View {
     @Environment(\.easyTrackTheme) private var theme
     let tripID: String
     @State private var editingTrip: HistoricalTrip?
+    @State private var selectedAngle: Double?
+    @State private var selectedTripCategory: TripCategoryAggregate?
 
     private var trip: HistoricalTrip? { store.historicalTrips.first { $0.id == tripID } }
     private var categoryNames: [UUID: String] {
@@ -245,19 +247,39 @@ struct TripDetailView: View {
                     }
                     .frame(height: 220)
                     .chartLegend(.hidden)
-                    .accessibilityLabel("Positive trip spending by category")
-                    ForEach(snapshot.positiveCategories) { category in
-                        HStack {
-                            Circle().fill(categoryColor(category)).frame(width: 10, height: 10)
-                            Text(category.name)
-                            Spacer()
-                            VStack(alignment: .trailing) {
-                                Text(Money.format(category.personalNetEURMinor)).monospacedDigit()
-                                Text(percent(category, total: snapshot.positiveCategoryTotalEURMinor))
-                                    .font(.caption).foregroundStyle(.secondary)
+                    .chartAngleSelection(value: $selectedAngle)
+                    .accessibilityRepresentation {
+                        VStack {
+                            ForEach(snapshot.positiveCategories) { category in
+                                Button("\(category.name), \(Money.format(category.personalNetEURMinor))") {
+                                    selectedTripCategory = category
+                                }
                             }
                         }
-                        .accessibilityElement(children: .combine)
+                    }
+                    .onChange(of: selectedAngle) { _, value in
+                        guard let value else { return }
+                        var cumulative = 0.0
+                        selectedTripCategory = snapshot.positiveCategories.first {
+                            cumulative += Double($0.personalNetEURMinor)
+                            return value <= cumulative
+                        }
+                        selectedAngle = nil
+                    }
+                    ForEach(snapshot.positiveCategories) { category in
+                        Button { selectedTripCategory = category } label: {
+                            HStack {
+                                Circle().fill(categoryColor(category)).frame(width: 10, height: 10)
+                                Text(category.name)
+                                Spacer()
+                                VStack(alignment: .trailing) {
+                                    Text(Money.format(category.personalNetEURMinor)).monospacedDigit()
+                                    Text(percent(category, total: snapshot.positiveCategoryTotalEURMinor))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
                     Text("Percentages use positive category spending only. Refunds and other non-positive adjustments are listed separately below.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -266,7 +288,9 @@ struct TripDetailView: View {
             if let adjustments = snapshot?.nonPositiveCategories, !adjustments.isEmpty {
                 Section("Refunds and non-positive adjustments") {
                     ForEach(adjustments) { category in
-                        LabeledContent(category.name, value: Money.format(category.personalNetEURMinor))
+                        Button { selectedTripCategory = category } label: {
+                            LabeledContent(category.name, value: Money.format(category.personalNetEURMinor))
+                        }.buttonStyle(.plain)
                     }
                 }
             }
@@ -282,10 +306,25 @@ struct TripDetailView: View {
         }
         .listRowSpacing(theme.listRowSpacing)
         .navigationTitle(trip?.name ?? "Trip")
+        .navigationDestination(item: $selectedTripCategory) { category in
+            TransactionsView(initialScope: activityScope(for: category))
+        }
         .toolbar { ToolbarItem(placement: .topBarTrailing) {
             Button("Rename") { editingTrip = trip }.disabled(trip == nil)
         } }
         .sheet(item: $editingTrip) { trip in NavigationStack { TripEditorView(trip: trip) } }
+    }
+
+    private func activityScope(for category: TripCategoryAggregate) -> ActivityChartScope {
+        let ids = Set(transactions.filter { item in
+            let trimmed = item.category.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = item.categoryID.map { "id:\($0.uuidString)" } ??
+                (trimmed.isEmpty ? "uncategorized" : "label:\(trimmed.lowercased())")
+            return key == category.key && FinancialContributions.personalValue(of: item) != nil
+        }.map(\.id))
+        return ActivityChartScope(label: "Trip · \(category.name)",
+            filter: TransactionFilter(tripID: tripID, transactionIDs: ids),
+            contributionKind: .netExpenses, expectedEURMinor: category.personalNetEURMinor)
     }
 
     private func categoryColor(_ category: TripCategoryAggregate) -> Color {

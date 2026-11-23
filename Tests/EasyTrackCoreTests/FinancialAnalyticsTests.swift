@@ -100,6 +100,21 @@ final class FinancialAnalyticsTests: XCTestCase {
         XCTAssertEqual(snapshot.chartSelectionIndex.monthlyExpenses[day("2026-10-01")],
                        [foodExpense.id, travelExpense.id])
         XCTAssertEqual(snapshot.chartSelectionIndex.dailySpending[day("2026-10-04")], [foodRefund.id])
+        let all = [foodExpense, travelExpense, foodRefund, unallocatedRefund,
+                   income, pac, foreignExpense, foreignIncome, foreignPAC]
+        let october = day("2026-10-01")
+        let chartCases: [(Set<UUID>, FinancialContributionKind, Int64)] = [
+            (snapshot.chartSelectionIndex.monthlyExpenses[october] ?? [], .grossExpenses, 12_000),
+            (snapshot.chartSelectionIndex.monthlyIncome[october] ?? [], .income, 57_500),
+            (snapshot.chartSelectionIndex.monthlyPAC[october] ?? [], .pac, 3_000),
+            (snapshot.chartSelectionIndex.categories["id:\(foodID.uuidString)"] ?? [], .netExpenses, -1_000),
+            (snapshot.chartSelectionIndex.dailySpending[day("2026-10-04")] ?? [], .netExpenses, -7_000),
+            (snapshot.chartSelectionIndex.unallocated, .netExpenses, -500)
+        ]
+        for (ids, kind, displayed) in chartCases {
+            let selected = TransactionFilter(transactionIDs: ids).apply(to: all, timeZone: zone)
+            XCTAssertEqual(try FinancialContributions.total(selected, kind: kind), displayed)
+        }
         XCTAssertEqual(snapshot.categories.map(\.personalNetExpensesEURMinor), [2_000, -1_000])
         XCTAssertEqual(snapshot.positiveCategories.map(\.name), ["Travel"])
         XCTAssertEqual(snapshot.nonPositiveCategoryAdjustmentEURMinor, -1_000)
@@ -228,6 +243,48 @@ final class FinancialAnalyticsTests: XCTestCase {
             period: .month(year: 2026, month: 10), zone: zone, now: date("2026-10-25"))) {
             XCTAssertEqual($0 as? FinancialAnalyticsError, .amountOverflow)
         }
+    }
+
+    func testHomeAndChartDrilldownsReconcileAcrossReceiptMonth() throws {
+        var expense = item(51, kind: .expense, cents: 1_000, day: "2026-10-12", category: "Food")
+        expense.personalExpenseEURMinor = 600
+        var salary = item(52, kind: .income, cents: 2_000, day: "2026-10-13")
+        salary.eurMinor = 2_000
+        let pac = item(53, kind: .pacInvestment, cents: 300, day: "2026-10-14")
+        var receipt = item(54, kind: .reimbursement, cents: 400, day: "2026-11-03")
+        receipt.personalExpenseEURMinor = 0 // Linked to the October expense.
+        let status = ExpenseReimbursementStatus(expenseID: expense.id, expectedEURMinor: 400,
+            receivedEURMinor: 400, writtenOffEURMinor: 0, outstandingEURMinor: 0,
+            linkedTransactionIDs: [receipt.id], updatedAt: date("2026-11-03"))
+        let items = [expense, salary, pac, receipt]
+        let october = try FinancialAnalytics.snapshot(transactions: items,
+            period: .month(year: 2026, month: 10), reimbursementStatuses: [status],
+            timeZone: zone, now: date("2026-11-20"))
+        let expectations: [(DashboardHeroMetric, Int64)] = [
+            (.income, 2_000), (.expenses, 1_000), (.netExpenses, 600),
+            (.net, 1_000), (.pac, 300), (.dailyAverage, 600)
+        ]
+        for (metric, expected) in expectations {
+            let filter = try XCTUnwrap(HomeMetricDrilldown.filter(for: metric, snapshot: october))
+            let selected = filter.apply(to: items, timeZone: zone)
+            XCTAssertEqual(try FinancialContributions.total(selected,
+                kind: HomeMetricDrilldown.contributionKind(for: metric)), expected)
+            XCTAssertFalse(selected.contains { $0.id == receipt.id })
+        }
+        XCTAssertEqual(october.chartSelectionIndex.categories["label:food"], [expense.id])
+        XCTAssertEqual(try FinancialContributions.total(
+            TransactionFilter(transactionIDs: october.chartSelectionIndex.categories["label:food"])
+                .apply(to: items, timeZone: zone), kind: .netExpenses), 600)
+
+        let november = try FinancialAnalytics.snapshot(transactions: items,
+            period: .month(year: 2026, month: 11), reimbursementStatuses: [status],
+            timeZone: zone, now: date("2026-11-20"))
+        let incomeFilter = try XCTUnwrap(HomeMetricDrilldown.filter(for: .income, snapshot: november))
+        XCTAssertEqual(incomeFilter.apply(to: items, timeZone: zone).map(\.id), [receipt.id])
+        XCTAssertEqual(try FinancialContributions.total(incomeFilter.apply(to: items, timeZone: zone),
+            kind: .income), november.totals.incomeEURMinor)
+        XCTAssertEqual(november.totals.personalNetExpensesEURMinor, 0)
+        XCTAssertEqual(november.totals.cashNetEURMinor, 400)
     }
 }
 

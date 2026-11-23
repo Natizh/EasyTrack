@@ -6,6 +6,9 @@ enum EasyTrackTab: Hashable { case home, activity, automations, settings }
 struct ActivityChartScope: Equatable {
     let label: String
     let filter: TransactionFilter
+    var contributionKind: FinancialContributionKind? = nil
+    var expectedEURMinor: Int64? = nil
+    var divisorDays: Int? = nil
 }
 
 @MainActor
@@ -13,8 +16,11 @@ final class AppNavigationModel: ObservableObject {
     @Published var selectedTab: EasyTrackTab = .home
     @Published var activityChartScope: ActivityChartScope?
 
-    func showActivity(label: String, filter: TransactionFilter) {
-        activityChartScope = ActivityChartScope(label: label, filter: filter)
+    func showActivity(label: String, filter: TransactionFilter,
+                      contributionKind: FinancialContributionKind? = nil,
+                      expectedEURMinor: Int64? = nil) {
+        activityChartScope = ActivityChartScope(label: label, filter: filter,
+            contributionKind: contributionKind, expectedEURMinor: expectedEURMinor)
         selectedTab = .activity
     }
 
@@ -279,7 +285,8 @@ struct PendingReimbursementsWidget: View {
             Button {
                 let ids = Set(pending.map(\.expenseID))
                 navigation.showActivity(label: "Pending reimbursements",
-                    filter: TransactionFilter(transactionIDs: ids))
+                    filter: TransactionFilter(transactionIDs: ids),
+                    contributionKind: .pendingReimbursements, expectedEURMinor: total)
             } label: {
                 VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 13) {
@@ -313,6 +320,8 @@ struct MonthlyTrendWidget: View {
     @Environment(\.easyTrackTheme) private var theme
     @EnvironmentObject private var navigation: AppNavigationModel
     @State private var selectedDate: Date?
+    @State private var pendingMonth: LocalDay?
+    @State private var showingMetricChoice = false
     let snapshot: FinancialAnalyticsSnapshot?
 
     private var points: [FinancialMonthlyAggregate] { snapshot?.monthlyTrend ?? [] }
@@ -356,16 +365,13 @@ struct MonthlyTrendWidget: View {
                     .frame(height: dynamicTypeSize.isAccessibilitySize ? 250 : 205)
                     .accessibilityRepresentation { monthlyAccessibility }
                     .onChange(of: selectedDate) { _, value in
-                        guard let value, let snapshot else { return }
+                        guard let value else { return }
                         let selected = LocalDay(date: value, timeZone: .current)
                         let month = LocalDay(isoString: String(format: "%04d-%02d-01",
                                                               selected.year, selected.month))!
-                        let index = snapshot.chartSelectionIndex
-                        let ids = (index.monthlyExpenses[month] ?? [])
-                            .union(index.monthlyIncome[month] ?? [])
-                            .union(index.monthlyPAC[month] ?? [])
-                        openActivity(ids: ids, label: "Monthly trend · \(monthLabel(month))",
-                                     snapshot: snapshot, navigation: navigation)
+                        guard points.contains(where: { $0.month == month }) else { return }
+                        pendingMonth = month
+                        showingMetricChoice = true
                         selectedDate = nil
                     }
 
@@ -380,13 +386,55 @@ struct MonthlyTrendWidget: View {
             }
         }
         .accessibilityIdentifier("homeMonthlyTrendWidget")
+        .confirmationDialog("Choose a monthly value", isPresented: $showingMetricChoice,
+                            titleVisibility: .visible) {
+            if let month = pendingMonth {
+                Button("Expenses") { selectMonth(month, kind: .grossExpenses) }
+                Button("Income") { selectMonth(month, kind: .income) }
+                Button("PAC") { selectMonth(month, kind: .pac) }
+            }
+        } message: {
+            if let month = pendingMonth { Text(monthLabel(month)) }
+        }
+    }
+
+    private func selectMonth(_ month: LocalDay, kind: FinancialContributionKind) {
+        guard let snapshot, let point = points.first(where: { $0.month == month }) else { return }
+        let ids: Set<UUID>
+        let expected: Int64
+        let title: String
+        switch kind {
+        case .grossExpenses:
+            ids = snapshot.chartSelectionIndex.monthlyExpenses[month] ?? []
+            expected = point.grossExpensesEURMinor
+            title = "Expenses"
+        case .income:
+            ids = snapshot.chartSelectionIndex.monthlyIncome[month] ?? []
+            expected = point.incomeEURMinor
+            title = "Income"
+        case .pac:
+            ids = snapshot.chartSelectionIndex.monthlyPAC[month] ?? []
+            expected = point.pacInvestedEURMinor
+            title = "PAC"
+        default: return
+        }
+        openActivity(ids: ids, label: "\(title) · \(monthLabel(month))", snapshot: snapshot,
+            navigation: navigation, contributionKind: kind, expectedEURMinor: expected)
     }
 
     private var monthlyAccessibility: some View {
         VStack(alignment: .leading) {
             Text("Monthly trend")
             ForEach(points) { point in
-                Text("\(monthLabel(point.month)): expenses \(Money.format(point.grossExpensesEURMinor)), income \(Money.format(point.incomeEURMinor)), PAC \(Money.format(point.pacInvestedEURMinor))")
+                Button("\(monthLabel(point.month)), expenses \(Money.format(point.grossExpensesEURMinor))") {
+                    selectMonth(point.month, kind: .grossExpenses)
+                }
+                Button("\(monthLabel(point.month)), income \(Money.format(point.incomeEURMinor))") {
+                    selectMonth(point.month, kind: .income)
+                }
+                Button("\(monthLabel(point.month)), PAC \(Money.format(point.pacInvestedEURMinor))") {
+                    selectMonth(point.month, kind: .pac)
+                }
             }
         }
     }
@@ -499,7 +547,9 @@ struct CategoryBreakdownWidget: View {
                 }) else { return }
                 let ids = snapshot.chartSelectionIndex.categories[category.key] ?? []
                 openActivity(ids: ids, label: "Category · \(category.name)",
-                             snapshot: snapshot, navigation: navigation)
+                             snapshot: snapshot, navigation: navigation,
+                             contributionKind: .netExpenses,
+                             expectedEURMinor: category.personalNetExpensesEURMinor)
                 selectedAngle = nil
             }
 
@@ -524,24 +574,33 @@ struct CategoryBreakdownWidget: View {
                 RuleMark(x: .value("Zero", 0)).foregroundStyle(.secondary.opacity(0.45))
                 ForEach(bars) { category in
                     BarMark(x: .value("Net amount", plotAmount(category.amountMinor)),
-                            y: .value("Category", category.name))
+                            y: .value("Category", category.id))
                         .foregroundStyle(category.amountMinor < 0 ? theme.coral : theme.accent)
                         .cornerRadius(4)
                 }
             }
             .chartXAxis { currencyAxisMarks() }
-            .chartYAxis { AxisMarks(position: .leading) }
+            .chartYAxis {
+                AxisMarks(position: .leading) { axis in
+                    AxisValueLabel {
+                        if let key = axis.as(String.self) {
+                            Text(bars.first(where: { $0.id == key })?.name ?? key)
+                        }
+                    }
+                }
+            }
             .chartYSelection(value: $selectedCategory)
             .frame(height: height)
             .accessibilityRepresentation { categoryAccessibility(bars) }
             .onChange(of: selectedCategory) { _, value in
                 guard let value, let snapshot,
-                      let category = bars.first(where: { $0.name == value }) else { return }
+                      let category = bars.first(where: { $0.id == value }) else { return }
                 let ids = category.id == "unallocated"
                     ? snapshot.chartSelectionIndex.unallocated
                     : snapshot.chartSelectionIndex.categories[category.id] ?? []
                 openActivity(ids: ids, label: "Category · \(category.name)",
-                             snapshot: snapshot, navigation: navigation)
+                             snapshot: snapshot, navigation: navigation,
+                             contributionKind: .netExpenses, expectedEURMinor: category.amountMinor)
                 selectedCategory = nil
             }
         }
@@ -552,7 +611,15 @@ struct CategoryBreakdownWidget: View {
         VStack(alignment: .leading) {
             Text("Category breakdown")
             ForEach(values) { value in
-                Text("\(value.name): \(Money.format(value.amountMinor))")
+                Button("\(value.name): \(Money.format(value.amountMinor))") {
+                    guard let snapshot else { return }
+                    let ids = value.id == "unallocated"
+                        ? snapshot.chartSelectionIndex.unallocated
+                        : snapshot.chartSelectionIndex.categories[value.id] ?? []
+                    openActivity(ids: ids, label: "Category · \(value.name)", snapshot: snapshot,
+                        navigation: navigation, contributionKind: .netExpenses,
+                        expectedEURMinor: value.amountMinor)
+                }
             }
         }
     }
@@ -594,7 +661,9 @@ struct DailySpendingWidget: View {
                         let day = LocalDay(date: value, timeZone: .current)
                         let ids = snapshot.chartSelectionIndex.dailySpending[day] ?? []
                         openActivity(ids: ids, label: "Daily spending · \(day.isoString)",
-                                     snapshot: snapshot, navigation: navigation)
+                                     snapshot: snapshot, navigation: navigation,
+                                     contributionKind: .netExpenses,
+                                     expectedEURMinor: points.first(where: { $0.day == day })?.personalNetExpensesEURMinor ?? 0)
                         selectedDate = nil
                     }
                     Text("Includes zero-spend days and signed personal adjustments.")
@@ -612,7 +681,13 @@ struct DailySpendingWidget: View {
         VStack(alignment: .leading) {
             Text("Daily personal spending")
             ForEach(points) { point in
-                Text("\(point.day.isoString): \(Money.format(point.personalNetExpensesEURMinor))")
+                Button("\(point.day.isoString): \(Money.format(point.personalNetExpensesEURMinor))") {
+                    guard let snapshot else { return }
+                    openActivity(ids: snapshot.chartSelectionIndex.dailySpending[point.day] ?? [],
+                        label: "Daily spending · \(point.day.isoString)", snapshot: snapshot,
+                        navigation: navigation, contributionKind: .netExpenses,
+                        expectedEURMinor: point.personalNetExpensesEURMinor)
+                }
             }
         }
     }
@@ -647,21 +722,31 @@ struct TopMerchantsWidget: View {
                 } else {
                     Chart(displayed) { merchant in
                         BarMark(x: .value("Net amount", plotAmount(merchant.personalNetExpensesEURMinor)),
-                                y: .value("Merchant", merchant.name))
+                                y: .value("Merchant", merchant.key))
                             .foregroundStyle(merchant.personalNetExpensesEURMinor < 0
                                 ? theme.coral : theme.accent)
                             .cornerRadius(4)
                     }
                     .chartXAxis { currencyAxisMarks() }
-                    .chartYAxis { AxisMarks(position: .leading) }
+                    .chartYAxis {
+                        AxisMarks(position: .leading) { axis in
+                            AxisValueLabel {
+                                if let key = axis.as(String.self) {
+                                    Text(displayed.first(where: { $0.key == key })?.name ?? key)
+                                }
+                            }
+                        }
+                    }
                     .chartYSelection(value: $selectedMerchant)
                     .frame(height: max(170, CGFloat(displayed.count) * 38))
                     .accessibilityRepresentation { merchantAccessibility }
                     .onChange(of: selectedMerchant) { _, value in
                         guard let value, let snapshot,
-                              let merchant = displayed.first(where: { $0.name == value }) else { return }
+                              let merchant = displayed.first(where: { $0.key == value }) else { return }
                         openActivity(ids: Set(merchant.transactionIDs), label: "Merchant · \(merchant.name)",
-                                     snapshot: snapshot, navigation: navigation)
+                                     snapshot: snapshot, navigation: navigation,
+                                     contributionKind: .netExpenses,
+                                     expectedEURMinor: merchant.personalNetExpensesEURMinor)
                         selectedMerchant = nil
                     }
                 }
@@ -698,7 +783,12 @@ struct TopMerchantsWidget: View {
         VStack(alignment: .leading) {
             Text("Top merchants")
             ForEach(displayed) { merchant in
-                Text("\(merchant.name): \(Money.format(merchant.personalNetExpensesEURMinor)), \(merchant.transactionCount) movements")
+                Button("\(merchant.name): \(Money.format(merchant.personalNetExpensesEURMinor)), \(merchant.transactionCount) movements") {
+                    guard let snapshot else { return }
+                    openActivity(ids: Set(merchant.transactionIDs), label: "Merchant · \(merchant.name)",
+                        snapshot: snapshot, navigation: navigation, contributionKind: .netExpenses,
+                        expectedEURMinor: merchant.personalNetExpensesEURMinor)
+                }
             }
         }
     }
@@ -771,10 +861,13 @@ private func monthLabel(_ day: LocalDay) -> String {
 
 @MainActor
 private func openActivity(ids: Set<UUID>, label: String, snapshot: FinancialAnalyticsSnapshot,
-                          navigation: AppNavigationModel) {
+                          navigation: AppNavigationModel,
+                          contributionKind: FinancialContributionKind,
+                          expectedEURMinor: Int64) {
     var filter = snapshot.appliedFilter
     filter.transactionIDs = ids
-    navigation.showActivity(label: label, filter: filter)
+    navigation.showActivity(label: label, filter: filter,
+        contributionKind: contributionKind, expectedEURMinor: expectedEURMinor)
 }
 
 @AxisContentBuilder

@@ -338,6 +338,30 @@ final class EasyTrackUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Willowmere Home"].waitForExistence(timeout: 5))
         replaceText(in: app.textFields["transactionSearchField"], with: "Shared weekend refund")
         XCTAssertFalse(app.staticTexts["Shared weekend refund"].exists)
+        app.navigationBars["Activity"].buttons["EasyTrack"].tap()
+
+        app.buttons["customizeHomeButton"].tap()
+        let netPicker = app.descendants(matching: .any)["homePrimaryMetricPicker"]
+        for _ in 0..<8 where !netPicker.isHittable { app.swipeDown() }
+        netPicker.tap()
+        app.buttons["Net"].tap()
+        app.buttons["Done"].tap()
+        app.buttons["homeNetMetric"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["activityContributionTotal"].waitForExistence(timeout: 5))
+        replaceText(in: app.textFields["transactionSearchField"], with: "Shared weekend refund")
+        XCTAssertTrue(app.staticTexts["Shared weekend refund"].waitForExistence(timeout: 5))
+        app.navigationBars["Activity"].buttons["EasyTrack"].tap()
+
+        app.buttons["customizeHomeButton"].tap()
+        let personalPicker = app.descendants(matching: .any)["homePrimaryMetricPicker"]
+        for _ in 0..<8 where !personalPicker.isHittable { app.swipeDown() }
+        personalPicker.tap()
+        app.buttons["Net Expenses"].tap()
+        app.buttons["Done"].tap()
+        app.buttons["homeNetExpensesMetric"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["activityContributionTotal"].waitForExistence(timeout: 5))
+        replaceText(in: app.textFields["transactionSearchField"], with: "Willowmere Home")
+        XCTAssertTrue(app.staticTexts["Willowmere Home"].waitForExistence(timeout: 5))
         #else
         throw XCTSkip("Run with the isolated accounting UI fixture")
         #endif

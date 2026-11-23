@@ -203,6 +203,14 @@ struct FinancialDailyAverage: Equatable {
     var exactEURMinorPerDay: Decimal {
         Decimal(personalNetExpensesEURMinor) / Decimal(elapsedDayCount)
     }
+
+    var roundedEURMinorPerDay: Int64 {
+        let behavior = NSDecimalNumberHandler(roundingMode: .plain, scale: 0,
+            raiseOnExactness: false, raiseOnOverflow: false,
+            raiseOnUnderflow: false, raiseOnDivideByZero: false)
+        return NSDecimalNumber(decimal: exactEURMinorPerDay)
+            .rounding(accordingToBehavior: behavior).int64Value
+    }
 }
 
 struct FinancialCategoryAggregate: Equatable, Identifiable {
@@ -243,6 +251,56 @@ struct FinancialChartSelectionIndex: Equatable {
     var categories: [String: Set<UUID>] = [:]
     var dailySpending: [LocalDay: Set<UUID>] = [:]
     var unallocated: Set<UUID> = []
+}
+
+/// The signed EUR amount a ledger movement contributes to a displayed total.
+/// An absent EUR value never becomes an invented zero in a drill-down.
+enum FinancialContributionKind: Equatable {
+    case income, grossExpenses, netExpenses, net, pac, pendingReimbursements
+
+    func value(for item: Transaction, reimbursementStatuses: [ExpenseReimbursementStatus] = []) -> Int64? {
+        let eur = FinancialContributions.eurValue(of: item)
+        switch self {
+        case .income:
+            return item.kind == .income || item.kind == .reimbursement ? eur : nil
+        case .grossExpenses:
+            return item.kind == .expense ? eur : nil
+        case .netExpenses:
+            return FinancialContributions.personalValue(of: item)
+        case .net:
+            if item.kind == .income || item.kind == .reimbursement { return eur }
+            guard item.kind == .expense, let eur else { return nil }
+            let (negative, overflow) = Int64(0).subtractingReportingOverflow(eur)
+            return overflow ? nil : negative
+        case .pac:
+            return item.kind == .pacInvestment ? eur : nil
+        case .pendingReimbursements:
+            return reimbursementStatuses.first { $0.expenseID == item.id }?.outstandingEURMinor
+        }
+    }
+}
+
+enum FinancialContributions {
+    static func eurValue(of item: Transaction) -> Int64? {
+        item.eurMinor ?? (item.currency == "EUR" ? item.amountMinor : nil)
+    }
+
+    static func personalValue(of item: Transaction) -> Int64? {
+        item.personalExpenseEURMinor ??
+            (item.kind == .expense && item.currency == "EUR" ? item.amountMinor : nil)
+    }
+
+    static func total(_ items: [Transaction], kind: FinancialContributionKind,
+                      reimbursementStatuses: [ExpenseReimbursementStatus] = []) throws -> Int64 {
+        var result: Int64 = 0
+        for item in items {
+            guard let value = kind.value(for: item, reimbursementStatuses: reimbursementStatuses) else { continue }
+            let (sum, overflow) = result.addingReportingOverflow(value)
+            guard !overflow else { throw FinancialAnalyticsError.amountOverflow }
+            result = sum
+        }
+        return result
+    }
 }
 
 enum FinancialMetric: String, Equatable, Hashable {
@@ -300,21 +358,33 @@ struct FinancialAnalyticsSnapshot: Equatable {
 enum HomeMetricDrilldown {
     static func filter(for metric: DashboardHeroMetric,
                        snapshot: FinancialAnalyticsSnapshot) -> TransactionFilter? {
-        let kinds: Set<String>
+        let ids: Set<UUID>
         switch metric {
-        case .income: kinds = [TransactionKind.income.rawValue, TransactionKind.reimbursement.rawValue]
-        case .expenses: kinds = [TransactionKind.expense.rawValue]
-        case .net, .pac, .dailyAverage: return nil
+        case .income: ids = Set(snapshot.chartSelectionIndex.monthlyIncome.values.flatMap { $0 })
+        case .expenses: ids = Set(snapshot.chartSelectionIndex.monthlyExpenses.values.flatMap { $0 })
+        case .net: ids = Set(snapshot.chartSelectionIndex.monthlyIncome.values.flatMap { $0 })
+            .union(snapshot.chartSelectionIndex.monthlyExpenses.values.flatMap { $0 })
+        case .pac: ids = Set(snapshot.chartSelectionIndex.monthlyPAC.values.flatMap { $0 })
+        case .netExpenses, .dailyAverage:
+            ids = Set(snapshot.chartSelectionIndex.dailySpending.values.flatMap { $0 })
         }
-        var filter = TransactionFilter()
-        filter.kindKeys = kinds
-        filter.dateInterval = snapshot.period.effective
-        filter.transactionIDs = snapshot.appliedFilter.transactionIDs
+        var filter = snapshot.appliedFilter
+        filter.transactionIDs = ids
         return filter
+    }
+
+    static func contributionKind(for metric: DashboardHeroMetric) -> FinancialContributionKind {
+        switch metric {
+        case .income: .income
+        case .expenses: .grossExpenses
+        case .net: .net
+        case .netExpenses, .dailyAverage: .netExpenses
+        case .pac: .pac
+        }
     }
 }
 
-struct TripCategoryAggregate: Equatable, Identifiable {
+struct TripCategoryAggregate: Equatable, Hashable, Identifiable {
     let key: String
     let categoryID: UUID?
     let name: String
@@ -344,8 +414,7 @@ enum FinancialAnalytics {
         var missing = 0
         var categories: [String: (UUID?, String, Int64)] = [:]
         for item in items {
-            let personal = item.personalExpenseEURMinor ??
-                (item.kind == .expense && item.currency == "EUR" ? item.amountMinor : nil)
+            let personal = FinancialContributions.personalValue(of: item)
             guard let personal else { missing += 1; continue }
             try addChecked(personal, to: &total)
             let trimmed = item.category.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -480,9 +549,8 @@ enum FinancialAnalytics {
             }
             let localDay = LocalDay(date: item.occurredAt, timeZone: timeZone)
             let month = LocalDay(year: localDay.year, month: localDay.month, day: 1)
-            let eur = item.eurMinor ?? (item.currency == "EUR" ? item.amountMinor : nil)
-            let personal = item.personalExpenseEURMinor ??
-                (item.kind == .expense && item.currency == "EUR" ? item.amountMinor : nil)
+            let eur = FinancialContributions.eurValue(of: item)
+            let personal = FinancialContributions.personalValue(of: item)
             var unavailable: Set<FinancialMetric> = []
 
             if let personal {
