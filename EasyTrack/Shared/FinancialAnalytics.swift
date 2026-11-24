@@ -43,10 +43,10 @@ enum FinancialAnalyticsError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .invalidPeriod: "The selected financial period is invalid."
-        case .periodHasNotStarted: "The selected financial period has not started yet."
-        case .amountOverflow: "The selected history is too large to total safely in cents."
-        case .duplicateReimbursementStatus: "A reimbursement plan appears more than once in the selected history."
+        case .invalidPeriod: AppLanguage.localized("The selected financial period is invalid.")
+        case .periodHasNotStarted: AppLanguage.localized("The selected financial period has not started yet.")
+        case .amountOverflow: AppLanguage.localized("The selected history is too large to total safely in cents.")
+        case .duplicateReimbursementStatus: AppLanguage.localized("A reimbursement plan appears more than once in the selected history.")
         }
     }
 }

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A8C1D51A9E104B59AA650001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A8C1D51A9E104B59AA650002 /* Localizable.xcstrings */; };
+		A8C1D51A9E104B59AA650003 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A8C1D51A9E104B59AA650004 /* InfoPlist.xcstrings */; };
 		1353CBE7B1BD9C5E2455FE9F /* CaptureNotificationIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C322502569D2F1686527961 /* CaptureNotificationIntent.swift */; };
 		1563D50471F0B5E537F3B714 /* EasyTrackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76B767246820AD0774018D33 /* EasyTrackUITests.swift */; };
 		21EC8605A31F2E20D7A6EDD5 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0929DFA64B2D17F75F079643 /* Foundation.framework */; };
@@ -69,6 +71,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A8C1D51A9E104B59AA650002 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		A8C1D51A9E104B59AA650004 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		0929DFA64B2D17F75F079643 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		0B801ABAC1EDE6A456443944 /* SeedMapper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SeedMapper.swift; sourceTree = "<group>"; };
 		15B213F8546319D3AE8F801F /* SystemDocumentPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemDocumentPicker.swift; sourceTree = "<group>"; };
@@ -249,6 +253,8 @@
 		A546E2E99D364C66776B77B7 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				A8C1D51A9E104B59AA650002 /* Localizable.xcstrings */,
+				A8C1D51A9E104B59AA650004 /* InfoPlist.xcstrings */,
 				341165D6549EA4F1E5BB7F44 /* Icon-60@2x.png */,
 				3D24BCD975ADF170B117F140 /* Icon-60@3x.png */,
 			);
@@ -364,6 +370,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				it,
 				Base,
 			);
 			mainGroup = 7CF8BFC81BFF11F691E8ED5C;
@@ -384,6 +391,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A8C1D51A9E104B59AA650001 /* Localizable.xcstrings in Resources */,
+				A8C1D51A9E104B59AA650003 /* InfoPlist.xcstrings in Resources */,
 				4FA6F0D4AC4752B41BE7FC3B /* Icon-60@2x.png in Resources */,
 				D740139540BF108F7F9EDCA7 /* Icon-60@3x.png in Resources */,
 			);

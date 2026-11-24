@@ -45,7 +45,7 @@ private struct VoiceEntryView: View {
             }
             Section("Recording") {
                 if session.isRecording || session.isFinalizing {
-                    Label(session.isFinalizing ? "Finishing transcription…" : "Listening on device…",
+                    Label(AppLanguage.localized(session.isFinalizing ? "Finishing transcription…" : "Listening on device…"),
                           systemImage: session.isFinalizing ? "ellipsis.bubble" : "waveform")
                         .foregroundStyle(.red)
                     Button("Stop") { finishAndInterpret() }
@@ -58,7 +58,7 @@ private struct VoiceEntryView: View {
                     session.cancel(clearTranscript: false); draft = nil
                 }
                 .disabled(!session.isRecording && !session.isFinalizing && session.transcript.isEmpty)
-                if let error = session.errorMessage { Text(error).font(.footnote).foregroundStyle(.orange) }
+                if let error = session.errorMessage { Text(AppLanguage.localized(error)).font(.footnote).foregroundStyle(.orange) }
             }
             Section("Transcript") {
                 TextEditor(text: $session.transcript).frame(minHeight: 90)
@@ -74,8 +74,8 @@ private struct VoiceEntryView: View {
                         draft.currency.map { Money.format(amount, currency: $0) }
                     } ?? "Missing")
                     LabeledContent("Description", value: draft.merchant ?? "Missing")
-                    LabeledContent("Date", value: draft.occurredAt?.formatted(date: .abbreviated, time: .omitted) ?? "Today / review")
-                    ForEach(draft.issues, id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
+                    LabeledContent("Date", value: draft.occurredAt?.easyTrackFormatted(date: .abbreviated, time: .omitted) ?? "Today / review")
+                    ForEach(draft.issues, id: \.self) { Text(AppLanguage.localized($0)).font(.footnote).foregroundStyle(.orange) }
                     Button("Review in transaction editor") { onContinue(draft) }.buttonStyle(.borderedProminent)
                 }
             }
@@ -156,7 +156,7 @@ private final class OfflineSpeechSession: ObservableObject {
         }
         guard let recognizer = SFSpeechRecognizer(locale: language.locale), recognizer.isAvailable,
               recognizer.supportsOnDeviceRecognition else {
-            failStart(token, "Offline \(language.title) speech recognition is not installed or available. No English or cloud fallback was used; type the transcript manually."); return
+            failStart(token, AppLanguage.formatted("Offline %@ speech recognition is not installed or available. No English or cloud fallback was used; type the transcript manually.", language.title)); return
         }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -183,7 +183,8 @@ private final class OfflineSpeechSession: ObservableObject {
             }
         } catch {
             stopAudioInput(endRequest: false)
-            failStart(token, "Microphone recording could not start: \(error.localizedDescription). You can type the transcript manually.")
+            failStart(token, AppLanguage.formatted("Microphone recording could not start: %@. You can type the transcript manually.",
+                AppLanguage.localized(error.localizedDescription)))
         }
     }
 

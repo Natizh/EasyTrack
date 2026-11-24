@@ -1,6 +1,47 @@
 import CryptoKit
 import Foundation
 
+enum AppLanguage: String, CaseIterable, Identifiable {
+    case italian = "it"
+    case english = "en"
+
+    static let storageKey = "easyTrackLanguage"
+    var id: String { rawValue }
+    var title: String { self == .italian ? "Italiano" : "English" }
+    var locale: Locale { Locale(identifier: self == .italian ? "it_IT" : "en_US") }
+
+    static func resolved(_ code: String?) -> AppLanguage {
+        code.flatMap(AppLanguage.init(rawValue:)) ?? .italian
+    }
+
+    static var current: AppLanguage {
+        resolved(UserDefaults.standard.string(forKey: storageKey))
+    }
+
+    /// Formatter locale follows the selected app language in the iOS app.
+    /// Command-line tools and SwiftPM tests retain their host locale.
+    static var formatLocale: Locale {
+        Bundle.main.path(forResource: "it", ofType: "lproj") == nil ? .current : current.locale
+    }
+
+    static func localized(_ key: String) -> String {
+        guard let path = Bundle.main.path(forResource: current.rawValue, ofType: "lproj"),
+              let bundle = Bundle(path: path) else { return key }
+        return bundle.localizedString(forKey: key, value: key, table: "Localizable")
+    }
+
+    static func formatted(_ key: String, _ arguments: CVarArg...) -> String {
+        String(format: localized(key), locale: formatLocale, arguments: arguments)
+    }
+}
+
+extension Date {
+    func easyTrackFormatted(date: Date.FormatStyle.DateStyle,
+                            time: Date.FormatStyle.TimeStyle) -> String {
+        formatted(Date.FormatStyle(date: date, time: time).locale(AppLanguage.formatLocale))
+    }
+}
+
 enum TransactionKind: String, Codable, CaseIterable, Identifiable {
     case expense, income, pacInvestment, advanceForOthers, reimbursement, deposit, depositRefund
     var id: String { rawValue }
@@ -138,7 +179,7 @@ enum Money {
         return parseMinor(trimmed)
     }
 
-    static func editString(_ minor: Int64, currency: String = "EUR", locale: Locale = .current) -> String {
+    static func editString(_ minor: Int64, currency: String = "EUR", locale: Locale = AppLanguage.formatLocale) -> String {
         let exponent = CurrencyMetadata.exponent(for: currency)
         let amount = NSDecimalNumber(value: minor).dividing(by: NSDecimalNumber(decimal: CurrencyMetadata.divisor(for: currency)))
         let formatter = NumberFormatter()
@@ -150,7 +191,7 @@ enum Money {
         return formatter.string(from: amount) ?? amount.stringValue
     }
 
-    static func format(_ minor: Int64, currency: String = "EUR", locale: Locale = .current) -> String {
+    static func format(_ minor: Int64, currency: String = "EUR", locale: Locale = AppLanguage.formatLocale) -> String {
         let amount = NSDecimalNumber(value: minor).dividing(by: NSDecimalNumber(decimal: CurrencyMetadata.divisor(for: currency)))
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
@@ -165,10 +206,10 @@ enum AmountInputError: Error, Equatable {
 
     var message: String {
         switch self {
-        case .empty: "Enter an amount."
-        case .negative: "Use a positive amount; the transaction type sets its direction."
-        case .zero: "Amount must be greater than zero."
-        case .malformed: "Enter a valid amount with at most two decimal places."
+        case .empty: AppLanguage.localized("Enter an amount.")
+        case .negative: AppLanguage.localized("Use a positive amount; the transaction type sets its direction.")
+        case .zero: AppLanguage.localized("Amount must be greater than zero.")
+        case .malformed: AppLanguage.localized("Enter a valid amount with at most two decimal places.")
         }
     }
 }
@@ -345,7 +386,8 @@ struct TransactionFilter: Equatable {
                   currencies?.contains(item.currency) != false else { return false }
             guard !needle.isEmpty else { return true }
             return [item.merchant, item.account, item.category, item.subcategory ?? "", item.note,
-                    item.paidBy ?? "", tripNames[item.tripID ?? ""] ?? "", item.kind.title]
+                    item.paidBy ?? "", tripNames[item.tripID ?? ""] ?? "", item.kind.title,
+                    AppLanguage.localized(item.kind.title)]
                 .contains { $0.localizedCaseInsensitiveContains(needle) }
         }
     }

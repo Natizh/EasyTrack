@@ -61,7 +61,7 @@ struct BudgetHomeWidget: View {
                         } else {
                             filter.transactionIDs = Set(financial.chartSelectionIndex.dailySpending.values.flatMap { $0 })
                         }
-                        navigation.showActivity(label: "\(progress.title) · spending",
+                        navigation.showActivity(label: "\(progress.budget.scope == .overall ? AppLanguage.localized(progress.title) : progress.title) · \(AppLanguage.localized("spending"))",
                             filter: filter, contributionKind: .netExpenses,
                             expectedEURMinor: progress.spentEURMinor)
                     }
@@ -81,7 +81,8 @@ private struct BudgetProgressContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(progress.title).font(.subheadline.weight(.semibold))
+                Text(progress.budget.scope == .overall ? AppLanguage.localized(progress.title) : progress.title)
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
                 Image(systemName: progress.isOverLimit ? "exclamationmark.triangle.fill" : "checkmark.circle")
                     .foregroundStyle(progress.isOverLimit ? theme.coral : theme.accent)
@@ -162,15 +163,18 @@ struct BudgetsAndGoalsView: View {
         Button { selectedGoal = goal } label: {
             VStack(alignment: .leading, spacing: 5) {
                 LabeledContent(goal.name, value: "\(Money.format(goal.progressEURMinor)) / \(Money.format(goal.targetEURMinor))")
-                if let dueDate = goal.dueDate { Text("Due \(dueDate.isoString)").font(.caption).foregroundStyle(.secondary) }
+                if let dueDate = goal.dueDate {
+                    Text("Due \(dueDate.noon(in: .current)?.easyTrackFormatted(date: .abbreviated, time: .omitted) ?? dueDate.isoString)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }.foregroundStyle(.primary).contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
 
     private func budgetTitle(_ budget: MonthlyBudget) -> String {
-        guard budget.scope == .category else { return "Overall" }
+        guard budget.scope == .category else { return AppLanguage.localized("Overall") }
         return budget.categoryID.flatMap { id in store.ledgerCategories.first { $0.id == id }?.name }
-            ?? "Unavailable category"
+            ?? AppLanguage.localized("Unavailable category")
     }
 }
 
@@ -193,7 +197,7 @@ private struct MonthlyBudgetEditor: View {
     var body: some View {
         Form {
             Picker("Budget", selection: $scope) {
-                ForEach(MonthlyBudgetScope.allCases) { Text($0.title).tag($0) }
+                ForEach(MonthlyBudgetScope.allCases) { Text(AppLanguage.localized($0.title)).tag($0) }
             }.disabled(original != nil)
             if scope == .category {
                 Picker("Category", selection: $categoryID) {
@@ -209,7 +213,7 @@ private struct MonthlyBudgetEditor: View {
             }
             Text("The full limit applies to the calendar month. It is not prorated and unused amounts never roll over.")
                 .font(.footnote).foregroundStyle(.secondary)
-            if let validation { Text(validation).foregroundStyle(.red) }
+            if let validation { Text(AppLanguage.localized(validation)).foregroundStyle(.red) }
             if original != nil {
                 Button(original?.archivedAt == nil ? "Archive budget" : "Restore budget",
                        role: original?.archivedAt == nil ? .destructive : nil) { archiveOrRestore() }
@@ -277,13 +281,13 @@ private struct SavingsGoalEditor: View {
             if hasDueDate { DatePicker("Due", selection: $dueDate, displayedComponents: .date) }
             Text("Progress is entered manually and does not represent a bank balance.")
                 .font(.footnote).foregroundStyle(.secondary)
-            if let validation { Text(validation).foregroundStyle(.red) }
+            if let validation { Text(AppLanguage.localized(validation)).foregroundStyle(.red) }
             if original != nil {
                 Button(original?.archivedAt == nil ? "Archive goal" : "Restore goal",
                        role: original?.archivedAt == nil ? .destructive : nil) { archiveOrRestore() }
             }
         }
-        .navigationTitle(original == nil ? "New Savings Goal" : "Edit Savings Goal")
+        .navigationTitle(AppLanguage.localized(original == nil ? "New Savings Goal" : "Edit Savings Goal"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

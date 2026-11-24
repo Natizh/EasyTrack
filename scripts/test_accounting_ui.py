@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test Home income and expense drill-downs with fictional data in a separate simulator app."""
+"""Test Home, localization and notification flows with fictional data in a separate simulator app."""
 
 import argparse
 import json
@@ -52,6 +52,7 @@ def main():
     parser.add_argument("--device", required=True, help="Existing iPhone 17 Pro simulator UUID")
     parser.add_argument("--derived-data", type=Path, default=ROOT / "DerivedData")
     parser.add_argument("--swift-build", type=Path, default=ROOT / ".build")
+    parser.add_argument("--only-test", action="append", help="Run one named UI test; may be repeated")
     args = parser.parse_args()
     original_state = device_state(args.device)
     free = shutil.disk_usage(ROOT).free / (1024 ** 3)
@@ -103,14 +104,15 @@ def main():
             if target.exists():
                 raise RuntimeError("The isolated app already has a ledger; refusing overwrite")
             shutil.copy2(fixture, target)
-            tests = [
+            tests = args.only_test or [
                 "testHomeIncomeAndExpensesOpenCompletePeriodActivity",
+                "testItalianDefaultAndEnglishSwitchPreservesSyntheticLedger",
                 "testReview35FirstCapturePromptAndDeletionPersist",
                 "testReview35CrossAccountSettlementPickerAndCancel",
             ]
             run(common + [f"-only-testing:EasyTrackUITests/EasyTrackUITests/{name}" for name in tests]
                 + ["test-without-building"], log=fixture_dir / "ui.log")
-            print("Home and PR #35 UI tests passed", flush=True)
+            print(f"{len(tests)} isolated synthetic UI test(s) passed: {', '.join(tests)}", flush=True)
     finally:
         if device_state(args.device) != "Booted":
             run(["xcrun", "simctl", "boot", args.device])

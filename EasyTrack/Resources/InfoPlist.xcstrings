@@ -1,0 +1,36 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSCameraUsageDescription" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EasyTrack usa la fotocamera solo quando scegli di acquisire una ricevuta su questo dispositivo."
+          }
+        }
+      }
+    },
+    "NSMicrophoneUsageDescription" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EasyTrack usa il microfono solo durante una registrazione vocale avviata da te e non conserva l’audio."
+          }
+        }
+      }
+    },
+    "NSSpeechRecognitionUsageDescription" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EasyTrack trascrive brevi voci solo quando il riconoscimento vocale sul dispositivo è disponibile."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -221,14 +221,14 @@ struct FinancialHeroCard: View {
     @ViewBuilder private func metricTile(_ metric: DashboardHeroMetric) -> some View {
         if isAction(metric), let onMetricTap {
             Button { onMetricTap(metric) } label: {
-                MetricTile(title: metric.title, value: value(for: metric), symbol: metric.symbol,
+                MetricTile(title: AppLanguage.localized(metric.title), value: value(for: metric), symbol: metric.symbol,
                            periodTitle: periodTitle, showsDisclosure: true)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Show contributing movements for \(metric.title) in \(periodTitle)")
+            .accessibilityHint("Show contributing movements for \(AppLanguage.localized(metric.title)) in \(periodTitle)")
             .accessibilityIdentifier(metric.accessibilityIdentifier)
         } else {
-            MetricTile(title: metric.title, value: value(for: metric),
+            MetricTile(title: AppLanguage.localized(metric.title), value: value(for: metric),
                        symbol: metric.symbol, periodTitle: periodTitle)
         }
     }
@@ -236,7 +236,7 @@ struct FinancialHeroCard: View {
     private var primaryMetricContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("\(periodTitle.uppercased()) · \(preferences.primary.title.uppercased())")
+                Text("\(periodTitle.uppercased()) · \(AppLanguage.localized(preferences.primary.title).uppercased())")
                     .font(.caption.weight(.bold))
                     .tracking(1.05)
                 if isAction(preferences.primary) {
@@ -253,7 +253,7 @@ struct FinancialHeroCard: View {
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                 .foregroundStyle(theme.heroText)
                 .accessibilityIdentifier("homePersonalSpendingTotal")
-                .accessibilityLabel("\(preferences.primary.title), \(value(for: preferences.primary)), \(periodTitle)")
+                .accessibilityLabel("\(AppLanguage.localized(preferences.primary.title)), \(value(for: preferences.primary)), \(periodTitle)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -263,7 +263,7 @@ struct FinancialHeroCard: View {
         if isAction(preferences.primary), let onMetricTap {
             Button { onMetricTap(preferences.primary) } label: { primaryMetricContent }
                 .buttonStyle(.plain)
-                .accessibilityHint("Show contributing movements for \(preferences.primary.title) in \(periodTitle)")
+                .accessibilityHint("Show contributing movements for \(AppLanguage.localized(preferences.primary.title)) in \(periodTitle)")
                 .accessibilityIdentifier(preferences.primary.accessibilityIdentifier)
         } else {
             primaryMetricContent
@@ -357,7 +357,7 @@ struct RecentTransactionCard: View {
                 .monospacedDigit()
                 .foregroundStyle(item.kind.isOutflow ? theme.primaryText : theme.accent)
                 .lineLimit(1)
-            Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated)))
+            Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated).locale(AppLanguage.formatLocale)))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -387,7 +387,7 @@ struct RecentTransactionCard: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.merchant), \(categoryName), \(amountText), \(item.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+        .accessibilityLabel("\(item.merchant), \(categoryName), \(amountText), \(item.occurredAt.easyTrackFormatted(date: .abbreviated, time: .omitted))")
         .accessibilityHint("Edit transaction")
         .accessibilityIdentifier("homeRecentTransaction-\(item.id.uuidString)")
     }

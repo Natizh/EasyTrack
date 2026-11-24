@@ -13,11 +13,11 @@ enum BackupError: LocalizedError {
         switch self {
         case .unsupportedVersion(let version):
             version < 5
-                ? "Backup format \(version) is incomplete for safe restoration. Use a version 5 through 15 backup."
-                : "Backup format \(version) is newer than this app supports. Update EasyTrack before restoring it."
-        case .invalid(let reason): "Backup is incomplete or damaged: \(reason)"
-        case .changedSincePreview: "Local data changed after the preview. Choose the backup again."
-        case .conflict(let table): "Merge found a different record with the same identity in \(table). Nothing was changed. Use Replace after reviewing the preview."
+                ? AppLanguage.formatted("Backup format %@ is incomplete for safe restoration. Use a version 5 through 15 backup.", String(version))
+                : AppLanguage.formatted("Backup format %@ is newer than this app supports. Update EasyTrack before restoring it.", String(version))
+        case .invalid(let reason): AppLanguage.formatted("Backup is incomplete or damaged: %@", reason)
+        case .changedSincePreview: AppLanguage.localized("Local data changed after the preview. Choose the backup again.")
+        case .conflict(let table): AppLanguage.formatted("Merge found a different record with the same identity in %@. Nothing was changed. Use Replace after reviewing the preview.", table)
         }
     }
 }

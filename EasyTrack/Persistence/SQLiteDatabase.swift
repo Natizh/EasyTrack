@@ -4,7 +4,7 @@ import SQLite3
 enum DatabaseError: LocalizedError {
     case sqlite(String)
     var errorDescription: String? {
-        switch self { case .sqlite(let message): "Local database error: \(message)" }
+        switch self { case .sqlite(let message): AppLanguage.formatted("Local database error: %@", message) }
     }
 }
 

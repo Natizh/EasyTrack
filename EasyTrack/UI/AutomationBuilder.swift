@@ -123,22 +123,25 @@ struct AutomationsView: View {
                                 in: RoundedRectangle(cornerRadius: 13))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(source.name).font(.headline).foregroundStyle(.primary)
-                    Text(source.accountName.map { "Account · \($0)" } ?? "Map an account")
+                    Text(source.accountName.map { AppLanguage.formatted("Account · %@", $0) } ??
+                         AppLanguage.localized("Map an account"))
                         .font(.caption).foregroundStyle(.secondary)
-                    Text(active > 0 ? "\(active) active format\(active == 1 ? "" : "s")" : "Add notification format")
+                    Text(active > 0
+                         ? AppLanguage.formatted(active == 1 ? "%@ active format" : "%@ active formats", String(active))
+                         : AppLanguage.localized("Add notification format"))
                         .font(.caption2).foregroundStyle(active > 0 ? .green : .orange)
                 }
                 Spacer()
                 Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tertiary)
             }
             HStack {
-                Label("\(attempts.count) captured", systemImage: "tray")
+                Label(AppLanguage.formatted("%@ captured", String(attempts.count)), systemImage: "tray")
                 Spacer()
-                Text(latest?.status.title ?? "Awaiting first capture")
+                Text(latest.map { AppLanguage.localized($0.status.title) } ?? AppLanguage.localized("Awaiting first capture"))
             }
             .font(.caption).foregroundStyle(.secondary)
             if let lastSuccess {
-                Text("Last added \(lastSuccess.capturedAt.formatted(date: .abbreviated, time: .shortened))")
+                Text("Last added \(lastSuccess.capturedAt.easyTrackFormatted(date: .abbreviated, time: .shortened))")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -230,8 +233,8 @@ struct NotificationSetupGuideView: View {
                             Image(systemName: item.2 ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(item.2 ? .green : .secondary)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("\(index + 1). \(item.0)").font(.subheadline.weight(.semibold))
-                                Text(item.1).font(.caption).foregroundStyle(.secondary)
+                                Text("\(index + 1). \(AppLanguage.localized(item.0))").font(.subheadline.weight(.semibold))
+                                Text(AppLanguage.localized(item.1)).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         .accessibilityElement(children: .combine)
@@ -301,7 +304,7 @@ struct NotificationSetupGuideView: View {
                 HStack {
                     Image(systemName: symbols[step]).frame(width: 28)
                         .foregroundStyle(theme.accent)
-                    Text("\(step + 1). \(titles[step])").font(.headline).foregroundStyle(.primary)
+                    Text("\(step + 1). \(AppLanguage.localized(titles[step]))").font(.headline).foregroundStyle(.primary)
                     Spacer()
                     Image(systemName: openStep == step ? "chevron.up" : "chevron.down")
                         .foregroundStyle(.secondary)
@@ -419,8 +422,8 @@ struct NotificationSetupGuideView: View {
 
     private func fieldHelp(_ name: String, _ detail: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(name).font(.subheadline.weight(.semibold))
-            Text(detail).font(.caption).foregroundStyle(.secondary)
+            Text(AppLanguage.localized(name)).font(.subheadline.weight(.semibold))
+            Text(AppLanguage.localized(detail)).font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -440,13 +443,13 @@ struct NotificationSetupGuideView: View {
                 Group {
                     if dynamicTypeSize.isAccessibilitySize {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(mapping.field).font(.subheadline.weight(.semibold))
+                            Text(AppLanguage.localized(mapping.field)).font(.subheadline.weight(.semibold))
                             Text("\(mapping.variable) → \(mapping.property)").font(.subheadline)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         HStack(spacing: 8) {
-                            Text(mapping.field).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                            Text(AppLanguage.localized(mapping.field)).font(.caption).frame(maxWidth: .infinity, alignment: .leading)
                             Text(mapping.variable).font(.caption).frame(width: 74, alignment: .leading)
                             Text(mapping.property).font(.caption.weight(.semibold))
                                 .frame(width: 84, alignment: .leading)
@@ -497,7 +500,7 @@ struct NotificationSetupGuideView: View {
             Text("This checks only EasyTrack's parser and UI. It does not test iOS notification delivery, Shortcuts, background execution, or a bank app.")
                 .font(.caption).foregroundStyle(.secondary)
             Picker("Fictional sample", selection: $demoKind) {
-                ForEach(DemoKind.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(DemoKind.allCases) { Text(AppLanguage.localized($0.rawValue)).tag($0) }
             }
             .pickerStyle(.segmented)
             Button { runSimulation() } label: { Label("Run dry test", systemImage: "play.fill") }
@@ -507,13 +510,13 @@ struct NotificationSetupGuideView: View {
                 LabeledContent("Recognized source", value: demoEvent.sourceApp)
                 LabeledContent("Mapped account", value: selectedAccount?.name ?? "Choose an account above")
                 if let reason = demoRejection {
-                    Label(reason, systemImage: "shield.checkered")
+                    Label(AppLanguage.localized(reason), systemImage: "shield.checkered")
                         .font(.subheadline).foregroundStyle(.orange)
                 } else {
-                    LabeledContent("Recognized amount", value: demoPreview.amount.map { Money.format($0.cents) } ?? "Not found")
-                    LabeledContent("Recognized merchant", value: demoPreview.merchant ?? "Not found")
-                    Label(demoPreview.ready ? "Preview ready: a matching real event could create this transaction." :
-                            (demoPreview.error ?? "This sample does not match."),
+                    LabeledContent("Recognized amount", value: demoPreview.amount.map { Money.format($0.cents) } ?? AppLanguage.localized("Not found"))
+                    LabeledContent("Recognized merchant", value: demoPreview.merchant ?? AppLanguage.localized("Not found"))
+                    Label(AppLanguage.localized(demoPreview.ready ? "Preview ready: a matching real event could create this transaction." :
+                            (demoPreview.error ?? "This sample does not match.")),
                           systemImage: demoPreview.ready ? "checkmark.circle" : "exclamationmark.triangle")
                         .font(.subheadline)
                 }
@@ -535,7 +538,7 @@ struct NotificationSetupGuideView: View {
             statusLine("Real bank payment", "Not verified on the primary phone", complete: false)
             Text("The secondary test phone has no banking apps. A dry test cannot satisfy real-notification acceptance.")
                 .font(.caption).foregroundStyle(.secondary)
-            if let statusMessage { Text(statusMessage).font(.caption).foregroundStyle(.secondary) }
+            if let statusMessage { Text(AppLanguage.localized(statusMessage)).font(.caption).foregroundStyle(.secondary) }
         }
         .guideCard()
     }
@@ -545,8 +548,8 @@ struct NotificationSetupGuideView: View {
             Image(systemName: complete ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
                 .foregroundStyle(complete ? .green : .orange)
             VStack(alignment: .leading) {
-                Text(title).font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                Text(AppLanguage.localized(title)).font(.subheadline.weight(.semibold))
+                Text(AppLanguage.localized(detail)).font(.caption).foregroundStyle(.secondary)
             }
         }
         .accessibilityElement(children: .combine)
@@ -568,7 +571,7 @@ struct NotificationSetupGuideView: View {
                 "App unavailable: refresh SideStore signing and trust the developer app again if required.",
                 "No lock/background event: retest on the physical phone; iOS delivery is not guaranteed by EasyTrack."
             ], id: \.self) { item in
-                Label(item, systemImage: "chevron.right").font(.caption)
+                Label(AppLanguage.localized(item), systemImage: "chevron.right").font(.caption)
             }
             Divider()
             Text("Captured · 0 active").font(.caption.weight(.semibold))
@@ -592,7 +595,8 @@ struct NotificationSetupGuideView: View {
         do {
             let source = try store.configureNotificationSource(label: sourceLabel, accountID: selectedAccountID)
             sourceLabel = source.name
-            statusMessage = "Source saved and mapped to \(source.accountName ?? "the selected account")."
+            statusMessage = AppLanguage.formatted("Source saved and mapped to %@.",
+                source.accountName ?? AppLanguage.localized("the selected account"))
         } catch { statusMessage = error.localizedDescription }
     }
 
@@ -723,18 +727,18 @@ private struct AutomationSourceView: View {
                     attemptToDelete = nil
                 }
             } message: {
-                Text(attemptToDelete?.transactionID == nil
+                Text(AppLanguage.localized(attemptToDelete?.transactionID == nil
                      ? "This capture disappears from the list. Shared notification text may remain while another capture or transaction references it; retention still applies. Formats and the source account stay."
-                     : "This capture disappears from the list. Its transaction stays in Activity; underlying notification text follows the retention setting.")
+                     : "This capture disappears from the list. Its transaction stays in Activity; underlying notification text follows the retention setting."))
             }
     }
 
     private func sectionHeader(_ title: String, symbol: String) -> some View {
-        Label(title, systemImage: symbol).font(.title3.bold()).foregroundStyle(.primary)
+        Label(AppLanguage.localized(title), systemImage: symbol).font(.title3.bold()).foregroundStyle(.primary)
     }
 
     private func hint(_ text: String) -> some View {
-        Text(text).font(.subheadline).foregroundStyle(.secondary)
+        Text(AppLanguage.localized(text)).font(.subheadline).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(18).background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 18))
     }
@@ -798,9 +802,9 @@ private struct AutomationSourceView: View {
             HStack {
                 Image(systemName: symbol(for: attempt.status))
                     .foregroundStyle(color(for: attempt.status))
-                Text(attempt.status.title).font(.subheadline.weight(.semibold))
+                Text(AppLanguage.localized(attempt.status.title)).font(.subheadline.weight(.semibold))
                 Spacer()
-                Text(attempt.capturedAt.formatted(date: .abbreviated, time: .shortened))
+                Text(attempt.capturedAt.easyTrackFormatted(date: .abbreviated, time: .shortened))
                     .font(.caption).foregroundStyle(.secondary)
                 Button(role: .destructive) { attemptToDelete = attempt } label: {
                     Image(systemName: "trash")
@@ -937,7 +941,7 @@ private struct SourceAccountMappingView: View {
                 .padding(17).background(AutomationStyle.card, in: RoundedRectangle(cornerRadius: 18))
                 Text(isExisting ? "Use this existing account" : "Create this account in EasyTrack")
                     .font(.caption).foregroundStyle(.secondary)
-                if let errorMessage { Text(errorMessage).font(.subheadline).foregroundStyle(.red) }
+                if let errorMessage { Text(AppLanguage.localized(errorMessage)).font(.subheadline).foregroundStyle(.red) }
                 Button("Save source account") {
                     do {
                         try store.mapSourceAccount(source.id, to: accountName)
@@ -1017,15 +1021,15 @@ private struct ParserBuilderView: View {
                         .accessibilityIdentifier("parserRuleNameField")
                 }
                 block(0, "Notification input", "bell.badge.fill",
-                      config.inputField.text(in: sample.event).isEmpty ? "No text in selected field" : config.inputField.text(in: sample.event)) {
+                      config.inputField.text(in: sample.event).isEmpty ? AppLanguage.localized("No text in selected field") : config.inputField.text(in: sample.event)) {
                     Picker("Read amount from", selection: $config.inputField) {
-                        ForEach(NotificationField.allCases) { Text($0.title).tag($0) }
+                        ForEach(NotificationField.allCases) { Text(AppLanguage.localized($0.title)).tag($0) }
                     }
                     Picker("Match text in", selection: $config.conditionField) {
-                        ForEach(NotificationField.allCases) { Text($0.title).tag($0) }
+                        ForEach(NotificationField.allCases) { Text(AppLanguage.localized($0.title)).tag($0) }
                     }
                     Picker("Notification matches when", selection: $config.conditionMode) {
-                        ForEach(TextMatchMode.allCases.filter { showAdvanced || $0 != .regularExpression }) { Text($0.title).tag($0) }
+                        ForEach(TextMatchMode.allCases.filter { showAdvanced || $0 != .regularExpression }) { Text(AppLanguage.localized($0.title)).tag($0) }
                     }
                     TextField("Required words or phrase", text: $config.conditionText)
                         .textInputAutocapitalization(.never)
@@ -1049,42 +1053,42 @@ private struct ParserBuilderView: View {
                                 }
                             }
                         }
-                        Text(store.availableAccountNames.contains(where: {
+                        Text(AppLanguage.localized(store.availableAccountNames.contains(where: {
                             NotificationParser.normalize($0) == NotificationParser.normalize(accountName)
-                        }) ? "Use this existing account" : "Create this account when you activate the format")
+                        }) ? "Use this existing account" : "Create this account when you activate the format"))
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
                         Text("To change this mapping for future transactions, use Change account on the source page.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                block(2, "Direction / movement type", "arrow.left.arrow.right.circle.fill", config.kind.title) {
+                block(2, "Direction / movement type", "arrow.left.arrow.right.circle.fill", AppLanguage.localized(config.kind.title)) {
                     Picker("Type", selection: $config.kind) {
-                        ForEach(TransactionKind.allCases) { Text($0.title).tag($0) }
+                        ForEach(TransactionKind.allCases) { Text(AppLanguage.localized($0.title)).tag($0) }
                     }
                     Text("Use fixed wording such as “paid” or “received” above to identify this format. Different wording can have another format rule.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 block(3, "Amount", "eurosign.circle.fill",
-                      preview.amount.map { Money.format($0.cents) } ?? "No EUR amount found") {
+                      preview.amount.map { Money.format($0.cents) } ?? AppLanguage.localized("No EUR amount found")) {
                     TextField("Text immediately before amount (optional)", text: $config.amountPrefix)
                     TextField("Text immediately after amount (optional)", text: $config.amountSuffix)
                     Picker("Amount sign", selection: $config.requiredAmountSign) {
                         Text("Any sign").tag(AmountSign?.none)
                         ForEach(AmountSign.allCases) { sign in
-                            Text(sign.title).tag(Optional(sign))
+                            Text(AppLanguage.localized(sign.title)).tag(Optional(sign))
                         }
                     }
                     Text("The number is captured anew for each notification.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 block(4, "Merchant / description", "text.quote",
-                      preview.merchant ?? "Choose the words to use") {
+                      preview.merchant ?? AppLanguage.localized("Choose the words to use")) {
                     Picker("Read description from", selection: $config.merchantField) {
-                        ForEach(NotificationField.allCases) { Text($0.title).tag($0) }
+                        ForEach(NotificationField.allCases) { Text(AppLanguage.localized($0.title)).tag($0) }
                     }
                     Picker("Select text", selection: $config.merchantMode) {
-                        ForEach(MerchantMode.allCases.filter { showAdvanced || $0 != .regularExpression }) { Text($0.title).tag($0) }
+                        ForEach(MerchantMode.allCases.filter { showAdvanced || $0 != .regularExpression }) { Text(AppLanguage.localized($0.title)).tag($0) }
                     }
                     if config.merchantMode == .betweenAnchors {
                         TextField("Text before merchant", text: $config.merchantPrefix)
@@ -1098,7 +1102,7 @@ private struct ParserBuilderView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 block(5, "Duplicate protection", "square.on.square",
-                      "Same payment within \(config.duplicateWindowSeconds / 60) minutes") {
+                      AppLanguage.formatted("Same payment within %@ minutes", String(config.duplicateWindowSeconds / 60))) {
                     Picker("Time window", selection: $config.duplicateWindowSeconds) {
                         Text("5 minutes").tag(300)
                         Text("10 minutes").tag(600)
@@ -1108,7 +1112,7 @@ private struct ParserBuilderView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 block(6, "Create transaction", "checkmark.circle.fill",
-                      preview.ready ? "Ready to add to Activity" : "Finish the steps above") {
+                      AppLanguage.localized(preview.ready ? "Ready to add to Activity" : "Finish the steps above")) {
                     transactionPreview
                 }
 
@@ -1123,8 +1127,8 @@ private struct ParserBuilderView: View {
                         .font(.subheadline).foregroundStyle(preview.ready && competingRules.isEmpty ? .green : .orange)
                         .accessibilityIdentifier("parserTestResult")
                 }
-                if let errorMessage { Text(errorMessage).font(.subheadline).foregroundStyle(.red) }
-                Button(existingRule == nil ? "Activate automation" : "Save automation") {
+                if let errorMessage { Text(AppLanguage.localized(errorMessage)).font(.subheadline).foregroundStyle(.red) }
+                Button(AppLanguage.localized(existingRule == nil ? "Activate automation" : "Save automation")) {
                     if existingRule == nil { choosingFirstTransaction = true }
                     else { saveRule(createFirst: false) }
                 }
@@ -1154,23 +1158,27 @@ private struct ParserBuilderView: View {
     private var testResultText: String {
         guard preview.ready else {
             let existing = competingRules.map(\.name).joined(separator: ", ")
-            return existing.isEmpty ? (preview.error ?? "This notification does not match the rule.") :
-                "This draft does not match. Existing format: \(existing). \(preview.error ?? "")"
+            return existing.isEmpty
+                ? AppLanguage.localized(preview.error ?? "This notification does not match the rule.")
+                : AppLanguage.formatted("This draft does not match. Existing format: %@. %@",
+                    existing, AppLanguage.localized(preview.error ?? ""))
         }
         guard competingRules.isEmpty else {
-            return "Also matches \(competingRules.map(\.name).joined(separator: ", ")). Refine the required wording or sign in the rules before activating."
+            return AppLanguage.formatted("Also matches %@. Refine the required wording or sign in the rules before activating.",
+                competingRules.map(\.name).joined(separator: ", "))
         }
-        return "Every step passed. Only \(name.isEmpty ? "this format" : name) matches this notification. Review the transaction below."
+        return AppLanguage.formatted("Every step passed. Only %@ matches this notification. Review the transaction below.",
+            name.isEmpty ? AppLanguage.localized("this format") : name)
     }
 
     private var transactionPreview: some View {
         VStack(alignment: .leading, spacing: 5) {
             if let amount = preview.amount { Text(Money.format(amount.cents)).font(.title3.bold()) }
-            Text(preview.merchant ?? "Description needed").font(.headline)
-            Text("\(config.kind.title) · \(mappedAccount.isEmpty ? "Account needed" : mappedAccount) · Uncategorized")
+            Text(preview.merchant ?? AppLanguage.localized("Description needed")).font(.headline)
+            Text("\(AppLanguage.localized(config.kind.title)) · \(mappedAccount.isEmpty ? AppLanguage.localized("Account needed") : mappedAccount) · \(AppLanguage.localized("Uncategorized"))")
                 .font(.subheadline).foregroundStyle(.secondary)
-            Text(preview.occurredAt.formatted(date: .abbreviated, time: .shortened) +
-                 (sample.event.receivedAt == nil ? " · receipt time" : " · notification date"))
+            Text(preview.occurredAt.easyTrackFormatted(date: .abbreviated, time: .shortened) +
+                 (sample.event.receivedAt == nil ? AppLanguage.localized(" · receipt time") : AppLanguage.localized(" · notification date")))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1190,7 +1198,7 @@ private struct ParserBuilderView: View {
                         .foregroundStyle(index <= animatedStep ? .green : theme.accent)
                         .frame(width: 32)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                        Text(AppLanguage.localized(title)).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                         Text(result).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
                     Spacer()

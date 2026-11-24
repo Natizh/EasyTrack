@@ -36,8 +36,8 @@ enum CurrencyMathError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .invalidRate: "The exchange rate is invalid."
-        case .overflow: "The converted amount is too large."
+        case .invalidRate: AppLanguage.localized("The exchange rate is invalid.")
+        case .overflow: AppLanguage.localized("The converted amount is too large.")
         }
     }
 }
@@ -77,9 +77,9 @@ enum FXRateError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidCurrency: "This currency pair is not supported."
-        case .unavailable: "No indicative exchange rate is available for this date."
-        case .invalidResponse: "The rate service returned an invalid response."
+        case .invalidCurrency: AppLanguage.localized("This currency pair is not supported.")
+        case .unavailable: AppLanguage.localized("No indicative exchange rate is available for this date.")
+        case .invalidResponse: AppLanguage.localized("The rate service returned an invalid response.")
         }
     }
 }

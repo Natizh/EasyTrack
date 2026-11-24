@@ -65,7 +65,7 @@ private struct ReceiptScannerView: View {
                     Button("Continue with manual entry") { continueManually() }
                     if processing { ProgressView("Reading receipt on device…") }
                     if let statusMessage {
-                        Text(statusMessage).font(.footnote).foregroundStyle(.secondary)
+                        Text(AppLanguage.localized(statusMessage)).font(.footnote).foregroundStyle(.secondary)
                             .accessibilityIdentifier("receiptScannerStatus")
                     }
                 }
@@ -84,8 +84,8 @@ private struct ReceiptScannerView: View {
                         }
                     }
                     DatePicker("Purchase date", selection: $occurredAt, displayedComponents: .date)
-                    Text(dateWasDetected ? "Date suggested by OCR; verify it." :
-                            "No date was recognized. Today is only a manual default—correct it before saving.")
+                    Text(AppLanguage.localized(dateWasDetected ? "Date suggested by OCR; verify it." :
+                            "No date was recognized. Today is only a manual default—correct it before saving."))
                         .font(.footnote).foregroundStyle(dateWasDetected ? Color.secondary : Color.orange)
                 }
 
@@ -109,7 +109,7 @@ private struct ReceiptScannerView: View {
                                         Text(Money.format(candidate.amountMinor, currency: candidate.currency))
                                             .font(.headline)
                                         Text(candidate.sourceText).font(.caption).foregroundStyle(.secondary)
-                                        Text(candidate.finalTotalEvidence ? "Final-total wording found" : "Unverified amount")
+                                        Text(AppLanguage.localized(candidate.finalTotalEvidence ? "Final-total wording found" : "Unverified amount"))
                                             .font(.caption2).foregroundStyle(.secondary)
                                     }
                                 }

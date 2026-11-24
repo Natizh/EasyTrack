@@ -217,7 +217,7 @@ struct ParserPreview {
 enum ParserValidationError: LocalizedError {
     case invalidRule(String)
     var errorDescription: String? {
-        switch self { case .invalidRule(let message): message }
+        switch self { case .invalidRule(let message): AppLanguage.localized(message) }
     }
 }
 

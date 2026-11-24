@@ -67,7 +67,7 @@ struct SaveCategoryRuleView: View {
             } footer: {
                 Text("The rule matches whole words or a contiguous phrase. It never assigns a category automatically.")
             }
-            if let validation { Section { Text(validation).foregroundStyle(.red) } }
+            if let validation { Section { Text(AppLanguage.localized(validation)).foregroundStyle(.red) } }
         }
         .navigationTitle("Salva questa regola")
         .navigationBarTitleDisplayMode(.inline)
@@ -178,7 +178,7 @@ private struct CategoryKeywordRuleEditor: View {
                 }
             }
             Toggle("Enabled", isOn: $enabled)
-            if let validation { Text(validation).foregroundStyle(.red) }
+            if let validation { Text(AppLanguage.localized(validation)).foregroundStyle(.red) }
         }
         .navigationTitle("Edit Rule")
         .navigationBarTitleDisplayMode(.inline)

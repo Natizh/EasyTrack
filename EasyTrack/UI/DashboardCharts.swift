@@ -109,7 +109,7 @@ struct DashboardWidgetEditorView: View {
                         persistHero()
                     })) {
                     ForEach(DashboardHeroMetric.allCases) { metric in
-                        Label(metric.title, systemImage: metric.symbol).tag(metric)
+                        Label(AppLanguage.localized(metric.title), systemImage: metric.symbol).tag(metric)
                     }
                 }
                 .accessibilityIdentifier("homePrimaryMetricPicker")
@@ -117,14 +117,14 @@ struct DashboardWidgetEditorView: View {
             Section {
                 ForEach(hero.secondary) { metric in
                     HStack {
-                        Label(metric.title, systemImage: metric.symbol)
+                        Label(AppLanguage.localized(metric.title), systemImage: metric.symbol)
                         Spacer()
                         Button { hero.secondary.removeAll { $0 == metric }; persistHero() } label: {
                             Image(systemName: "minus.circle.fill")
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Remove \(metric.title)")
+                        .accessibilityLabel("Remove \(AppLanguage.localized(metric.title))")
                     }
                 }
                 .onMove { source, destination in
@@ -135,7 +135,7 @@ struct DashboardWidgetEditorView: View {
                     Menu {
                         ForEach(availableMetrics) { metric in
                             Button { hero.secondary.append(metric); persistHero() } label: {
-                                Label(metric.title, systemImage: metric.symbol)
+                                Label(AppLanguage.localized(metric.title), systemImage: metric.symbol)
                             }
                         }
                     } label: { Label("Add metric", systemImage: "plus.circle") }
@@ -148,7 +148,7 @@ struct DashboardWidgetEditorView: View {
             Section {
                 ForEach(items) { item in
                     Toggle(isOn: visibilityBinding(for: item.id)) {
-                        Label(item.descriptor.title, systemImage: item.descriptor.systemImage)
+                        Label(AppLanguage.localized(item.descriptor.title), systemImage: item.descriptor.systemImage)
                     }
                     .accessibilityHint("Controls whether this module appears on Home")
                 }
@@ -284,7 +284,7 @@ struct PendingReimbursementsWidget: View {
         DashboardModuleCard {
             Button {
                 let ids = Set(pending.map(\.expenseID))
-                navigation.showActivity(label: "Pending reimbursements",
+                navigation.showActivity(label: AppLanguage.localized("Pending reimbursements"),
                     filter: TransactionFilter(transactionIDs: ids),
                     contributionKind: .pendingReimbursements, expectedEURMinor: total)
             } label: {
@@ -418,7 +418,7 @@ struct MonthlyTrendWidget: View {
             title = "PAC"
         default: return
         }
-        openActivity(ids: ids, label: "\(title) · \(monthLabel(month))", snapshot: snapshot,
+        openActivity(ids: ids, label: "\(AppLanguage.localized(title)) · \(monthLabel(month))", snapshot: snapshot,
             navigation: navigation, contributionKind: kind, expectedEURMinor: expected)
     }
 
@@ -468,7 +468,7 @@ struct CategoryBreakdownWidget: View {
             CategoryChartValue(id: $0.key, name: $0.name, amountMinor: $0.personalNetExpensesEURMinor)
         }
         if snapshot.unallocatedPersonalAdjustmentEURMinor != 0 {
-            values.append(CategoryChartValue(id: "unallocated", name: "Unallocated adjustment",
+            values.append(CategoryChartValue(id: "unallocated", name: AppLanguage.localized("Unallocated adjustment"),
                                              amountMinor: snapshot.unallocatedPersonalAdjustmentEURMinor))
         }
         return values.sorted {
@@ -492,7 +492,7 @@ struct CategoryBreakdownWidget: View {
             VStack(alignment: .leading, spacing: 15) {
                 WidgetHeader(title: "Categories", systemImage: "chart.pie")
                 Picker("Category chart", selection: $mode) {
-                    ForEach(CategoryChartMode.allCases) { Text($0.title).tag($0) }
+                    ForEach(CategoryChartMode.allCases) { Text(AppLanguage.localized($0.title)).tag($0) }
                 }
                 .pickerStyle(.segmented)
 
@@ -546,7 +546,7 @@ struct CategoryBreakdownWidget: View {
                     return value <= cumulative
                 }) else { return }
                 let ids = snapshot.chartSelectionIndex.categories[category.key] ?? []
-                openActivity(ids: ids, label: "Category · \(category.name)",
+                openActivity(ids: ids, label: "\(AppLanguage.localized("Category")) · \(category.name)",
                              snapshot: snapshot, navigation: navigation,
                              contributionKind: .netExpenses,
                              expectedEURMinor: category.personalNetExpensesEURMinor)
@@ -598,7 +598,7 @@ struct CategoryBreakdownWidget: View {
                 let ids = category.id == "unallocated"
                     ? snapshot.chartSelectionIndex.unallocated
                     : snapshot.chartSelectionIndex.categories[category.id] ?? []
-                openActivity(ids: ids, label: "Category · \(category.name)",
+                openActivity(ids: ids, label: "\(AppLanguage.localized("Category")) · \(category.name)",
                              snapshot: snapshot, navigation: navigation,
                              contributionKind: .netExpenses, expectedEURMinor: category.amountMinor)
                 selectedCategory = nil
@@ -616,7 +616,7 @@ struct CategoryBreakdownWidget: View {
                     let ids = value.id == "unallocated"
                         ? snapshot.chartSelectionIndex.unallocated
                         : snapshot.chartSelectionIndex.categories[value.id] ?? []
-                    openActivity(ids: ids, label: "Category · \(value.name)", snapshot: snapshot,
+                    openActivity(ids: ids, label: "\(AppLanguage.localized("Category")) · \(value.name)", snapshot: snapshot,
                         navigation: navigation, contributionKind: .netExpenses,
                         expectedEURMinor: value.amountMinor)
                 }
@@ -644,7 +644,7 @@ struct DailySpendingWidget: View {
                         RuleMark(y: .value("Zero", 0)).foregroundStyle(.secondary.opacity(0.4))
                         ForEach(points) { point in
                             BarMark(x: .value("Day", chartDate(point.day)),
-                                    y: .value("Net personal spending",
+                                    y: .value(AppLanguage.localized("Net personal spending"),
                                               plotAmount(point.personalNetExpensesEURMinor)))
                                 .foregroundStyle(point.personalNetExpensesEURMinor < 0
                                     ? theme.coral : theme.accent)
@@ -660,7 +660,7 @@ struct DailySpendingWidget: View {
                         guard let value, let snapshot else { return }
                         let day = LocalDay(date: value, timeZone: .current)
                         let ids = snapshot.chartSelectionIndex.dailySpending[day] ?? []
-                        openActivity(ids: ids, label: "Daily spending · \(day.isoString)",
+                        openActivity(ids: ids, label: "\(AppLanguage.localized("Daily spending")) · \(day.localizedString)",
                                      snapshot: snapshot, navigation: navigation,
                                      contributionKind: .netExpenses,
                                      expectedEURMinor: points.first(where: { $0.day == day })?.personalNetExpensesEURMinor ?? 0)
@@ -681,10 +681,10 @@ struct DailySpendingWidget: View {
         VStack(alignment: .leading) {
             Text("Daily personal spending")
             ForEach(points) { point in
-                Button("\(point.day.isoString): \(Money.format(point.personalNetExpensesEURMinor))") {
+                Button("\(point.day.localizedString): \(Money.format(point.personalNetExpensesEURMinor))") {
                     guard let snapshot else { return }
                     openActivity(ids: snapshot.chartSelectionIndex.dailySpending[point.day] ?? [],
-                        label: "Daily spending · \(point.day.isoString)", snapshot: snapshot,
+                        label: "\(AppLanguage.localized("Daily spending")) · \(point.day.localizedString)", snapshot: snapshot,
                         navigation: navigation, contributionKind: .netExpenses,
                         expectedEURMinor: point.personalNetExpensesEURMinor)
                 }
@@ -743,7 +743,7 @@ struct TopMerchantsWidget: View {
                     .onChange(of: selectedMerchant) { _, value in
                         guard let value, let snapshot,
                               let merchant = displayed.first(where: { $0.key == value }) else { return }
-                        openActivity(ids: Set(merchant.transactionIDs), label: "Merchant · \(merchant.name)",
+                        openActivity(ids: Set(merchant.transactionIDs), label: "\(AppLanguage.localized("Merchant")) · \(merchant.name)",
                                      snapshot: snapshot, navigation: navigation,
                                      contributionKind: .netExpenses,
                                      expectedEURMinor: merchant.personalNetExpensesEURMinor)
@@ -785,7 +785,7 @@ struct TopMerchantsWidget: View {
             ForEach(displayed) { merchant in
                 Button("\(merchant.name): \(Money.format(merchant.personalNetExpensesEURMinor)), \(merchant.transactionCount) movements") {
                     guard let snapshot else { return }
-                    openActivity(ids: Set(merchant.transactionIDs), label: "Merchant · \(merchant.name)",
+                    openActivity(ids: Set(merchant.transactionIDs), label: "\(AppLanguage.localized("Merchant")) · \(merchant.name)",
                         snapshot: snapshot, navigation: navigation, contributionKind: .netExpenses,
                         expectedEURMinor: merchant.personalNetExpensesEURMinor)
                 }
@@ -814,7 +814,7 @@ private struct WidgetHeader: View {
     let systemImage: String
 
     var body: some View {
-        Label(title, systemImage: systemImage)
+        Label(AppLanguage.localized(title), systemImage: systemImage)
             .font(.title3.bold())
             .foregroundStyle(theme.primaryText)
     }
@@ -827,7 +827,7 @@ private struct ChartLegendKey: View {
     var body: some View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 8, height: 8).accessibilityHidden(true)
-            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(AppLanguage.localized(title)).font(.caption).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
     }
@@ -839,7 +839,7 @@ private struct ChartEmptyState: View {
     init(_ message: String) { self.message = message }
 
     var body: some View {
-        Label(message, systemImage: "chart.bar.xaxis")
+        Label(AppLanguage.localized(message), systemImage: "chart.bar.xaxis")
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 100, alignment: .center)
@@ -856,7 +856,7 @@ private func chartDate(_ day: LocalDay) -> Date {
 }
 
 private func monthLabel(_ day: LocalDay) -> String {
-    chartDate(day).formatted(.dateTime.month(.wide).year())
+    chartDate(day).formatted(.dateTime.month(.wide).year().locale(AppLanguage.current.locale))
 }
 
 @MainActor

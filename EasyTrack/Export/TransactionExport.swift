@@ -5,11 +5,11 @@ enum TransactionExportError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidDates: "Choose a valid start date on or before the end date."
-        case .invalidTimeZone: "The export time zone is unavailable. Reopen export and try again."
-        case .tooPreciseForXLSX: "An amount exceeds Excel's 15-digit numeric precision. Use CSV to preserve every cent."
-        case .tooLarge: "The export is too large for a single spreadsheet. Narrow the filters."
-        case .cancelled: "Export was cancelled."
+        case .invalidDates: AppLanguage.localized("Choose a valid start date on or before the end date.")
+        case .invalidTimeZone: AppLanguage.localized("The export time zone is unavailable. Reopen export and try again.")
+        case .tooPreciseForXLSX: AppLanguage.localized("An amount exceeds Excel's 15-digit numeric precision. Use CSV to preserve every cent.")
+        case .tooLarge: AppLanguage.localized("The export is too large for a single spreadsheet. Narrow the filters.")
+        case .cancelled: AppLanguage.localized("Export was cancelled.")
         }
     }
 }
@@ -185,7 +185,8 @@ struct TransactionExportSnapshot {
             let fields = [item.merchant, item.account, item.accountID.flatMap { accountNames[$0] } ?? "",
                           item.category, item.categoryID.flatMap { categoryNames[$0] } ?? "",
                           item.subcategory ?? "", item.note, item.paidBy ?? "",
-                          tripNames[item.tripID ?? ""] ?? "", item.kind.title]
+                          tripNames[item.tripID ?? ""] ?? "", item.kind.title,
+                          AppLanguage.localized(item.kind.title)]
             return fields.contains { $0.localizedCaseInsensitiveContains(needle) }
         }.sorted {
             if $0.occurredAt != $1.occurredAt { return $0.occurredAt < $1.occurredAt }

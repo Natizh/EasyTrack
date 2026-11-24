@@ -32,15 +32,15 @@ enum DailyValidationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyName: "Enter a name."
-        case .duplicateName: "That name is already in use."
-        case .staleRecord: "This item changed. Reopen it before saving."
-        case .invalidAppearance: "Choose an available icon and color."
-        case .invalidAmount: "Enter a positive EUR amount."
-        case .missingAccount: "Choose an account."
-        case .archivedAccount: "This account is archived. Choose an active account."
-        case .invalidCategory: "Choose an active category or leave it uncategorized."
-        case .invalidRule: "This recurring rule cannot be saved. Check its dates and schedule."
+        case .emptyName: AppLanguage.localized("Enter a name.")
+        case .duplicateName: AppLanguage.localized("That name is already in use.")
+        case .staleRecord: AppLanguage.localized("This item changed. Reopen it before saving.")
+        case .invalidAppearance: AppLanguage.localized("Choose an available icon and color.")
+        case .invalidAmount: AppLanguage.localized("Enter a positive EUR amount.")
+        case .missingAccount: AppLanguage.localized("Choose an account.")
+        case .archivedAccount: AppLanguage.localized("This account is archived. Choose an active account.")
+        case .invalidCategory: AppLanguage.localized("Choose an active category or leave it uncategorized.")
+        case .invalidRule: AppLanguage.localized("This recurring rule cannot be saved. Check its dates and schedule.")
         }
     }
 }
@@ -108,6 +108,9 @@ struct LocalDay: Codable, Hashable, Comparable, CustomStringConvertible {
     }
 
     var isoString: String { String(format: "%04d-%02d-%02d", year, month, day) }
+    var localizedString: String {
+        noon(in: .current)?.easyTrackFormatted(date: .abbreviated, time: .omitted) ?? isoString
+    }
     var description: String { isoString }
 
     static func < (lhs: LocalDay, rhs: LocalDay) -> Bool {
@@ -264,12 +267,12 @@ enum RecurringError: LocalizedError {
     case invalidDate, invalidSchedule, tooManyMissed, inactive, occurrenceChanged, linkRequiresUnlink
     var errorDescription: String? {
         switch self {
-        case .invalidDate: "Choose a valid schedule date."
-        case .invalidSchedule: "This repeating schedule could not be calculated."
-        case .tooManyMissed: "This rule has too many missed dates. Edit its next date before continuing."
-        case .inactive: "Resume this rule before creating its next transaction."
-        case .occurrenceChanged: "This occurrence changed. Reopen the rule and try again."
-        case .linkRequiresUnlink: "Unlink the confirmed recurring payment before changing its account or movement kind."
+        case .invalidDate: AppLanguage.localized("Choose a valid schedule date.")
+        case .invalidSchedule: AppLanguage.localized("This repeating schedule could not be calculated.")
+        case .tooManyMissed: AppLanguage.localized("This rule has too many missed dates. Edit its next date before continuing.")
+        case .inactive: AppLanguage.localized("Resume this rule before creating its next transaction.")
+        case .occurrenceChanged: AppLanguage.localized("This occurrence changed. Reopen the rule and try again.")
+        case .linkRequiresUnlink: AppLanguage.localized("Unlink the confirmed recurring payment before changing its account or movement kind.")
         }
     }
 }

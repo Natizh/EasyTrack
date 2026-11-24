@@ -5,12 +5,60 @@ final class EasyTrackUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    private func englishApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["-easyTrackLanguage", "en"]
+        return app
+    }
+
+    @MainActor
+    func testItalianDefaultAndEnglishSwitchPreservesSyntheticLedger() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Attività"].waitForExistence(timeout: 10), app.debugDescription)
+        app.tabBars.buttons["Impostazioni"].tap()
+        let language = app.descendants(matching: .any)["settingsLanguagePicker"]
+        XCTAssertTrue(language.waitForExistence(timeout: 5))
+        language.tap()
+        app.buttons["English"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Activity"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Activity"].tap()
+        let search = app.textFields["transactionSearchField"]
+        replaceText(in: search, with: "Willowmere Home")
+        XCTAssertTrue(app.staticTexts["Willowmere Home"].waitForExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Activity"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Settings"].tap()
+        app.buttons["settingsAppearanceLink"].tap()
+        let density = app.descendants(matching: .any)["settingsDisplayDensityPicker"]
+        for _ in 0..<8 where !density.isHittable { app.swipeUp() }
+        XCTAssertTrue(density.waitForExistence(timeout: 5))
+        app.buttons["Compact"].tap()
+        app.navigationBars["Appearance"].buttons["Settings"].tap()
+        let languageAgain = app.descendants(matching: .any)["settingsLanguagePicker"]
+        languageAgain.tap()
+        app.buttons["Italiano"].tap()
+        XCTAssertTrue(app.navigationBars["Impostazioni"].waitForExistence(timeout: 5))
+        let italianActivityTab = app.tabBars.buttons["Attività"]
+        if !italianActivityTab.exists {
+            let collapsedSettingsTab = app.tabBars.buttons["Impostazioni"]
+            if collapsedSettingsTab.exists { collapsedSettingsTab.tap() }
+        }
+        for _ in 0..<4 where !italianActivityTab.exists { app.swipeDown() }
+        XCTAssertTrue(italianActivityTab.waitForExistence(timeout: 5))
+        italianActivityTab.tap()
+        let italianSearch = app.textFields["transactionSearchField"]
+        replaceText(in: italianSearch, with: "Willowmere Home")
+        XCTAssertTrue(app.staticTexts["Willowmere Home"].waitForExistence(timeout: 5))
+    }
+
     @MainActor
     func testReview35FirstCapturePromptAndDeletionPersist() throws {
         #if EASYTRACK_REVIEW35
         let suffix = String(UUID().uuidString.prefix(8))
         let sourceName = "Review Wallet \(suffix) (fictional)"
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launchEnvironment["EASYTRACK_TEST_SAMPLE_SOURCE"] = sourceName
         app.launchEnvironment["EASYTRACK_TEST_MERCHANT_SUFFIX"] = suffix
         app.launch()
@@ -52,7 +100,7 @@ final class EasyTrackUITests: XCTestCase {
     @MainActor
     func testReview35CrossAccountSettlementPickerAndCancel() throws {
         #if EASYTRACK_REVIEW35
-        let app = XCUIApplication()
+        let app = englishApp()
         let description = "Fictional review expense \(UUID().uuidString.prefix(8))"
         app.launch()
         app.buttons["homeAddTransactionButton"].tap()
@@ -78,7 +126,7 @@ final class EasyTrackUITests: XCTestCase {
         for _ in 0..<8 where !receive.isHittable { app.swipeUp() }
         XCTAssertTrue(receive.isHittable)
         receive.tap()
-        XCTAssertTrue(app.navigationBars["Rimborso ricevuto"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.navigationBars["Reimbursement received"].waitForExistence(timeout: 8))
         let picker = app.buttons["reimbursementReceivingAccountPicker"]
         for _ in 0..<6 where !picker.isHittable { app.swipeUp() }
         XCTAssertTrue(picker.label.contains("Sample Checking"))
@@ -87,7 +135,7 @@ final class EasyTrackUITests: XCTestCase {
         app.buttons["Sample Savings"].tap()
         XCTAssertTrue(picker.label.contains("Sample Savings"))
         app.buttons["Cancel"].tap()
-        XCTAssertFalse(app.navigationBars["Rimborso ricevuto"].exists)
+        XCTAssertFalse(app.navigationBars["Reimbursement received"].exists)
         XCTAssertTrue(receive.exists)
         let unlink = app.buttons.matching(NSPredicate(
             format: "label BEGINSWITH %@", "Unlink reimbursement")).firstMatch
@@ -110,7 +158,7 @@ final class EasyTrackUITests: XCTestCase {
     @MainActor
     private func showcaseApp() throws -> XCUIApplication {
         #if EASYTRACK_SHOWCASE_CAPTURE
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         return app
         #else
@@ -178,7 +226,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testHomeAndActivitySearch() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         XCTAssertTrue(app.staticTexts["EasyTrack"].waitForExistence(timeout: 10))
@@ -195,7 +243,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testActivityKindFilter() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         app.tabBars.buttons["Activity"].tap()
@@ -206,7 +254,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testUpdatedMonthHeroAndUnifiedEverydayNavigation() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         let total = app.staticTexts["homePersonalSpendingTotal"]
         XCTAssertTrue(total.waitForExistence(timeout: 10), app.debugDescription)
@@ -271,7 +319,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testHeroCustomizationPersistsAndRestores() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         app.buttons["customizeHomeButton"].tap()
         XCTAssertTrue(app.navigationBars["Customize Home"].waitForExistence(timeout: 5))
@@ -308,7 +356,7 @@ final class EasyTrackUITests: XCTestCase {
     @MainActor
     func testHomeIncomeAndExpensesOpenCompletePeriodActivity() throws {
         #if EASYTRACK_ACCOUNTING_AUDIT
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         let income = app.buttons["homeIncomeMetric"]
         XCTAssertTrue(income.waitForExistence(timeout: 10), app.debugDescription)
@@ -369,7 +417,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testAccountsDefaultPickerHasNoDuplicateSelectionRow() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         app.tabBars.buttons["Settings"].tap()
         let accounts = app.buttons["settingsAccountsLink"]
@@ -382,7 +430,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testEditPersistsAfterRelaunch() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         app.tabBars.buttons["Activity"].tap()
@@ -405,7 +453,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testAutomationsAndSettings() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         app.tabBars.buttons["Automations"].tap()
@@ -425,7 +473,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testSyntheticImportPreviewAndConfirm() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         selectSyntheticSeed(in: app)
@@ -436,7 +484,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testSyntheticReimportShowsZeroNewMovements() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         app.tabBars.buttons["Settings"].tap()
         let oneImported = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 historical movements imported")).firstMatch
@@ -451,7 +499,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testSyntheticEditorRejectsInvalidAmounts() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try openSyntheticTransaction(in: app)
         let amount = app.textFields["transactionAmountField"]
@@ -477,7 +525,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testSyntheticEditorSavesEURAndRelaunches() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         let homeTotal = app.staticTexts["homePersonalSpendingTotal"]
         XCTAssertTrue(homeTotal.waitForExistence(timeout: 5))
@@ -520,7 +568,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testSyntheticJSONBackupExport() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         app.tabBars.buttons["Settings"].tap()
         let oneImported = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 historical movements imported")).firstMatch
@@ -540,7 +588,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testDemoBackupRestorePreviewAndReplace() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         app.tabBars.buttons["Settings"].tap()
@@ -593,7 +641,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testDemoExportScreenOpens() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         app.tabBars.buttons["Settings"].tap()
@@ -607,7 +655,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testFictionalCSVSave() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         try ensureFictionalExportTransaction(in: app)
@@ -632,7 +680,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testFictionalXLSXSave() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         try ensureFictionalExportTransaction(in: app)
@@ -665,7 +713,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testActivityExportKeepsCurrentFilters() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         try ensureFictionalExportTransaction(in: app)
@@ -693,7 +741,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testSyntheticNotificationSetupCreatesOnceAndAutoProcessesLaterPayment() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         let suffix = String(UUID().uuidString.prefix(8))
         let source = "Northstar UI \(suffix) (fictional)"
         let alpha = "Merchant Alpha \(suffix)"
@@ -781,7 +829,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testFirstSampleFailureRemainsVisibleAndRetriesWithoutAnotherRule() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         let suffix = String(UUID().uuidString.prefix(8))
         let source = "Northstar failure \(suffix) (fictional)"
         app.launchEnvironment["EASYTRACK_TEST_SAMPLE_SOURCE"] = source
@@ -817,7 +865,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testDailyManualTransactionAndManagedReferences() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         let suffix = String(UUID().uuidString.prefix(8))
         let accountName = "Fictional Wallet \(suffix)"
         let renamedAccount = "Fictional Wallet Renamed \(suffix)"
@@ -898,7 +946,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testRecurringSubscriptionCreatesOnceAndShowsUpcoming() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         let suffix = String(UUID().uuidString.prefix(8))
         let accountName = "Fictional Repeating Wallet \(suffix)"
         let ruleName = "Fictional Weekly Pass \(suffix)"
@@ -951,7 +999,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testRecurringControlsPreservePastSyntheticTransactions() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireSyntheticHistory(app)
         app.buttons["settingsRecurringLink"].tap()
@@ -1001,7 +1049,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testExpectedRecurringManualPaymentPersistsWithoutDueDateSpending() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         let total = app.staticTexts["homePersonalSpendingTotal"]
@@ -1061,7 +1109,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testRecurringStatusControlsAtCurrentAppearanceAndTextSize() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         app.tabBars.buttons["Settings"].tap()
@@ -1086,7 +1134,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testCollectiveRecurringImportReviewAndCancellation() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireDemoOnly(app)
         selectSyntheticSeed(in: app, token: "issue4_collective_fixture")
@@ -1147,7 +1195,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testRecurringReviewFromAutomationSourceAndUnlinkPersists() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
             throw XCTSkip("Requires the isolated fictional pending-review fixture")
@@ -1194,7 +1242,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testRecurringManualLinkSkipAndMissedPersist() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
             throw XCTSkip("Requires the isolated fictional manual-action fixture")
@@ -1254,7 +1302,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testExactApprovedRecurringPaymentOpensOneActualTransaction() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
             throw XCTSkip("Requires the isolated fictional exact-match fixture")
@@ -1277,7 +1325,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testSeparateHeldNotificationCreatesSecondPaymentOnlyAfterChoice() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
             throw XCTSkip("Requires the isolated fictional held-notification fixture")
@@ -1307,7 +1355,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testTwoCandidatesKeepEarlyDateForExplicitReview() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         guard app.staticTexts["Historical seed not imported"].waitForExistence(timeout: 5) else {
             throw XCTSkip("Requires the isolated fictional two-candidate fixture")
@@ -1338,7 +1386,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testManualCancelDoesNotCreateTransaction() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         let description = "Fictional Cancelled \(UUID().uuidString.prefix(8))"
         app.launch()
         try requireSyntheticHistory(app)
@@ -1367,7 +1415,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testManagedArchiveAndRestoreSynthetic() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         let suffix = String(UUID().uuidString.prefix(8))
         let accountName = "Fictional Archive Wallet \(suffix)"
         let categoryName = "Fictional Archive Category \(suffix)"
@@ -1420,7 +1468,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testManagedAppearanceAndCategoryOrderSynthetic() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         let suffix = String(UUID().uuidString.prefix(8))
         let accountName = "Fictional Color Wallet \(suffix)"
         let categoryName = "Fictional Color Category \(suffix)"
@@ -1502,7 +1550,7 @@ final class EasyTrackUITests: XCTestCase {
 
     @MainActor
     func testManagedAccessibilityAtLargeTextSynthetic() throws {
-        let app = XCUIApplication()
+        let app = englishApp()
         app.launch()
         try requireSyntheticHistory(app)
         let accountsLink = app.buttons["settingsAccountsLink"]
