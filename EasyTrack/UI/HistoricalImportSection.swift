@@ -100,8 +100,8 @@ struct HistoricalImportSection: View {
                         ForEach(preview.recurringConflicts) { conflict in
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(conflict.ruleName).font(.subheadline.bold())
-                                Text("Recorded: \(conflict.counted.merchant) · \(Money.format(conflict.counted.eurMinor ?? conflict.counted.amountMinor)) · \(conflict.counted.occurredAt.formatted(date: .abbreviated, time: .omitted))")
-                                Text("Import: \(conflict.imported.merchant) · \(Money.format(conflict.imported.eurMinor ?? conflict.imported.amountMinor)) · \(conflict.imported.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                Text("Recorded: \(conflict.counted.merchant) · \(Money.format(conflict.counted.eurMinor ?? conflict.counted.amountMinor)) · \(conflict.counted.occurredAt.easyTrackFormatted(date: .abbreviated, time: .omitted))")
+                                Text("Import: \(conflict.imported.merchant) · \(Money.format(conflict.imported.eurMinor ?? conflict.imported.amountMinor)) · \(conflict.imported.occurredAt.easyTrackFormatted(date: .abbreviated, time: .omitted))")
                                 Text("\(conflict.imported.kind.title) · \(conflict.managedAccountName) ↔ \(conflict.imported.account.isEmpty ? "No source account" : conflict.imported.account)")
                                 Text(conflict.reason).foregroundStyle(.secondary)
                                 Menu(decisionTitle(conflict.id)) {
@@ -143,7 +143,7 @@ struct HistoricalImportSection: View {
                     Task { await SeedImportCoordinator.shared.cancel() }
                 }
             }
-            if let status { Text(status).font(.footnote).foregroundStyle(.secondary) }
+            if let status { Text(AppLanguage.localized(status)).font(.footnote).foregroundStyle(.secondary) }
         }
         .onChange(of: selectedFile) { _, url in
             if let url {
@@ -154,7 +154,7 @@ struct HistoricalImportSection: View {
     }
 
     private func count(_ label: String, _ value: Int) -> some View {
-        HStack { Text(label); Spacer(); Text(value.formatted()).monospacedDigit() }
+        HStack { Text(AppLanguage.localized(label)); Spacer(); Text(value, format: .number).monospacedDigit() }
             .font(.subheadline)
     }
 
@@ -213,7 +213,9 @@ struct HistoricalImportSection: View {
                 store.reload()
                 preview = nil
                 decisions = [:]
-                status = result.newMovements == 0 ? "No new movements; local data was unchanged." : "Imported \(result.newMovements) movements into local storage."
+                status = result.newMovements == 0
+                    ? AppLanguage.localized("No new movements; local data was unchanged.")
+                    : AppLanguage.formatted("Imported %@ movements into local storage.", String(result.newMovements))
             } catch { status = error.localizedDescription }
             busy = false
         }

@@ -3,6 +3,8 @@ import UniformTypeIdentifiers
 
 struct RootView: View {
     @EnvironmentObject private var store: FinanceStore
+    @Environment(\.locale) private var locale
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var navigation = AppNavigationModel()
     private var theme: EasyTrackTheme { EasyTrackTheme(preferences: store.appearancePreferences) }
 
@@ -15,7 +17,7 @@ struct RootView: View {
             .alert("EasyTrack", isPresented: Binding(get: { store.errorMessage != nil },
                                                       set: { if !$0 { store.errorMessage = nil } })) {
                 Button("OK") { store.errorMessage = nil }
-            } message: { Text(store.errorMessage ?? "") }
+            } message: { Text(AppLanguage.localized(store.errorMessage ?? "")) }
             .fullScreenCover(isPresented: Binding(
                 get: { store.shouldPresentOnboarding }, set: { _ in })) {
                     NavigationStack {
@@ -29,7 +31,7 @@ struct RootView: View {
 
     @ViewBuilder
     private var adaptiveTabs: some View {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), !dynamicTypeSize.isAccessibilitySize {
             tabs.tabBarMinimizeBehavior(.onScrollDown)
         } else {
             tabs
@@ -39,15 +41,19 @@ struct RootView: View {
     private var tabs: some View {
         TabView(selection: $navigation.selectedTab) {
             NavigationStack { HomeView() }
+                .id(locale.identifier)
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(EasyTrackTab.home)
             NavigationStack { TransactionsView() }
+                .id(locale.identifier)
                 .tabItem { Label("Activity", systemImage: "list.bullet.rectangle") }
                 .tag(EasyTrackTab.activity)
             NavigationStack { AutomationsView() }
+                .id(locale.identifier)
                 .tabItem { Label("Automations", systemImage: "bolt.badge.clock") }
                 .tag(EasyTrackTab.automations)
             NavigationStack { SettingsView() }
+                .id(locale.identifier)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(EasyTrackTab.settings)
         }
@@ -138,8 +144,8 @@ struct OnboardingView: View {
                     .frame(width: 82, height: 82)
                     .background(theme.accentWash, in: RoundedRectangle(cornerRadius: 24))
                     .accessibilityHidden(true)
-                Text(title).font(.largeTitle.bold())
-                Text(message).font(.title3).foregroundStyle(.secondary)
+                Text(AppLanguage.localized(title)).font(.largeTitle.bold())
+                Text(AppLanguage.localized(message)).font(.title3).foregroundStyle(.secondary)
                 content().font(.subheadline)
                 Spacer(minLength: 20)
             }
@@ -199,11 +205,11 @@ struct TransactionRow: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(item.merchant).font(.subheadline.weight(.semibold)).foregroundStyle(theme.primaryText)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
-            Text("\(item.kind.title) · \(categoryName)")
+            Text("\(AppLanguage.localized(item.kind.title)) · \(categoryName)")
                 .font(.caption).foregroundStyle(.secondary)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
             if let reimbursementStatus {
-                Text(reimbursementStatus.title)
+                Text(AppLanguage.localized(reimbursementStatus.title))
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(reimbursementStatus.outstandingEURMinor > 0 ? theme.accent : .secondary)
             }
@@ -212,10 +218,11 @@ struct TransactionRow: View {
 
     private var movementAmount: some View {
         VStack(alignment: .trailing, spacing: 3) {
-            Text(displayedEURMinor.map { "\(item.kind.isOutflow ? "−" : "+")\(Money.format($0))" } ?? "EUR amount unavailable")
+            Text(displayedEURMinor.map { "\(item.kind.isOutflow ? "−" : "+")\(Money.format($0))" } ??
+                 AppLanguage.localized("EUR amount unavailable"))
                 .font(.subheadline.weight(.semibold)).monospacedDigit()
                 .foregroundStyle(item.kind.isOutflow ? theme.primaryText : theme.accent)
-            Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated)))
+            Text(item.occurredAt.formatted(.dateTime.day().month(.abbreviated).locale(AppLanguage.formatLocale)))
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }
@@ -282,7 +289,7 @@ private struct HomeView: View {
                                                              month: selectedMonth.month, day: 1)) else {
             return selectedMonth.id
         }
-        return date.formatted(.dateTime.month(.wide).year())
+        return date.formatted(.dateTime.month(.wide).year().locale(AppLanguage.current.locale))
     }
     private func activityScope(for metric: DashboardHeroMetric) -> ActivityChartScope? {
         guard let snapshot = selectedMonthSnapshot,
@@ -295,7 +302,7 @@ private struct HomeView: View {
         case .net: expected = snapshot.totals.cashNetEURMinor
         case .pac: expected = snapshot.totals.pacInvestedEURMinor
         }
-        return ActivityChartScope(label: "\(metric.title) · \(selectedMonthTitle)", filter: filter,
+        return ActivityChartScope(label: "\(AppLanguage.localized(metric.title)) · \(selectedMonthTitle)", filter: filter,
             contributionKind: HomeMetricDrilldown.contributionKind(for: metric),
             expectedEURMinor: expected,
             divisorDays: metric == .dailyAverage ? snapshot.dailyAverage.elapsedDayCount : nil)
@@ -865,7 +872,7 @@ struct TransactionsView: View {
                             .font(.subheadline.weight(.semibold))
                     }
                     if let interval = scope.filter.dateInterval {
-                        Text("Selected period: \(interval.start.isoString) – \(interval.end.isoString)")
+                        Text("Selected period: \(interval.start.localizedString) – \(interval.end.localizedString)")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if let total = contributionTotal {
@@ -916,7 +923,7 @@ struct TransactionsView: View {
                         pendingReimbursementsOnly.toggle()
                     }
                     ForEach(TransactionKind.allCases) { option in
-                        filterChip(option.title, selected: kind == option) { kind = option }
+                        filterChip(AppLanguage.localized(option.title), selected: kind == option) { kind = option }
                     }
                     Menu {
                         ForEach(categories, id: \.self) { value in
@@ -1038,7 +1045,7 @@ struct TransactionsView: View {
     }
 
     private func filterChip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(title).font(.subheadline.weight(.medium)).padding(.horizontal, 15).padding(.vertical, 9) }
+        Button(action: action) { Text(AppLanguage.localized(title)).font(.subheadline.weight(.medium)).padding(.horizontal, 15).padding(.vertical, 9) }
             .foregroundStyle(selected ? .white : theme.primaryText)
             .background(selected ? theme.accent : theme.surface, in: Capsule())
     }
@@ -1197,11 +1204,11 @@ struct TransactionEditor: View {
                 Section("Voice draft") {
                     Text("Speech suggestions are editable and unverified. No account or category was inferred, and nothing is saved until you tap Save.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    ForEach(voiceDraft.issues, id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
+                    ForEach(voiceDraft.issues, id: \.self) { Text(AppLanguage.localized($0)).font(.footnote).foregroundStyle(.orange) }
                 }
             }
             Section("Transaction") {
-                Picker("Type", selection: $kind) { ForEach(TransactionKind.allCases) { Text($0.title).tag($0) } }
+                Picker("Type", selection: $kind) { ForEach(TransactionKind.allCases) { Text(AppLanguage.localized($0.title)).tag($0) } }
                 Picker("Original currency", selection: $originalCurrency) {
                     ForEach(CurrencyMetadata.supportedCodes, id: \.self) { Text($0).tag($0) }
                 }
@@ -1212,7 +1219,7 @@ struct TransactionEditor: View {
                         .accessibilityIdentifier("transactionOriginalAmountField")
                 }
                 if originalCurrency != "EUR" {
-                    LabeledContent(eurValueSource == .confirmed ? "Actual charged EUR" : "EUR equivalent") {
+                    LabeledContent(AppLanguage.localized(eurValueSource == .confirmed ? "Actual charged EUR" : "EUR equivalent")) {
                         TextField("Optional", text: $amount)
                             .keyboardType(.numbersAndPunctuation)
                             .multilineTextAlignment(.trailing)
@@ -1226,13 +1233,13 @@ struct TransactionEditor: View {
                             Text("Historical").tag(Optional(EURValueSource.historical))
                         }
                     }
-                    Button(fxBusy ? "Looking up rate…" : "Get indicative EUR rate") { requestFXRate() }
+                    Button(AppLanguage.localized(fxBusy ? "Looking up rate…" : "Get indicative EUR rate")) { requestFXRate() }
                         .disabled(fxBusy || eurValueSource == .confirmed)
                     if !exchangeRate.isEmpty {
                         Text("Rate \(exchangeRate) · \(exchangeRateProvider) · \(exchangeRateDate). Indicative only; your bank charge may differ.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
-                    if let fxStatus { Text(fxStatus).font(.footnote).foregroundStyle(.secondary) }
+                    if let fxStatus { Text(AppLanguage.localized(fxStatus)).font(.footnote).foregroundStyle(.secondary) }
                 } else {
                     Text("EUR reporting value equals the original EUR amount.")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -1249,7 +1256,7 @@ struct TransactionEditor: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if let validation {
-                    Text(validation).font(.footnote).foregroundStyle(.red)
+                    Text(AppLanguage.localized(validation)).font(.footnote).foregroundStyle(.red)
                         .accessibilityIdentifier("transactionValidationMessage")
                 }
             }
@@ -1327,7 +1334,7 @@ struct TransactionEditor: View {
                         }
                     }
                     if let status = reimbursementStatus {
-                        LabeledContent("Status", value: status.title)
+                        LabeledContent("Status", value: AppLanguage.localized(status.title))
                         LabeledContent("Still expected", value: Money.format(status.outstandingEURMinor))
                         if status.outstandingEURMinor > 0 {
                             Button("Rimborso ricevuto") { showingReimbursementSettlement = true }
@@ -1363,8 +1370,8 @@ struct TransactionEditor: View {
                         NavigationLink {
                             RecurringOccurrenceDetailView(occurrenceID: occurrenceID)
                         } label: {
-                            LabeledContent("Scheduled \(occurrence.scheduledDay.isoString)",
-                                           value: occurrence.status.title)
+                            LabeledContent("Scheduled \(occurrence.scheduledDay.localizedString)",
+                                           value: AppLanguage.localized(occurrence.status.title))
                         }
                         if occurrence.status == .confirmed {
                             Button("Unlink recurring payment") { showUnlink = true }
@@ -1537,7 +1544,8 @@ struct TransactionEditor: View {
             }
             dismiss()
         } catch {
-            validation = "Couldn’t save transaction. \(error.localizedDescription)"
+            validation = AppLanguage.formatted("Couldn’t save transaction. %@",
+                AppLanguage.localized(error.localizedDescription))
             isSaving = false
         }
     }
@@ -1574,7 +1582,8 @@ struct TransactionEditor: View {
             try store.delete(original)
             dismiss()
         } catch {
-            validation = "Couldn’t delete transaction. \(error.localizedDescription)"
+            validation = AppLanguage.formatted("Couldn’t delete transaction. %@",
+                AppLanguage.localized(error.localizedDescription))
             isSaving = false
         }
     }
@@ -1688,7 +1697,7 @@ private struct ReimbursementSettlementView: View {
             } footer: {
                 Text("Choose the active EUR account that received the money. For a foreign-currency receipt, record its actual amount separately with a verified EUR value, then link it above.")
             }
-            if let validation { Section { Text(validation).foregroundStyle(.red) } }
+            if let validation { Section { Text(AppLanguage.localized(validation)).foregroundStyle(.red) } }
         }
         .navigationTitle("Rimborso ricevuto")
         .navigationBarTitleDisplayMode(.inline)
@@ -1865,8 +1874,8 @@ private struct AppearanceSettingsView: View {
                     Button { update { $0.theme = option } } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(option.title).foregroundStyle(.primary)
-                                Text(themeDescription(option)).font(.caption).foregroundStyle(.secondary)
+                                Text(AppLanguage.localized(option.title)).foregroundStyle(.primary)
+                                Text(AppLanguage.localized(themeDescription(option))).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             if store.appearancePreferences.theme == option {
@@ -1890,7 +1899,7 @@ private struct AppearanceSettingsView: View {
                                         .frame(width: 38, height: 38)
                                     if selected { Image(systemName: "checkmark").font(.caption.bold()).foregroundStyle(.white) }
                                 }
-                                Text(option.title).font(.caption2).foregroundStyle(.primary).lineLimit(1)
+                                Text(AppLanguage.localized(option.title)).font(.caption2).foregroundStyle(.primary).lineLimit(1)
                             }
                         }
                         .buttonStyle(.plain)
@@ -1908,7 +1917,7 @@ private struct AppearanceSettingsView: View {
                 Picker("Appearance", selection: Binding(
                     get: { store.appearancePreferences.colorScheme },
                     set: { option in update { $0.colorScheme = option } })) {
-                    ForEach(AppColorSchemePreference.allCases) { Text($0.title).tag($0) }
+                    ForEach(AppColorSchemePreference.allCases) { Text(AppLanguage.localized($0.title)).tag($0) }
                 }
                 .pickerStyle(.segmented)
             }
@@ -1917,19 +1926,20 @@ private struct AppearanceSettingsView: View {
                 Picker("Density", selection: Binding(
                     get: { store.appearancePreferences.density },
                     set: { option in update { $0.density = option } })) {
-                    ForEach(AppDisplayDensity.allCases) { Text($0.title).tag($0) }
+                    ForEach(AppDisplayDensity.allCases) { Text(AppLanguage.localized($0.title)).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Text(store.appearancePreferences.density == .compact
+                .accessibilityIdentifier("settingsDisplayDensityPicker")
+                Text(AppLanguage.localized(store.appearancePreferences.density == .compact
                      ? "Compact reduces decorative spacing while keeping text and touch targets accessible."
-                     : "Standard preserves the original EasyTrack spacing.")
+                     : "Standard preserves the original EasyTrack spacing."))
                     .font(.footnote).foregroundStyle(.secondary)
             }
 
             Section {
                 Text("Theme, accent and density update immediately and are included in Replace backups. Account colors, category colors, income/expense meaning and chart distinctions remain independent.")
                     .font(.footnote).foregroundStyle(.secondary)
-                if let statusMessage { Text(statusMessage).font(.footnote).foregroundStyle(.red) }
+                if let statusMessage { Text(AppLanguage.localized(statusMessage)).font(.footnote).foregroundStyle(.red) }
             }
         }
         .listRowSpacing(theme.listRowSpacing)
@@ -1972,6 +1982,7 @@ private struct BackupDocument: FileDocument {
 private struct SettingsView: View {
     @EnvironmentObject private var store: FinanceStore
     @Environment(\.easyTrackTheme) private var theme
+    @AppStorage(AppLanguage.storageKey) private var languageCode = AppLanguage.italian.rawValue
     private enum PickerPurpose { case seed, backup }
     @State private var showingFilePicker = false
     @State private var pickerPurpose: PickerPurpose = .seed
@@ -1994,9 +2005,20 @@ private struct SettingsView: View {
         return "\(version) (\(build))"
     }
 
+    private var languageSelection: Binding<AppLanguage> {
+        Binding(get: { AppLanguage.resolved(languageCode) },
+                set: { languageCode = $0.rawValue })
+    }
+
     var body: some View {
         Form {
             Section("Everyday") {
+                Picker("Language", selection: languageSelection) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.title).tag(language)
+                    }
+                }
+                .accessibilityIdentifier("settingsLanguagePicker")
                 NavigationLink {
                     OnboardingView {
                         do { try store.completeOnboarding(); return true }
@@ -2041,8 +2063,11 @@ private struct SettingsView: View {
                     set: { days in
                         do {
                             let changed = try store.setNotificationRetentionDays(days)
-                            notificationStatus = changed == 0 ? "Retention updated." :
-                                "Retention updated; removed text from \(changed) diagnostic record\(changed == 1 ? "" : "s")."
+                            notificationStatus = changed == 0 ? AppLanguage.localized("Retention updated.") :
+                                AppLanguage.formatted(changed == 1
+                                    ? "Retention updated; removed text from %@ diagnostic record."
+                                    : "Retention updated; removed text from %@ diagnostic records.",
+                                    String(changed))
                         } catch { notificationStatus = error.localizedDescription }
                     })) {
                     Text("Do not retain").tag(0)
@@ -2055,7 +2080,7 @@ private struct SettingsView: View {
                 }
                 Text("Only raw Title, Subtitle and Message text is removed. Source identity, diagnostic status and saved financial transactions remain. Expired text is purged at the next app open, capture or diagnostics visit.")
                     .font(.footnote).foregroundStyle(.secondary)
-                if let notificationStatus { Text(notificationStatus).font(.footnote).foregroundStyle(.secondary) }
+                if let notificationStatus { Text(AppLanguage.localized(notificationStatus)).font(.footnote).foregroundStyle(.secondary) }
             }
             HistoricalImportSection(selectedFile: $selectedSeedFile) {
                 pickerPurpose = .seed
@@ -2086,8 +2111,8 @@ private struct SettingsView: View {
                     }
                     catch { store.errorMessage = error.localizedDescription }
                 }
-                if let backupStatus { Text(backupStatus).font(.footnote).foregroundStyle(.secondary) }
-                Button(restoreBusy ? "Checking backup…" : "Choose JSON backup to restore") {
+                if let backupStatus { Text(AppLanguage.localized(backupStatus)).font(.footnote).foregroundStyle(.secondary) }
+                Button(AppLanguage.localized(restoreBusy ? "Checking backup…" : "Choose JSON backup to restore")) {
                     pickerPurpose = .backup
                     showingFilePicker = true
                 }
@@ -2095,7 +2120,7 @@ private struct SettingsView: View {
                 .accessibilityIdentifier("chooseBackupToRestore")
                 if let preview = restorePreview {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Backup preview · \(preview.exportedAt.formatted(date: .abbreviated, time: .shortened))")
+                        Text("Backup preview · \(preview.exportedAt.easyTrackFormatted(date: .abbreviated, time: .shortened))")
                             .font(.headline)
                         LabeledContent("Transactions", value: "\(preview.incomingTransactions)")
                         LabeledContent("Notification events", value: "\(preview.incomingEvents)")
@@ -2107,9 +2132,9 @@ private struct SettingsView: View {
                         LabeledContent("Approved payees", value: "\(preview.incomingApprovedPayees)")
                         LabeledContent("Reconciliation audit", value: "\(preview.incomingReconciliationAudit)")
                         if let source = preview.sourceFormatVersion {
-                            Text(source == 5 ?
+                            Text(AppLanguage.localized(source == 5 ?
                                  "Format 5 omitted duplicate protection rows and historical expected links. Duplicate keys are rebuilt from attempts; omitted links cannot be recovered." :
-                                 "Format 6 predates recurring reconciliation. Its active recurring estimates remain counted; deleted ones remain deleted. The file cannot restore newer matching decisions.")
+                                 "Format 6 predates recurring reconciliation. Its active recurring estimates remain counted; deleted ones remain deleted. The file cannot restore newer matching decisions."))
                                 .font(.footnote).foregroundStyle(.orange)
                             Text("Replacing current data with this older backup removes any newer recurring matches, aliases, candidates and audit decisions now on this phone (\(preview.existingReconciliationRows) local reconciliation rows). Review before confirming.")
                                 .font(.footnote).foregroundStyle(.orange)
@@ -2143,7 +2168,7 @@ private struct SettingsView: View {
                         Task { await BackupRestoreCoordinator.shared.discard() }
                     }
                 }
-                if let restoreStatus { Text(restoreStatus).font(.footnote).accessibilityIdentifier("backupRestoreStatus") }
+                if let restoreStatus { Text(AppLanguage.localized(restoreStatus)).font(.footnote).accessibilityIdentifier("backupRestoreStatus") }
                 Text("Export is always manual. Files lets you choose On My iPhone, iCloud Drive, or another available provider. An iCloud Drive backup is a snapshot file, not live synchronization between devices.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text("Keep backup files private: JSON may include imported history and retained notification diagnostics. Deleting EasyTrack without an external backup can permanently remove the local ledger; restoring later requires choosing the JSON file manually.")
@@ -2179,16 +2204,18 @@ private struct SettingsView: View {
             case .success(let url):
                 do {
                     try store.recordSuccessfulBackupExport()
-                    backupStatus = "Exported \(url.lastPathComponent)"
+                    backupStatus = AppLanguage.formatted("Exported %@", url.lastPathComponent)
                 } catch {
-                    backupStatus = "The file was exported, but EasyTrack could not record the reminder date: \(error.localizedDescription)"
+                    backupStatus = AppLanguage.formatted(
+                        "The file was exported, but EasyTrack could not record the reminder date: %@",
+                        AppLanguage.localized(error.localizedDescription))
                 }
             case .failure(let error):
                 if (error as NSError).code == NSUserCancelledError { backupStatus = "Export cancelled." }
                 else { store.errorMessage = error.localizedDescription }
             }
         }
-        .confirmationDialog(pendingRestoreMode == .replace ? "Replace the local ledger?" : "Merge backup records?",
+        .confirmationDialog(AppLanguage.localized(pendingRestoreMode == .replace ? "Replace the local ledger?" : "Merge backup records?"),
                             isPresented: $confirmingRestore, titleVisibility: .visible) {
             if pendingRestoreMode == .replace {
                 Button("Replace local ledger", role: .destructive) { confirmBackup(.replace) }
@@ -2208,7 +2235,10 @@ private struct SettingsView: View {
             Button("Remove diagnostic text", role: .destructive) {
                 do {
                     let changed = try store.clearNotificationDiagnosticContents()
-                    notificationStatus = "Removed text from \(changed) diagnostic record\(changed == 1 ? "" : "s"). Saved transactions were unchanged."
+                    notificationStatus = AppLanguage.formatted(changed == 1
+                        ? "Removed text from %@ diagnostic record. Saved transactions were unchanged."
+                        : "Removed text from %@ diagnostic records. Saved transactions were unchanged.",
+                        String(changed))
                 } catch { notificationStatus = error.localizedDescription }
             }
             Button("Cancel", role: .cancel) {}
@@ -2240,7 +2270,8 @@ private struct SettingsView: View {
                 restorePreview = nil
                 restoreStatus = mode == .replace
                     ? "Restore complete. Database integrity and reopen checks passed."
-                    : "Merge complete. Added \(added) records; database integrity and reopen checks passed."
+                    : AppLanguage.formatted("Merge complete. Added %@ records; database integrity and reopen checks passed.",
+                        String(added))
             } catch { restoreStatus = error.localizedDescription }
             restoreBusy = false
         }

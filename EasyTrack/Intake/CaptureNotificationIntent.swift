@@ -34,5 +34,7 @@ struct CaptureNotificationIntent: AppIntent {
 
 enum IntakeError: LocalizedError {
     case invalidPayload
-    var errorDescription: String? { "The notification needs a source app and fields shorter than 8 KB." }
+    var errorDescription: String? {
+        AppLanguage.localized("The notification needs a source app and fields shorter than 8 KB.")
+    }
 }

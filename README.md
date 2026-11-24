@@ -43,6 +43,8 @@ EasyTrack helps you record daily spending, see where your money goes, and keep a
 
 ## Getting started
 
+EasyTrack starts in Italian on every first launch. Change it at **Settings → Language / Impostazioni → Lingua**; see [App language](docs/LOCALIZATION.md) for backup and data-compatibility details.
+
 ### Set up payment notifications with Shortcuts
 
 EasyTrack cannot read every notification by itself. You create a **personal automation** in Apple's **Comandi Rapidi / Shortcuts** that passes one selected app's notification to EasyTrack. The available trigger fields and automatic execution can vary by iOS version and app; a captured notification is not yet a transaction.

@@ -18,15 +18,15 @@ enum ReimbursementError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .expenseRequired: "Expected reimbursement can be set only on an active expense or advance for others."
-        case .conversionRequired: "A verified EUR value is required; no exchange rate was guessed."
-        case .invalidExpectedAmount: "Expected reimbursement must be positive and no greater than the expense."
-        case .missingPlan: "This expense has no expected reimbursement."
-        case .reimbursementRequired: "Choose an active reimbursement transaction."
-        case .alreadyLinked: "This reimbursement is already linked to an expense."
-        case .overpayment: "The reimbursement exceeds the amount still expected."
-        case .accountMismatch: "The reimbursement account could not be reconciled."
-        case .linkedReceiptRequiresUnlink: "Unlink this reimbursement before changing its amount, account, currency, or type."
+        case .expenseRequired: AppLanguage.localized("Expected reimbursement can be set only on an active expense or advance for others.")
+        case .conversionRequired: AppLanguage.localized("A verified EUR value is required; no exchange rate was guessed.")
+        case .invalidExpectedAmount: AppLanguage.localized("Expected reimbursement must be positive and no greater than the expense.")
+        case .missingPlan: AppLanguage.localized("This expense has no expected reimbursement.")
+        case .reimbursementRequired: AppLanguage.localized("Choose an active reimbursement transaction.")
+        case .alreadyLinked: AppLanguage.localized("This reimbursement is already linked to an expense.")
+        case .overpayment: AppLanguage.localized("The reimbursement exceeds the amount still expected.")
+        case .accountMismatch: AppLanguage.localized("The reimbursement account could not be reconciled.")
+        case .linkedReceiptRequiresUnlink: AppLanguage.localized("Unlink this reimbursement before changing its amount, account, currency, or type.")
         }
     }
 }

@@ -38,7 +38,7 @@ private struct LedgerColorPalette: View {
                                     .font(.caption.bold()).foregroundStyle(.white)
                             }
                         }
-                        Text(value.capitalized)
+                        Text(AppLanguage.localized(value.capitalized))
                             .font(.caption2).foregroundStyle(.primary).lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, minHeight: 58)
@@ -183,7 +183,7 @@ struct TripEditorView: View {
                 TextField("Name", text: $name).textInputAutocapitalization(.words)
                     .accessibilityIdentifier("tripNameField")
             }
-            if let validation { Section { Text(validation).foregroundStyle(.red) } }
+            if let validation { Section { Text(AppLanguage.localized(validation)).foregroundStyle(.red) } }
         }
         .navigationTitle(tripID == nil ? "New trip" : "Rename trip")
         .navigationBarTitleDisplayMode(.inline)
@@ -322,7 +322,7 @@ struct TripDetailView: View {
                 (trimmed.isEmpty ? "uncategorized" : "label:\(trimmed.lowercased())")
             return key == category.key && FinancialContributions.personalValue(of: item) != nil
         }.map(\.id))
-        return ActivityChartScope(label: "Trip · \(category.name)",
+        return ActivityChartScope(label: "\(AppLanguage.localized("Trip")) · \(category.name)",
             filter: TransactionFilter(tripID: tripID, transactionIDs: ids),
             contributionKind: .netExpenses, expectedEURMinor: category.personalNetEURMinor)
     }
@@ -406,7 +406,7 @@ private struct AccountEditorView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+            if let errorMessage { Section { Text(AppLanguage.localized(errorMessage)).foregroundStyle(.red) } }
         }
         .listRowSpacing(theme.listRowSpacing)
         .navigationTitle(original == nil ? "New account" : "Edit account")
@@ -568,7 +568,7 @@ private struct CategoryEditorView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+            if let errorMessage { Section { Text(AppLanguage.localized(errorMessage)).foregroundStyle(.red) } }
         }
         .listRowSpacing(theme.listRowSpacing)
         .navigationTitle(original == nil ? "New category" : "Edit category")

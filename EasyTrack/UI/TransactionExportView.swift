@@ -49,7 +49,7 @@ struct TransactionExportView: View {
             Section("File") {
                 Picker("Format", selection: $options.format) {
                     ForEach(TransactionExportFormat.allCases) { format in
-                        Text(format.title).tag(format)
+                        Text(AppLanguage.localized(format.title)).tag(format)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -57,12 +57,12 @@ struct TransactionExportView: View {
                 if options.format == .csv {
                     Picker("CSV preset", selection: $options.csvStyle) {
                         ForEach(TransactionCSVStyle.allCases) { style in
-                            Text(style.title).tag(style)
+                            Text(AppLanguage.localized(style.title)).tag(style)
                         }
                     }
-                    Text(options.csvStyle == .interoperable
+                    Text(AppLanguage.localized(options.csvStyle == .interoperable
                          ? "UTF-8 · comma-separated · decimal dot · ISO date with time-zone offset"
-                         : "UTF-8 with BOM · semicolon-separated · decimal comma · ISO date with time-zone offset")
+                         : "UTF-8 with BOM · semicolon-separated · decimal comma · ISO date with time-zone offset"))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -70,7 +70,7 @@ struct TransactionExportView: View {
             Section("Dates · inclusive") {
                 Picker("Period", selection: $filter.datePreset) {
                     ForEach(TransactionExportDatePreset.allCases) { preset in
-                        Text(preset.title).tag(preset)
+                        Text(AppLanguage.localized(preset.title)).tag(preset)
                     }
                 }
                 .onChange(of: filter.datePreset) { _, value in
@@ -109,7 +109,7 @@ struct TransactionExportView: View {
             Section("Columns") {
                 Picker("Detail", selection: $options.columns) {
                     ForEach(TransactionExportColumns.allCases) { value in
-                        Text(value.title).tag(value)
+                        Text(AppLanguage.localized(value.title)).tag(value)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -135,7 +135,7 @@ struct TransactionExportView: View {
                                 HStack {
                                     VStack(alignment: .leading) {
                                         Text(row.item.merchant).lineLimit(2)
-                                        Text(row.item.kind.title).font(.caption).foregroundStyle(.secondary)
+                                        Text(AppLanguage.localized(row.item.kind.title)).font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     if let eur = row.currentEURMinor {
@@ -154,7 +154,7 @@ struct TransactionExportView: View {
 
             Section {
                 if working { ProgressView("Creating export…") }
-                Button("Save \(options.format.title) in Files") { createExport() }
+                Button("Save \(AppLanguage.localized(options.format.title)) in Files") { createExport() }
                     .disabled(loading || working || selected == nil)
                     .accessibilityIdentifier("saveTransactionExport")
                 if working {
@@ -164,7 +164,7 @@ struct TransactionExportView: View {
                     }
                 }
                 if let status {
-                    Text(status).font(.footnote).accessibilityIdentifier("transactionExportStatus")
+                    Text(AppLanguage.localized(status)).font(.footnote).accessibilityIdentifier("transactionExportStatus")
                 }
             }
         }
@@ -177,7 +177,7 @@ struct TransactionExportView: View {
                       contentType: preparedFormat == .csv ? .commaSeparatedText : .easyTrackXLSX,
                       defaultFilename: exportFilename) { result in
             switch result {
-            case .success(let url): status = "Saved \(url.lastPathComponent)"
+            case .success(let url): status = AppLanguage.formatted("Saved %@", url.lastPathComponent)
             case .failure(let error):
                 if (error as NSError).code != NSUserCancelledError { status = error.localizedDescription }
             }
@@ -189,7 +189,9 @@ struct TransactionExportView: View {
         NavigationLink {
             TransactionExportMultiSelect(title: title, choices: choices, selection: selection)
         } label: {
-            LabeledContent(title, value: selection.wrappedValue.map { "\($0.count) selected" } ?? "All")
+            LabeledContent(AppLanguage.localized(title), value: selection.wrappedValue.map {
+                AppLanguage.formatted("%@ selected", String($0.count))
+            } ?? AppLanguage.localized("All"))
         }
     }
 
@@ -241,7 +243,7 @@ private struct TransactionExportMultiSelect: View {
                 selection = nil
             } label: {
                 HStack {
-                    Text("All \(title.lowercased())")
+                    Text(AppLanguage.formatted("All %@", AppLanguage.localized(title)))
                     Spacer()
                     if selection == nil { Image(systemName: "checkmark").accessibilityHidden(true) }
                 }
@@ -255,7 +257,7 @@ private struct TransactionExportMultiSelect: View {
                     selection = values
                 } label: {
                     HStack {
-                        Text(choice.title)
+                        Text(title == "Kinds" ? AppLanguage.localized(choice.title) : choice.title)
                         Spacer()
                         if selection?.contains(choice.id) == true {
                             Image(systemName: "checkmark").accessibilityHidden(true)
@@ -266,6 +268,6 @@ private struct TransactionExportMultiSelect: View {
                 .accessibilityIdentifier("transactionExportFilter-\(choice.id)")
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(AppLanguage.localized(title))
     }
 }

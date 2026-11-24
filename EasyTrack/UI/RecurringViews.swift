@@ -2,10 +2,12 @@ import SwiftUI
 
 private func recurringLinkEffect(actual: Transaction, replacing old: Transaction?) -> String {
     guard let old, old.id != actual.id else {
-        return "The existing transaction stays counted; linking changes no totals."
+        return AppLanguage.localized("The existing transaction stays counted; linking changes no totals.")
     }
     let removed = LedgerTotals(transactions: [old])
-    return "The existing actual transaction stays counted. The old estimate is removed: personal spending −\(Money.format(removed.personalSpendingEURMinor)), expenses −\(Money.format(removed.totalExpensesEURMinor)), income −\(Money.format(removed.incomeEURMinor)), PAC −\(Money.format(removed.pacInvestedEURMinor))."
+    return AppLanguage.formatted("The existing actual transaction stays counted. The old estimate is removed: personal spending −%@, expenses −%@, income −%@, PAC −%@.",
+        Money.format(removed.personalSpendingEURMinor), Money.format(removed.totalExpensesEURMinor),
+        Money.format(removed.incomeEURMinor), Money.format(removed.pacInvestedEURMinor))
 }
 
 struct UpcomingRecurringRow: View {
@@ -27,7 +29,7 @@ struct UpcomingRecurringRow: View {
                             in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.rule.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text("\(item.rule.type.title) · \(accountName)")
+                Text("\(AppLanguage.localized(item.rule.type.title)) · \(accountName)")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Text(displayDate).font(.caption).foregroundStyle(.secondary)
             }
@@ -37,12 +39,12 @@ struct UpcomingRecurringRow: View {
         }
         .padding(.vertical, 5)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.rule.name), \(item.rule.type.title), \(Money.format(item.rule.amountMinor)), \(accountName), expected \(displayDate)")
+        .accessibilityLabel("\(item.rule.name), \(AppLanguage.localized(item.rule.type.title)), \(Money.format(item.rule.amountMinor)), \(accountName), expected \(displayDate)")
     }
 
     private var displayDate: String {
         let zone = TimeZone(identifier: item.rule.timeZoneIdentifier) ?? .current
-        return item.day.noon(in: zone)?.formatted(date: .abbreviated, time: .omitted) ?? item.day.isoString
+        return item.day.noon(in: zone)?.easyTrackFormatted(date: .abbreviated, time: .omitted) ?? item.day.isoString
     }
 }
 
@@ -85,12 +87,12 @@ struct RecurringListView: View {
                 }
                 let pending = store.recurringCandidates.filter { $0.status == .pending }
                 if !pending.isEmpty {
-                    sectionHeader("Needs review · \(pending.count)", systemImage: "exclamationmark.circle")
+                    sectionHeader("\(AppLanguage.localized("Needs review")) · \(pending.count)", systemImage: "exclamationmark.circle")
                     ForEach(Array(Set(pending.map(\.occurrenceID))).sorted(), id: \.self) { id in
                         if let occurrence = store.recurringOccurrences.first(where: { $0.id == id }),
                            let rule = store.recurringRules.first(where: { $0.id == occurrence.ruleID }) {
                             NavigationLink { RecurringOccurrenceDetailView(occurrenceID: id) } label: {
-                                Label("\(rule.name) · \(occurrence.scheduledDay.isoString)",
+                                Label("\(rule.name) · \(occurrence.scheduledDay.localizedString)",
                                       systemImage: "arrow.right.circle")
                             }
                             .padding(13)
@@ -171,7 +173,8 @@ struct RecurringListView: View {
                     guard let rule = toRecord else { return }
                     do {
                         let transaction = try store.createNextRecurringNow(rule.id)
-                        confirmationMessage = "\(Money.format(transaction.amountMinor)) added to Activity."
+                        confirmationMessage = AppLanguage.formatted("%@ added to Activity.",
+                            Money.format(transaction.amountMinor))
                     } catch { store.errorMessage = error.localizedDescription }
                     toRecord = nil
                 }
@@ -190,15 +193,15 @@ struct RecurringListView: View {
         .alert("Recurring payment", isPresented: Binding(
             get: { confirmationMessage != nil }, set: { if !$0 { confirmationMessage = nil } })) {
                 Button("OK") { confirmationMessage = nil }
-            } message: { Text(confirmationMessage ?? "") }
+            } message: { Text(AppLanguage.localized(confirmationMessage ?? "")) }
     }
 
     private func sectionHeader(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage).font(.title3.bold())
+        Label(AppLanguage.localized(title), systemImage: systemImage).font(.title3.bold())
     }
 
     private func emptyCard(_ message: String) -> some View {
-        Text(message).font(.subheadline).foregroundStyle(.secondary)
+        Text(AppLanguage.localized(message)).font(.subheadline).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16).background(Color(uiColor: .secondarySystemGroupedBackground),
                                 in: RoundedRectangle(cornerRadius: 17))
@@ -214,7 +217,7 @@ struct RecurringListView: View {
                     .background(theme.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(rule.name).font(.headline).lineLimit(1)
-                    Text("\(rule.type.title) · \(rule.frequency.title)")
+                    Text("\(AppLanguage.localized(rule.type.title)) · \(AppLanguage.localized(rule.frequency.title))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -260,7 +263,7 @@ struct RecurringListView: View {
 
     private func expectedDate(_ day: LocalDay, for rule: RecurringRule) -> String {
         let zone = TimeZone(identifier: rule.timeZoneIdentifier) ?? .current
-        return day.noon(in: zone)?.formatted(date: .abbreviated, time: .omitted) ?? day.isoString
+        return day.noon(in: zone)?.easyTrackFormatted(date: .abbreviated, time: .omitted) ?? day.isoString
     }
 }
 
@@ -312,7 +315,7 @@ private struct RecurringRuleEditorView: View {
                 TextField("Name or merchant", text: $name)
                     .accessibilityIdentifier("recurringNameField")
                 LabeledContent("Kind") {
-                    Button(type.title) { choosingType = true }
+                    Button(AppLanguage.localized(type.title)) { choosingType = true }
                         .accessibilityIdentifier("recurringTypePicker")
                 }
                 LabeledContent("Amount (EUR)") {
@@ -335,7 +338,7 @@ private struct RecurringRuleEditorView: View {
             }
             Section("Schedule") {
                 LabeledContent("Repeats") {
-                    Button(frequency.title) { choosingFrequency = true }
+                    Button(AppLanguage.localized(frequency.title)) { choosingFrequency = true }
                         .accessibilityIdentifier("recurringFrequencyPicker")
                 }
                 DatePicker("Schedule starts",
@@ -362,9 +365,9 @@ private struct RecurringRuleEditorView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+            if let errorMessage { Section { Text(AppLanguage.localized(errorMessage)).foregroundStyle(.red) } }
         }
-        .navigationTitle(original == nil ? "New repeating payment" : "Edit repeating payment")
+        .navigationTitle(AppLanguage.localized(original == nil ? "New repeating payment" : "Edit repeating payment"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
@@ -376,7 +379,7 @@ private struct RecurringRuleEditorView: View {
         .sheet(isPresented: $choosingType) {
             NavigationStack {
                 List(RecurringType.allCases) { option in
-                    Button(option.title) { type = option; choosingType = false }
+                    Button(AppLanguage.localized(option.title)) { type = option; choosingType = false }
                 }
                 .navigationTitle("Movement kind")
                 .navigationBarTitleDisplayMode(.inline)
@@ -392,7 +395,7 @@ private struct RecurringRuleEditorView: View {
         .sheet(isPresented: $choosingFrequency) {
             NavigationStack {
                 List(RecurringFrequency.allCases) { option in
-                    Button(option.title) { frequency = option; choosingFrequency = false }
+                    Button(AppLanguage.localized(option.title)) { frequency = option; choosingFrequency = false }
                 }
                 .navigationTitle("Repeat")
                 .navigationBarTitleDisplayMode(.inline)
@@ -467,8 +470,8 @@ struct RecurringRuleDetailView: View {
                 ForEach(occurrences) { occurrence in
                     NavigationLink { RecurringOccurrenceDetailView(occurrenceID: occurrence.id) } label: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(occurrence.scheduledDay.isoString).font(.headline)
-                            Text(occurrence.status.title)
+                            Text(occurrence.scheduledDay.localizedString).font(.headline)
+                            Text(AppLanguage.localized(occurrence.status.title))
                                 .font(.subheadline).foregroundStyle(.secondary)
                             if store.recurringCandidates.contains(where: { $0.occurrenceID == occurrence.id && $0.status == .pending }) {
                                 Label("Needs review", systemImage: "exclamationmark.circle")
@@ -476,7 +479,7 @@ struct RecurringRuleDetailView: View {
                             }
                         }
                     }
-                    .accessibilityLabel("\(occurrence.scheduledDay.isoString), \(occurrence.status.title), \(store.recurringCandidates.contains(where: { $0.occurrenceID == occurrence.id && $0.status == .pending }) ? "needs review" : "no review needed")")
+                    .accessibilityLabel("\(occurrence.scheduledDay.localizedString), \(AppLanguage.localized(occurrence.status.title)), \(store.recurringCandidates.contains(where: { $0.occurrenceID == occurrence.id && $0.status == .pending }) ? AppLanguage.localized("needs review") : AppLanguage.localized("no review needed"))")
                     .accessibilityIdentifier("recurringOccurrence-\(occurrence.id)")
                 }
             }
@@ -514,13 +517,13 @@ struct RecurringOccurrenceDetailView: View {
             if let occurrence, let rule {
                 Section("Scheduled payment") {
                     LabeledContent("Rule", value: rule.name)
-                    LabeledContent("Kind", value: rule.type.title)
+                    LabeledContent("Kind", value: AppLanguage.localized(rule.type.title))
                     LabeledContent("Account", value: store.localAccounts.first(where: {
                         $0.id == rule.accountID
                     })?.name ?? "Account unavailable")
-                    LabeledContent("Scheduled", value: occurrence.scheduledDay.isoString)
+                    LabeledContent("Scheduled", value: occurrence.scheduledDay.localizedString)
                     LabeledContent("Expected", value: Money.format(rule.amountMinor))
-                    LabeledContent("Status", value: occurrence.status.title)
+                    LabeledContent("Status", value: AppLanguage.localized(occurrence.status.title))
                     if occurrence.status == .expected,
                        occurrence.scheduledDay < LocalDay(date: .now,
                            timeZone: TimeZone(identifier: rule.timeZoneIdentifier) ?? .current) {
@@ -544,15 +547,15 @@ struct RecurringOccurrenceDetailView: View {
                             VStack(alignment: .leading, spacing: 7) {
                                 Text(candidate.reason).font(.subheadline)
                                 if let transaction = store.transactions.first(where: { $0.id == candidate.transactionID }) {
-                                    Text("Actual: \(transaction.merchant) · \(Money.format(transaction.eurMinor ?? transaction.amountMinor)) · \(transaction.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                    Text("Actual: \(transaction.merchant) · \(Money.format(transaction.eurMinor ?? transaction.amountMinor)) · \(transaction.occurredAt.easyTrackFormatted(date: .abbreviated, time: .omitted))")
                                         .font(.footnote)
                                     NavigationLink("Open actual transaction") { TransactionEditor(item: transaction) }
                                 } else if let attempt = store.parserAttempts.first(where: { $0.event.id == candidate.eventID }) {
-                                    Text("Captured: \(attempt.event.title) · \((attempt.event.receivedAt ?? attempt.event.capturedAt).formatted(date: .abbreviated, time: .omitted))")
+                                    Text("Captured: \(attempt.event.title) · \((attempt.event.receivedAt ?? attempt.event.capturedAt).easyTrackFormatted(date: .abbreviated, time: .omitted))")
                                         .font(.footnote)
                                     if let extracted = candidateCapture(candidate),
                                        let amount = extracted.amount, let merchant = extracted.merchant {
-                                        Text("Actual: \(merchant) · \(Money.format(amount.cents)) · \(extracted.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                                        Text("Actual: \(merchant) · \(Money.format(amount.cents)) · \(extracted.occurredAt.easyTrackFormatted(date: .abbreviated, time: .omitted))")
                                             .font(.footnote)
                                     }
                                 }
@@ -606,16 +609,16 @@ struct RecurringOccurrenceDetailView: View {
             }
         }
         .navigationTitle("Recurring occurrence")
-        .confirmationDialog(actionTitle, isPresented: Binding(
+        .confirmationDialog(AppLanguage.localized(actionTitle), isPresented: Binding(
             get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }),
             titleVisibility: .visible) {
-                Button(confirmationButtonTitle, role: isDestructive ? .destructive : nil) { performAction() }
+                Button(AppLanguage.localized(confirmationButtonTitle), role: isDestructive ? .destructive : nil) { performAction() }
                 Button("Cancel", role: .cancel) { pendingAction = nil }
-            } message: { Text(actionExplanation) }
+            } message: { Text(AppLanguage.localized(actionExplanation)) }
         .alert("Recurring payment", isPresented: Binding(
             get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
                 Button("OK") { resultMessage = nil }
-            } message: { Text(resultMessage ?? "") }
+            } message: { Text(AppLanguage.localized(resultMessage ?? "")) }
     }
 
     private func candidatePayee(_ candidate: RecurringCandidate) -> String? {
@@ -669,8 +672,8 @@ struct RecurringOccurrenceDetailView: View {
         case .record: return "Creates one counted transaction now. Use only if the payment happened."
         case .skip, .missed: return "No transaction will be created and totals stay unchanged."
         case .countedMissed:
-            let value = actual.map { Money.format($0.eurMinor ?? $0.amountMinor) } ?? "the recorded amount"
-            return "The old estimate (\(value)) will be soft-deleted and removed from totals. Its identity and audit history remain."
+            let value = actual.map { Money.format($0.eurMinor ?? $0.amountMinor) } ?? AppLanguage.localized("the recorded amount")
+            return AppLanguage.formatted("The old estimate (%@) will be soft-deleted and removed from totals. Its identity and audit history remain.", value)
         case .unlink: return "The actual transaction remains counted with its source details. The occurrence becomes expected again; no old estimate is recreated."
         case .confirm(let id):
             if let candidate = candidates.first(where: { $0.id == id }),
@@ -681,7 +684,8 @@ struct RecurringOccurrenceDetailView: View {
             if let candidate = candidates.first(where: { $0.id == id }),
                let extracted = candidateCapture(candidate), let amount = extracted.amount,
                let old = actual {
-                return "The recorded estimate \(Money.format(old.eurMinor ?? old.amountMinor)) will be corrected to the captured amount \(Money.format(amount.cents)). Review the date and payee before confirming; the transaction UUID and user note remain."
+                return AppLanguage.formatted("The recorded estimate %@ will be corrected to the captured amount %@. Review the date and payee before confirming; the transaction UUID and user note remain.",
+                    Money.format(old.eurMinor ?? old.amountMinor), Money.format(amount.cents))
             }
             return "Confirm the captured payment against this occurrence. Any changed bank amount replaces the old estimate; source identity and user notes are preserved."
         case .reject, .separate: return "The payments remain separate. A held notification can then create its own transaction."
@@ -759,7 +763,7 @@ struct RecurringManualLinkView: View {
                     } label: {
                         VStack(alignment: .leading) {
                             Text(transaction.merchant)
-                            Text("\(Money.format(transaction.eurMinor ?? transaction.amountMinor)) · \(transaction.occurredAt.formatted(date: .abbreviated, time: .omitted))")
+                            Text("\(Money.format(transaction.eurMinor ?? transaction.amountMinor)) · \(transaction.occurredAt.easyTrackFormatted(date: .abbreviated, time: .omitted))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -788,7 +792,7 @@ struct RecurringManualLinkView: View {
         .alert("Could not link", isPresented: Binding(
             get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
-            } message: { Text(errorMessage ?? "") }
+            } message: { Text(AppLanguage.localized(errorMessage ?? "")) }
     }
 }
 
@@ -824,7 +828,7 @@ struct RecurringTransactionLinkView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(store.recurringRules.first(where: { $0.id == occurrence.ruleID })?.name ?? "Recurring payment")
-                            Text("\(occurrence.scheduledDay.isoString) · \(occurrence.status.title)")
+                            Text("\(occurrence.scheduledDay.localizedString) · \(AppLanguage.localized(occurrence.status.title))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -853,6 +857,6 @@ struct RecurringTransactionLinkView: View {
         .alert("Could not link", isPresented: Binding(
             get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK") { errorMessage = nil }
-            } message: { Text(errorMessage ?? "") }
+            } message: { Text(AppLanguage.localized(errorMessage ?? "")) }
     }
 }

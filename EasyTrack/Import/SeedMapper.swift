@@ -22,13 +22,14 @@ enum SeedImportError: LocalizedError, CustomStringConvertible {
 
     var errorDescription: String? {
         switch self {
-        case .invalidSchema(let message): "Unsupported seed schema: \(message)"
-        case .invalidRows(let issues): "Import validation found \(issues.count) issue(s). First: \(issues.first?.summary ?? "unknown")"
-        case .changedSource(let count): "\(count) existing historical identities have changed source data. No records were changed."
-        case .database(let message): "Seed database could not be read: \(message)"
+        case .invalidSchema(let message): AppLanguage.formatted("Unsupported seed schema: %@", message)
+        case .invalidRows(let issues): AppLanguage.formatted("Import validation found %@ issue(s). First: %@",
+            String(issues.count), issues.first?.summary ?? AppLanguage.localized("unknown"))
+        case .changedSource(let count): AppLanguage.formatted("%@ existing historical identities have changed source data. No records were changed.", String(count))
+        case .database(let message): AppLanguage.formatted("Seed database could not be read: %@", message)
         }
     }
-    var description: String { errorDescription ?? "Seed import failed" }
+    var description: String { errorDescription ?? AppLanguage.localized("Seed import failed") }
 }
 
 struct ImportedMovement {
