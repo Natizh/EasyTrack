@@ -112,7 +112,7 @@ def main():
             ]
             run(common + [f"-only-testing:EasyTrackUITests/EasyTrackUITests/{name}" for name in tests]
                 + ["test-without-building"], log=fixture_dir / "ui.log")
-            print("Home, localization and notification UI tests passed", flush=True)
+            print(f"{len(tests)} isolated synthetic UI test(s) passed: {', '.join(tests)}", flush=True)
     finally:
         if device_state(args.device) != "Booted":
             run(["xcrun", "simctl", "boot", args.device])

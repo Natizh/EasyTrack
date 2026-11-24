@@ -18,7 +18,7 @@ UI_LITERAL = re.compile(
     r'"((?:\\.|[^"\\])*)"'
 )
 EXPLICIT = re.compile(r'AppLanguage\.(?:localized|formatted)\(\s*"([^"\n]*)"')
-PLACEHOLDER = re.compile(r'%(?:\d+\$)?(?:@|lld|ld|d|f)')
+PLACEHOLDER = re.compile(r'%(?:\d+\$)?(@|lld|ld|d|f)')
 
 
 def main() -> int:
@@ -33,8 +33,8 @@ def main() -> int:
         if italian is None:
             problems.append(f"Missing Italian translation: {key}")
             continue
-        if len(PLACEHOLDER.findall(key)) != len(PLACEHOLDER.findall(italian)):
-            problems.append(f"Placeholder count differs: {key}")
+        if sorted(PLACEHOLDER.findall(key)) != sorted(PLACEHOLDER.findall(italian)):
+            problems.append(f"Placeholder type or count differs: {key}")
     for path in SWIFT:
         source = path.read_text()
         for key in EXPLICIT.findall(source):

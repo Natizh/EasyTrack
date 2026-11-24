@@ -40,8 +40,14 @@ final class EasyTrackUITests: XCTestCase {
         languageAgain.tap()
         app.buttons["Italiano"].tap()
         XCTAssertTrue(app.navigationBars["Impostazioni"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.tabBars.buttons["Attività"].waitForExistence(timeout: 5))
-        app.tabBars.buttons["Attività"].tap()
+        let italianActivityTab = app.tabBars.buttons["Attività"]
+        if !italianActivityTab.exists {
+            let collapsedSettingsTab = app.tabBars.buttons["Impostazioni"]
+            if collapsedSettingsTab.exists { collapsedSettingsTab.tap() }
+        }
+        for _ in 0..<4 where !italianActivityTab.exists { app.swipeDown() }
+        XCTAssertTrue(italianActivityTab.waitForExistence(timeout: 5))
+        italianActivityTab.tap()
         let italianSearch = app.textFields["transactionSearchField"]
         replaceText(in: italianSearch, with: "Willowmere Home")
         XCTAssertTrue(app.staticTexts["Willowmere Home"].waitForExistence(timeout: 5))
