@@ -85,10 +85,10 @@ The repository includes [`scripts/package_unsigned_ipa.sh`](scripts/package_unsi
 xcodebuild -project EasyTrack.xcodeproj -scheme EasyTrack -configuration Release \
   -destination 'generic/platform=iOS' -derivedDataPath DerivedData \
   PRODUCT_BUNDLE_IDENTIFIER=local.easytrack.finance CODE_SIGNING_ALLOWED=NO build
-sh scripts/package_unsigned_ipa.sh
+EASYTRACK_IPA_OUTPUT=DerivedData/EasyTrack-0.2-build11-unsigned.ipa sh scripts/package_unsigned_ipa.sh
 ```
 
-The package helper refuses to overwrite an existing IPA. Set `EASYTRACK_IPA_OUTPUT` to a new path to keep older builds, and `EASYTRACK_DERIVED_DATA` if reusing a build cache outside this checkout. Check the resulting IPA's original bundle ID and build number before importing it; an iPhone update still needs a fresh external JSON backup and real-device verification.
+The package helper validates the Release app and resulting IPA, including the original bundle ID, source version/build, unsigned state, and absence of bundled financial files or signing material. It refuses to overwrite an existing IPA. Set `EASYTRACK_IPA_OUTPUT` to a new path for every build, and `EASYTRACK_DERIVED_DATA` if reusing a build cache outside this checkout. Before an in-place iPhone update, make a fresh external JSON backup and verify the result on the device. Keep the existing installation; do not uninstall it to update.
 
 There is no prebuilt EasyTrack IPA or App Store release here. [SideStore](https://docs.sidestore.io/docs/installation/install) can sign and install a compatible IPA using your Apple account after its pairing and local VPN setup. Import the local IPA into SideStore and refresh it before its seven-day development signing period expires ([SideStore FAQ](https://docs.sidestore.io/docs/faq.html)). EasyTrack itself does not depend on SideStore at runtime. Physical-device installation and refresh for this project still need the validation tracked in [issue #8](https://github.com/Natizh/EasyTrack/issues/8).
 
