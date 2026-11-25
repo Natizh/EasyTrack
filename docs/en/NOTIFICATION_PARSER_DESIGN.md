@@ -1,0 +1,41 @@
+# Local notification parser
+
+[EasyTrack](../../README.md) · [Documentation](README.md) · English / [Italiano](../it/NOTIFICATION_PARSER_DESIGN.md)
+
+This document records how the parser evolved. The current app uses SQLite schema 13 and JSON backup format 15; see [backup restoration](BACKUP_RESTORE.md). For a first-time setup walkthrough, use the [Shortcuts tutorial](SHORTCUTS_SETUP.md).
+
+## Capture and first setup
+
+An iOS Shortcuts personal automation can pass source app, title, subtitle, message, and optional notification date to **Capture Payment Notification**. The App Intent commits the raw event and a diagnostic attempt before parsing. Captures with no usable format rule remain on their source page with **Set up notification format** or **Add notification format**. The app never creates a transaction with guessed amount, description, or account.
+
+The source page starts a builder from the first captured sample. Its tappable cards form this pipeline:
+
+**Notification input → Source/account → Direction/type → Amount → Merchant/description → Duplicate protection → Create transaction**
+
+The source application and EasyTrack account are separate concepts. An exact source-name match to an existing account is proposed automatically. Otherwise first setup offers the source name as a new account or lets the user choose an existing one. That mapping is stored once on the source and used by all its formats. Changing it affects future transactions, never prior ones. A source can have several named formats, each with its own direction and movement type. Merchant or counterparty and amount are captured independently for every event; the first sample's merchant is never a literal condition.
+
+The cards show live values. The user chooses a notification field (title, subtitle, message, or combined text), stable matching words and amount anchors, description selection, direction and movement type, and duplicate window. **Test automation** animates the steps and displays the exact proposed transaction, including the mapped account, timestamp, and **Uncategorized** state. Activation offers **Create first transaction** or **Activate without adding sample**. If the first sample is created, replaying it creates no second transaction. The Debug build has fictional Northstar Pay and Harbor Wallet samples for local testing; Release has no sample controls.
+
+## Deterministic extraction
+
+EUR amount detection handles `€` or `EUR` before or after the number, comma or period decimals, clear grouped thousands, and explicit plus or minus signs. Ambiguous or malformed amounts fail. Description selection supports text before or after the amount, the whole selected line, or text between user-provided anchors. Conditions support contains, begins with, and ends with. The optional advanced regular-expression mode rejects groups, alternation, backreferences, counted repetitions, long patterns, and more than one repetition operator; it scans at most 512 characters. Rules are data, never executable code. Every enabled rule for a source is evaluated before automatic creation. Exactly one complete match is required; two or more produce a persistent ambiguous diagnostic and no transaction. Priority still orders rules in the editor but never resolves ambiguity. Previously saved rule JSON remains readable because the amount-sign condition is optional. The builder tests a captured sample against its draft and the other enabled rules before activation.
+
+The notification date is used when supplied. Capture time is the fallback and is labeled in the preview. The UI currently creates EUR transactions only. Each rule has a stable UUID and versioned configuration history. Editing, enabling, reordering, or soft deleting a rule creates a new version; prior transaction links retain the rule version used. Deleting a rule leaves its transactions intact. Rules do not assign spending categories. Successfully parsed transactions have a SQL-null category until the user chooses one from Home or transaction detail. Future merchant-based categorization must be a separate feature.
+
+## Duplicate and failure behavior
+
+An exact SHA-256 key normalizes source and payload whitespace/case. With a supplied notification date, that date is part of the key, so exact replays remain duplicates. Without a supplied date, the exact key is checked in a bounded ten-minute window; identical text can represent a later real purchase. A second SHA-256 key combines integer EUR cents, normalized description, and mapped account. Its symmetric time window defaults to **10 minutes** and can be set to 5 or 30 minutes. A different amount does not collide; an otherwise identical payment outside the configured window is allowed. These keys are separate from historical-import identity.
+
+Schema version 3 added `parser_sources`, `parser_rules`, `parser_rule_versions`, `notification_attempts`, `exact_dedup`, and `semantic_dedup`. Schema version 4 added `local_accounts`, a source-to-account link, and a nullable transaction category. It backfilled source mappings from existing schema-3 rules without rewriting their JSON/version history or previously created transactions. Earlier notification events remain as diagnostics. The raw attempt commits first. Transaction creation, transaction provenance, processing status, exact and semantic records, and the ledger operation commit in one SQLite transaction. A failed second phase rolls back those writes and keeps a retryable failed diagnostic with its raw sample. Unmatched and duplicate captures stay inspectable under their source; there is no general review inbox.
+
+## Recurring reconciliation in schema 6
+
+After exact and semantic deduplication, the parser checks local recurring occurrences **before** creating a transaction. It considers only the mapped managed account ID, compatible movement kind, the rule's local-day window, and a plausible name or amount. A single same-day, exact-cent match with an explicitly approved payee and no conflicting edit can confirm automatically. An expected occurrence links to the new bank transaction; a matching unchanged old counted row retains its UUID and gains the event link. A changed amount/date, unapproved payee, multiple occurrence, or competing transaction becomes a persistent candidate with a readable reason. If an old counted row might already represent the payment, the raw attempt is held as **Review recurring match** without another counted row. If only expected rows are involved, the real parsed transaction is counted once while its relation awaits review.
+
+The source page links to the occurrence review. The user can confirm, reject, or explicitly treat a held notification as a separate payment. Rejected event/occurrence pairs remain stored so retries do not re-suggest them. A user-confirmed held match corrects the old estimate to the actual EUR amount/date while retaining its transaction UUID and user note/category; source-event, deduplication, candidate, audit, and financial edits commit together. Parser rule versions and raw captures remain available. No review UI runs inside the background App Intent. See [recurring reconciliation](RECURRING_RECONCILIATION.md) for matching and accounting rules.
+
+The app does not send notification content to a server or AI service. Current format-15 backups include raw events, attempts, rule history, exact and semantic deduplication, and recurring reconciliation decisions, so exported files must be handled as private financial data. [Backup restoration](BACKUP_RESTORE.md) validates parser rows and their links before a confirmed database change. The local Files folder probe does not synchronize the live database.
+
+## Verification boundary
+
+Automated tests cover deterministic parsing, migration, rollback, deduplication and fictional capture-to-rule-to-transaction flows. New reconciliation parser, retry, and rollback cases have fictional Swift tests; physical bank delivery needs separate observed evidence. Real bank formats, fields supplied by the physical Shortcuts trigger, locked-device execution, signing refresh and update preservation require device acceptance checks tracked in [issue #8](https://github.com/Natizh/EasyTrack/issues/8). Compatibility depends on Shortcuts delivering enough notification text for the user to define a stable rule.
