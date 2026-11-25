@@ -29,7 +29,7 @@ struct UpcomingRecurringRow: View {
                             in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.rule.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text("\(AppLanguage.localized(item.rule.type.title)) · \(accountName)")
+                Text("\(item.rule.type == .pacInvestment ? AppLanguage.localized("Planned PAC investment") : AppLanguage.localized(item.rule.type.title)) · \(accountName)")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Text(displayDate).font(.caption).foregroundStyle(.secondary)
             }

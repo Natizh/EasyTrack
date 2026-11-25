@@ -2,6 +2,8 @@
 
 **Settings → Export transactions** writes ordinary CSV or XLSX transaction files through the native Files exporter. Activity also offers **Export filtered transactions**. These files are separate from the format-15 JSON backup: they contain no raw notification captures, parser attempts, recurring candidates, rule JSON, or bulk spreadsheet source rows. The app performs no network request during export.
 
+Exports retain one row per real movement. A reimbursement receipt above its original expense remains one receipt row at the full actual amount; Income totals include it once. The original expense row keeps gross Expenses and its capped personal cost. Surplus earnings are shown in the app's reimbursement breakdown and can be reconciled as receipt value less the reimbursed principal; CSV/XLSX machine-readable headers and movement identities remain unchanged. An Expected PAC occurrence creates no export row until an actual PAC transaction is recorded or linked.
+
 ## Approved choices
 
 The [Issue #1 decisions](https://github.com/Natizh/EasyTrack/issues/1) are: readable Basic columns by default; extra historical fields under Detailed; source/technical IDs under a separate opt-in; interoperable CSV by default, with Italian Excel as another preset; kind and positive current amount retained beside an additional signed directional EUR amount; and **intersection** of current Activity filters with dedicated export filters. Conflicting filters intentionally yield a header-only file. Settings export starts without Activity filters.

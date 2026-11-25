@@ -672,6 +672,80 @@ final class RecurringReconciliationTests: XCTestCase {
         }
     }
 
+    func testExpectedPACStaysPlannedUntilRecordedOrLinked() throws {
+        try withDatabase { db, _ in
+            try db.prepareProductionLedger()
+            let account = try account(db)
+            let manualRule = try rule(db, account: account, name: "Fictional manual PAC",
+                amount: 1_700, start: "2026-10-15", kind: .pacInvestment)
+            XCTAssertEqual(try RecurringSchedule.upcoming(for: manualRule,
+                now: date("2026-10-01")).first?.day.isoString, "2026-10-15")
+            XCTAssertTrue(try db.transactions().isEmpty)
+            _ = try db.materializeDueRecurring(now: date("2026-10-15"))
+            let expected = try XCTUnwrap(db.recurringOccurrences(ruleID: manualRule.id).first)
+            XCTAssertEqual(expected.status, .expected)
+            XCTAssertNil(expected.transactionID)
+            _ = try db.materializeDueRecurring(now: date("2026-10-20"))
+            XCTAssertEqual(try db.recurringOccurrences(ruleID: manualRule.id).first?.status, .expected)
+            var snapshot = try FinancialAnalytics.snapshot(transactions: db.transactions(),
+                period: .month(year: 2026, month: 10), timeZone: zone, now: date("2026-11-01"))
+            XCTAssertEqual(snapshot.totals.grossExpensesEURMinor, 0)
+            XCTAssertEqual(snapshot.totals.personalNetExpensesEURMinor, 0)
+            XCTAssertEqual(snapshot.totals.incomeEURMinor, 0)
+            XCTAssertEqual(snapshot.totals.pacInvestedEURMinor, 0)
+            XCTAssertEqual(snapshot.totals.cashNetEURMinor, 0)
+
+            let actual = try db.recordExpectedRecurringNow(expected.id, now: date("2026-10-20"))
+            XCTAssertEqual(actual.kind, .pacInvestment)
+            XCTAssertEqual(try db.recurringOccurrences(ruleID: manualRule.id).first?.status, .recordedManual)
+            XCTAssertThrowsError(try db.recordExpectedRecurringNow(expected.id, now: date("2026-10-20")))
+
+            let missedRule = try rule(db, account: account, name: "Fictional missed PAC",
+                amount: 300, start: "2026-10-17", kind: .pacInvestment)
+            let skippedRule = try rule(db, account: account, name: "Fictional skipped PAC",
+                amount: 400, start: "2026-10-18", kind: .pacInvestment)
+            let importedRule = try rule(db, account: account, name: "Fictional imported PAC",
+                amount: 500, start: "2026-10-19", kind: .pacInvestment)
+            _ = try db.materializeDueRecurring(now: date("2026-10-20"))
+            let missed = try XCTUnwrap(db.recurringOccurrences(ruleID: missedRule.id).first)
+            let skipped = try XCTUnwrap(db.recurringOccurrences(ruleID: skippedRule.id).first)
+            let importedOccurrence = try XCTUnwrap(db.recurringOccurrences(ruleID: importedRule.id).first)
+            try db.changeExpectedOccurrence(missed.id, to: .missed)
+            try db.changeExpectedOccurrence(skipped.id, to: .skipped)
+            XCTAssertEqual(try db.transactions().count, 1)
+
+            var importedPAC = imported("fictional-pac-source", day: "2026-10-19",
+                merchant: "Fictional imported PAC", row: 19, amount: 500).transaction
+            importedPAC.kind = .pacInvestment
+            importedPAC.personalExpenseEURMinor = 0
+            importedPAC.accountID = account.id
+            importedPAC.account = account.name
+            let savedImported = try db.save(importedPAC)
+            try db.linkRecurringTransaction(savedImported.id, to: importedOccurrence.id)
+            XCTAssertEqual(try db.recurringOccurrences(ruleID: importedRule.id).first?.status, .confirmed)
+            XCTAssertEqual(try db.transactions().count, 2)
+            snapshot = try FinancialAnalytics.snapshot(transactions: db.transactions(),
+                period: .month(year: 2026, month: 10), timeZone: zone, now: date("2026-11-01"))
+            XCTAssertEqual(snapshot.totals.pacInvestedEURMinor, 2_200)
+            XCTAssertEqual(snapshot.totals.grossExpensesEURMinor, 0)
+            XCTAssertEqual(snapshot.totals.personalNetExpensesEURMinor, 0)
+            XCTAssertEqual(snapshot.totals.incomeEURMinor, 0)
+            XCTAssertEqual(snapshot.totals.cashNetEURMinor, 0)
+            let pacFilter = try XCTUnwrap(HomeMetricDrilldown.filter(for: .pac, snapshot: snapshot))
+            XCTAssertEqual(Set(pacFilter.apply(to: try db.transactions(), timeZone: zone).map(\.id)),
+                [actual.id, savedImported.id])
+            XCTAssertEqual(try FinancialContributions.total(pacFilter.apply(to: try db.transactions(),
+                timeZone: zone), kind: .pac), 2_200)
+            let exported = try SQLiteDatabase(readOnlyURL: db.url).transactionExportSnapshot()
+                .select(filter: .init())
+            XCTAssertEqual(try exported.totals().pac, 2_200)
+            XCTAssertEqual(try exported.totals().expenses, 0)
+            let backup = try db.exportBackup()
+            XCTAssertEqual(backup.schemaVersion, 15)
+            try db.checkDatabase()
+        }
+    }
+
     func testLinkingImportedActualPreservesItsPersonalShareAndSourceIdentity() throws {
         try withDatabase { db, _ in
             let account = try account(db)

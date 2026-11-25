@@ -8,6 +8,8 @@ The live database remains **SQLite schema 13**. New JSON backups are **format 15
 
 Formats **5–12 and 14** remain supported through their versioned conversions. Format 13 was never a released backup format and remains unsupported. The original format and checksum are verified before conversion. Format-14 files used the older rule that removed an expected refund from personal spending immediately. Conversion recalculates only the derived personal-cost field from the original expense and actual linked receipts, then creates a format-15 in-memory archive for preview and restore. It retains amounts, dates, accounts, kinds, links, source identity, and operation history. The same recalculation occurs when an existing schema-13 database is opened. Transaction revisions and operation records are not rewritten for a derived-value repair.
 
+Current format-15 backups can contain an explicitly expected reimbursement above the original expense or a real linked receipt above the plan. The linked amount remains the full receipt; restore validates that the original expense's derived personal cost is capped at zero and any excess is surplus earnings within the existing Income receipt. No new table or backup field is required. Older format-14 backups keep their historical validation and upgrade path before current accounting is applied.
+
 Older backups cannot reconstruct matching decisions or fields they never contained. Formats 2–4 are rejected as incomplete; a newer format requires a newer app. See the [financial accounting policy](FINANCIAL_ACCOUNTING.md) for the new Income, Net Expenses and cash Net definitions.
 
 ## Preview, Replace and Merge

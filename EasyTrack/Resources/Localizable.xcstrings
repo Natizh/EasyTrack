@@ -891,6 +891,26 @@
         }
       }
     },
+    "Additional earnings": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guadagno aggiuntivo"
+          }
+        }
+      }
+    },
+    "Additional earnings: %@": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guadagno aggiuntivo: %@"
+          }
+        }
+      }
+    },
     "Advanced matching": {
       "localizations": {
         "it": {
@@ -1161,6 +1181,16 @@
         }
       }
     },
+    "An expected amount may exceed the expense. Only a real receipt counts as Income; any received surplus is shown as additional earnings.": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’importo atteso può superare la spesa. Solo un incasso reale conta nelle Entrate; l’eccedenza ricevuta è mostrata come guadagno aggiuntivo."
+          }
+        }
+      }
+    },
     "Any sign": {
       "localizations": {
         "it": {
@@ -1217,6 +1247,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apple descrive Title, Subtitle e Message come FILTRI del trigger di notifica, ma non garantisce che ogni campo sia disponibile come variabile dell'azione in tutte le versioni di iOS. Un valore dinamico appare come chip blu e cambia a ogni notifica. Se la proprietà manca, lascia vuoto il campo e considera la cattura non verificata; prova prima con due notifiche innocue dal testo diverso."
+          }
+        }
+      }
+    },
+    "Applied to expense": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attribuito alla spesa"
           }
         }
       }
@@ -3771,6 +3811,16 @@
         }
       }
     },
+    "Expected reimbursement amount": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importo del rimborso atteso"
+          }
+        }
+      }
+    },
     "Expected reimbursement can be set only on an active expense or advance for others.": {
       "localizations": {
         "it": {
@@ -3787,6 +3837,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Il rimborso atteso non può superare la spesa."
+          }
+        }
+      }
+    },
+    "Expected reimbursement must be positive and compatible with the existing plan.": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il rimborso atteso deve essere positivo e compatibile con il piano esistente."
           }
         }
       }
@@ -4127,6 +4187,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Lordo %1$@ · Ricevuto %2$@ · Personale %3$@"
+          }
+        }
+      }
+    },
+    "Gross %@ · Reimbursed %@ · Personal %@": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lordo %1$@ · Rimborsato %2$@ · Personale %3$@"
           }
         }
       }
@@ -6135,6 +6205,16 @@
         }
       }
     },
+    "Of this receipt, %@ reimburses the expense and %@ is additional earnings. The full %@ counts once in Income on its receipt date.": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Di questo incasso, %1$@ rimborsa la spesa e %2$@ è un guadagno aggiuntivo. L’intero importo di %3$@ conta una sola volta nelle Entrate alla data di ricezione."
+          }
+        }
+      }
+    },
     "Off": {
       "localizations": {
         "it": {
@@ -6361,6 +6441,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Arancione"
+          }
+        }
+      }
+    },
+    "Original amount": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importo originale"
           }
         }
       }
@@ -6651,6 +6741,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pianifica i prossimi passi"
+          }
+        }
+      }
+    },
+    "Planned PAC investment": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Investimento PAC previsto"
           }
         }
       }
@@ -6975,6 +7075,16 @@
         }
       }
     },
+    "Received cash": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incasso ricevuto"
+          }
+        }
+      }
+    },
     "Received into": {
       "localizations": {
         "it": {
@@ -7285,12 +7395,32 @@
         }
       }
     },
+    "Reimbursed portion %@ · Additional earnings %@": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quota rimborsata %1$@ · Guadagno aggiuntivo %2$@"
+          }
+        }
+      }
+    },
     "Reimbursement": {
       "localizations": {
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Rimborso"
+          }
+        }
+      }
+    },
+    "Reimbursement breakdown": {
+      "localizations": {
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettaglio rimborso"
           }
         }
       }

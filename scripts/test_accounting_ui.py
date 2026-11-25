@@ -107,6 +107,7 @@ def main():
             tests = args.only_test or [
                 "testHomeIncomeAndExpensesOpenCompletePeriodActivity",
                 "testItalianDefaultAndEnglishSwitchPreservesSyntheticLedger",
+                "testOverReimbursementShowsAdditionalEarningsWithoutExtraMovement",
                 "testReview35FirstCapturePromptAndDeletionPersist",
                 "testReview35CrossAccountSettlementPickerAndCancel",
             ]

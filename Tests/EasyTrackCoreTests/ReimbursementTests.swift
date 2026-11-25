@@ -78,7 +78,7 @@ final class ReimbursementTests: XCTestCase {
         }
     }
 
-    func testManualAndMultiplePartialRefundsRejectOverpaymentAndAccountMismatch() throws {
+    func testManualAndMultiplePartialRefundsCanExceedExpectedAcrossAccounts() throws {
         try withDatabase { database, _ in
             let account = UUID()
             let expense = try database.save(transaction(kind: .expense, cents: 10_000,
@@ -96,16 +96,17 @@ final class ReimbursementTests: XCTestCase {
             XCTAssertEqual(status.linkedTransactionIDs.count, 2)
             XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).personalSpendingEURMinor, 5_000)
 
-            let tooLarge = try database.save(transaction(kind: .reimbursement, cents: 3_001,
-                day: "2026-11-02", accountID: account, merchant: "Fictional too large"))
-            XCTAssertThrowsError(try database.linkReimbursement(expenseID: expense.id,
-                                                                 reimbursementID: tooLarge.id)) {
-                XCTAssertEqual($0 as? ReimbursementError, .overpayment)
-            }
+            let overPlan = try database.save(transaction(kind: .reimbursement, cents: 3_001,
+                day: "2026-11-02", accountID: account, merchant: "Fictional over plan"))
+            try database.linkReimbursement(expenseID: expense.id, reimbursementID: overPlan.id)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.receivedEURMinor, 8_001)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 0)
             let wrongAccount = try database.save(transaction(kind: .reimbursement, cents: 1_000,
                 day: "2026-11-03", accountID: UUID(), merchant: "Fictional wrong account"))
             try database.linkReimbursement(expenseID: expense.id, reimbursementID: wrongAccount.id)
-            XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 2_000)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.receivedEURMinor, 9_001)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.attributedPrincipalEURMinor, 9_001)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 0)
         }
     }
 
@@ -344,7 +345,7 @@ final class ReimbursementTests: XCTestCase {
         }
     }
 
-    func testCrossAccountReimbursementStillRejectsOverpaymentAndRelinking() throws {
+    func testCrossAccountReimbursementAllocatesSurplusAndRejectsRelinking() throws {
         try withDatabase { database, _ in
             let paying = try database.saveLocalAccount(LocalAccount(id: UUID(), name: "Fictional paying card",
                                                                     createdAt: date("2026-10-01")))
@@ -367,10 +368,17 @@ final class ReimbursementTests: XCTestCase {
             extra.account = receiving.name
             extra.accountID = receiving.id
             let savedExtra = try database.save(extra)
-            XCTAssertThrowsError(try database.linkReimbursement(expenseID: savedExpense.id,
-                                                                 reimbursementID: savedExtra.id)) {
-                XCTAssertEqual($0 as? ReimbursementError, .overpayment)
-            }
+            try database.linkReimbursement(expenseID: savedExpense.id,
+                                           reimbursementID: savedExtra.id)
+            let status = try XCTUnwrap(database.reimbursementStatuses().first)
+            XCTAssertEqual(status.receivedEURMinor, 5_100)
+            XCTAssertEqual(status.attributedPrincipalEURMinor, 5_000)
+            XCTAssertEqual(status.surplusEarningsEURMinor, 100)
+            XCTAssertEqual(status.outstandingEURMinor, 0)
+            let totals = LedgerTotals(transactions: try database.transactions())
+            XCTAssertEqual(totals.totalExpensesEURMinor, 5_000)
+            XCTAssertEqual(totals.personalSpendingEURMinor, 0)
+            XCTAssertEqual(totals.incomeEURMinor, 5_100)
             XCTAssertThrowsError(try database.linkReimbursement(expenseID: savedExpense.id,
                                                                  reimbursementID: receipt.id))
         }
@@ -504,6 +512,210 @@ final class ReimbursementTests: XCTestCase {
             XCTAssertEqual(totals.totalExpensesEURMinor, 5_000)
             XCTAssertEqual(totals.personalSpendingEURMinor, 400)
             XCTAssertEqual(totals.incomeEURMinor, 4_600)
+            try database.checkDatabase()
+        }
+    }
+
+    func testExactAndSurplusReceiptsReconcileWithoutExtraMovements() throws {
+        for received in [Int64(1_700), 1_800, 2_500] {
+            try withDatabase { database, _ in
+                let account = UUID()
+                let expense = try database.save(transaction(kind: .expense, cents: 1_700,
+                    day: "2026-10-02", accountID: account, merchant: "Fictional €17 expense"),
+                    expectedReimbursementEURMinor: 1_700)
+                let receipt = try database.createAndLinkReimbursement(expenseID: expense.id,
+                    reimbursement: transaction(kind: .reimbursement, cents: received,
+                        day: "2026-10-04", accountID: account, merchant: "Fictional received cash"))
+                let status = try XCTUnwrap(database.reimbursementStatuses().first)
+                XCTAssertEqual(status.receivedEURMinor, received)
+                XCTAssertEqual(status.attributedPrincipalEURMinor, 1_700)
+                XCTAssertEqual(status.surplusEarningsEURMinor, received - 1_700)
+                XCTAssertEqual(status.outstandingEURMinor, 0)
+                XCTAssertEqual(status.allocation(for: receipt.id, grossEURMinor: 1_700,
+                    transactions: try database.transactions())?.principal, 1_700)
+                let transactions = try database.transactions()
+                XCTAssertEqual(transactions.count, 2)
+                XCTAssertEqual(transactions.first { $0.id == receipt.id }?.amountMinor, received)
+                XCTAssertEqual(transactions.first { $0.id == expense.id }?.personalExpenseEURMinor, 0)
+                let ledger = LedgerTotals(transactions: transactions)
+                XCTAssertEqual(ledger.totalExpensesEURMinor, 1_700)
+                XCTAssertEqual(ledger.incomeEURMinor, received)
+                XCTAssertEqual(ledger.personalSpendingEURMinor, 0)
+                let financial = try FinancialAnalytics.snapshot(transactions: transactions,
+                    period: .month(year: 2026, month: 10),
+                    reimbursementStatuses: [status], timeZone: zone, now: date("2026-11-01"))
+                XCTAssertEqual(financial.totals.grossExpensesEURMinor, 1_700)
+                XCTAssertEqual(financial.totals.incomeEURMinor, received)
+                XCTAssertEqual(financial.totals.personalNetExpensesEURMinor, 0)
+                XCTAssertEqual(financial.totals.cashNetEURMinor, received - 1_700)
+                for (metric, kind, expected) in [
+                    (DashboardHeroMetric.income, FinancialContributionKind.income, received),
+                    (.expenses, .grossExpenses, 1_700),
+                    (.netExpenses, .netExpenses, 0),
+                    (.net, .net, received - 1_700)
+                ] {
+                    let filter = try XCTUnwrap(HomeMetricDrilldown.filter(for: metric, snapshot: financial))
+                    XCTAssertEqual(try FinancialContributions.total(filter.apply(to: transactions,
+                        timeZone: zone), kind: kind), expected)
+                }
+                try database.checkDatabase()
+            }
+        }
+    }
+
+    func testExpectedAboveGrossPartialCrossMonthSurplusBackupAndExports() throws {
+        try withDatabase { database, url in
+            try database.prepareProductionLedger()
+            let paying = try database.saveLocalAccount(LocalAccount(id: UUID(),
+                name: "Fictional paying card", createdAt: date("2026-10-01")))
+            let receiving = try database.saveLocalAccount(LocalAccount(id: UUID(),
+                name: "Fictional receiving bank", createdAt: date("2026-10-01")))
+            var expense = transaction(kind: .expense, cents: 1_700, day: "2026-10-31",
+                accountID: paying.id, merchant: "Fictional October expense")
+            expense.accountID = paying.id
+            expense.account = paying.name
+            let savedExpense = try database.save(expense, expectedReimbursementEURMinor: 1_800)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 1_800)
+            XCTAssertEqual(try database.transactions().first { $0.id == savedExpense.id }?.personalExpenseEURMinor, 1_700)
+
+            var first = transaction(kind: .reimbursement, cents: 1_000, day: "2026-10-31",
+                accountID: paying.id, merchant: "Fictional first receipt")
+            first.accountID = paying.id
+            first.account = paying.name
+            let firstReceipt = try database.createAndLinkReimbursement(expenseID: savedExpense.id,
+                reimbursement: first)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.outstandingEURMinor, 800)
+            var second = transaction(kind: .reimbursement, cents: 800, day: "2026-11-02",
+                accountID: receiving.id, merchant: "Fictional second receipt")
+            second.accountID = receiving.id
+            second.account = receiving.name
+            let secondReceipt = try database.createAndLinkReimbursement(expenseID: savedExpense.id,
+                reimbursement: second)
+            let status = try XCTUnwrap(database.reimbursementStatuses().first)
+            XCTAssertEqual(status.receivedEURMinor, 1_800)
+            XCTAssertEqual(status.attributedPrincipalEURMinor, 1_700)
+            XCTAssertEqual(status.surplusEarningsEURMinor, 100)
+            XCTAssertEqual(status.outstandingEURMinor, 0)
+            let transactions = try database.transactions()
+            XCTAssertEqual(status.allocation(for: firstReceipt.id, grossEURMinor: 1_700,
+                transactions: transactions)?.principal, 1_000)
+            XCTAssertEqual(status.allocation(for: secondReceipt.id, grossEURMinor: 1_700,
+                transactions: transactions)?.principal, 700)
+            XCTAssertEqual(status.allocation(for: secondReceipt.id, grossEURMinor: 1_700,
+                transactions: transactions)?.earnings, 100)
+            let october = try FinancialAnalytics.snapshot(transactions: transactions,
+                period: .month(year: 2026, month: 10), reimbursementStatuses: [status],
+                timeZone: zone, now: date("2026-12-01"))
+            let november = try FinancialAnalytics.snapshot(transactions: transactions,
+                period: .month(year: 2026, month: 11), reimbursementStatuses: [status],
+                timeZone: zone, now: date("2026-12-01"))
+            XCTAssertEqual(october.totals.grossExpensesEURMinor, 1_700)
+            XCTAssertEqual(october.totals.incomeEURMinor, 1_000)
+            XCTAssertEqual(october.totals.personalNetExpensesEURMinor, 0)
+            XCTAssertEqual(october.totals.cashNetEURMinor, -700)
+            XCTAssertEqual(november.totals.grossExpensesEURMinor, 0)
+            XCTAssertEqual(november.totals.incomeEURMinor, 800)
+            XCTAssertEqual(november.totals.personalNetExpensesEURMinor, 0)
+            XCTAssertEqual(november.totals.cashNetEURMinor, 800)
+
+            let archive = try database.exportBackup()
+            XCTAssertEqual(archive.schemaVersion, 15)
+            XCTAssertEqual(archive.databaseSchemaVersion, 13)
+            let restored = try SQLiteDatabase(url: url.deletingLastPathComponent()
+                .appendingPathComponent("restored.sqlite"))
+            _ = try restored.restoreBackup(archive, preview: restored.previewBackup(archive), mode: .replace)
+            XCTAssertEqual(try restored.reimbursementStatuses().first?.surplusEarningsEURMinor, 100)
+            XCTAssertEqual(try restored.transactions().first { $0.id == secondReceipt.id }?.accountID,
+                           receiving.id)
+            try restored.checkDatabase()
+
+            let readOnly = try SQLiteDatabase(readOnlyURL: url)
+            let options = TransactionExportOptions()
+            let selection = try readOnly.transactionExportSnapshot().select(filter: .init(), options: options)
+            XCTAssertEqual(selection.rows.count, 3)
+            XCTAssertEqual(try selection.totals().expenses, 1_700)
+            XCTAssertEqual(try selection.totals().income, 1_800)
+            XCTAssertEqual(try selection.totals().personal, 0)
+            let csv = String(decoding: try TransactionCSVWriter.encode(selection, options: options), as: UTF8.self)
+            XCTAssertTrue(csv.contains("Fictional second receipt"))
+            XCTAssertTrue(csv.contains("8.00"))
+            var xlsxOptions = options
+            xlsxOptions.format = .xlsx
+            xlsxOptions.includeSummary = true
+            XCTAssertTrue(try TransactionXLSXWriter.encode(selection, options: xlsxOptions)
+                .starts(with: Data([0x50, 0x4B, 0x03, 0x04])))
+        }
+    }
+
+    func testSurplusReallocatesAfterUnlinkEditAndDeletion() throws {
+        try withDatabase { database, _ in
+            let account = UUID()
+            let expense = try database.save(transaction(kind: .expense, cents: 1_700,
+                day: "2026-10-01", accountID: account, merchant: "Fictional editable expense"),
+                expectedReimbursementEURMinor: 1_700)
+            let receipt = try database.createAndLinkReimbursement(expenseID: expense.id,
+                reimbursement: transaction(kind: .reimbursement, cents: 1_800,
+                    day: "2026-10-02", accountID: account, merchant: "Fictional editable receipt"))
+            var resizedExpense = try XCTUnwrap(database.transactions().first { $0.id == expense.id })
+            resizedExpense.amountMinor = 1_600
+            resizedExpense.eurMinor = 1_600
+            _ = try database.save(resizedExpense)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.attributedPrincipalEURMinor, 1_600)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.surplusEarningsEURMinor, 200)
+            resizedExpense = try XCTUnwrap(database.transactions().first { $0.id == expense.id })
+            resizedExpense.amountMinor = 1_700
+            resizedExpense.eurMinor = 1_700
+            _ = try database.save(resizedExpense)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.surplusEarningsEURMinor, 100)
+            var blocked = receipt
+            blocked.amountMinor = 2_500
+            blocked.eurMinor = 2_500
+            XCTAssertThrowsError(try database.save(blocked)) {
+                XCTAssertEqual($0 as? ReimbursementError, .linkedReceiptRequiresUnlink)
+            }
+            try database.unlinkReimbursement(receipt.id)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.receivedEURMinor, 0)
+            XCTAssertEqual(try database.transactions().first { $0.id == expense.id }?.personalExpenseEURMinor, 1_700)
+            var edited = try XCTUnwrap(database.transactions().first { $0.id == receipt.id })
+            edited.amountMinor = 2_500
+            edited.eurMinor = 2_500
+            edited.personalExpenseEURMinor = -2_500
+            let saved = try database.save(edited)
+            try database.linkReimbursement(expenseID: expense.id, reimbursementID: saved.id)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.surplusEarningsEURMinor, 800)
+            var deleted = try XCTUnwrap(database.transactions().first { $0.id == saved.id })
+            deleted.deletedAt = .now
+            _ = try database.save(deleted)
+            let status = try XCTUnwrap(database.reimbursementStatuses().first)
+            XCTAssertEqual(status.receivedEURMinor, 0)
+            XCTAssertEqual(status.attributedPrincipalEURMinor, 0)
+            XCTAssertEqual(status.surplusEarningsEURMinor, 0)
+            XCTAssertEqual(status.outstandingEURMinor, 1_700)
+            XCTAssertEqual(try database.transactions().first { $0.id == expense.id }?.personalExpenseEURMinor, 1_700)
+            XCTAssertEqual(LedgerTotals(transactions: try database.transactions()).incomeEURMinor, 0)
+            try database.checkDatabase()
+        }
+    }
+
+    func testLateReceiptAfterWriteOffShowsReceivedAndKeepsCostNonnegative() throws {
+        try withDatabase { database, _ in
+            let account = UUID()
+            let expense = try database.save(transaction(kind: .expense, cents: 1_700,
+                day: "2026-10-01", accountID: account, merchant: "Fictional written-off expense"),
+                expectedReimbursementEURMinor: 1_700)
+            try database.writeOffOutstandingReimbursement(expense.id)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.title, "Non rimborsato")
+            let receipt = try database.createAndLinkReimbursement(expenseID: expense.id,
+                reimbursement: transaction(kind: .reimbursement, cents: 1_800,
+                    day: "2026-11-01", accountID: account, merchant: "Fictional late receipt"))
+            let status = try XCTUnwrap(database.reimbursementStatuses().first)
+            XCTAssertEqual(status.title, "Rimborsato")
+            XCTAssertEqual(status.attributedPrincipalEURMinor, 1_700)
+            XCTAssertEqual(status.surplusEarningsEURMinor, 100)
+            XCTAssertEqual(try database.transactions().first { $0.id == expense.id }?.personalExpenseEURMinor, 0)
+            try database.unlinkReimbursement(receipt.id)
+            XCTAssertEqual(try database.reimbursementStatuses().first?.title, "Non rimborsato")
+            XCTAssertEqual(try database.transactions().first { $0.id == expense.id }?.personalExpenseEURMinor, 1_700)
             try database.checkDatabase()
         }
     }
