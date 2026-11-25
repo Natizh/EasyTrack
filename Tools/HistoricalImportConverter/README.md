@@ -1,8 +1,10 @@
 # Historical import converter
 
+[EasyTrack](../../README.md) · [English](README.md) / [Italiano](README.it.md)
+
 This local, deterministic tool converts a mapped XLSX workbook into an EasyTrack seed SQLite file. It uses only the Python standard library, never edits the workbook, and does not infer an unknown workbook layout.
 
-For a first import, start with the [working one-sheet example and step-by-step guide](../../docs/EXCEL_IMPORT.md). The instructions below cover adapting a more complex private workbook.
+For a first import, start with the [working one-sheet example and step-by-step guide](../../docs/en/EXCEL_IMPORT.md). The instructions below cover adapting a more complex private workbook.
 
 1. Copy `mapping.example.json` outside the repository and adapt worksheet/header names to the real workbook.
 2. Keep a stable source identifier for every movement. If the workbook has no durable identifier, configure `stable_id.fields` using immutable business fields and review collisions before import.
