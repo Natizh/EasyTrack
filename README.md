@@ -45,6 +45,45 @@ EasyTrack helps you record daily spending, see where your money goes, and keep a
 
 EasyTrack starts in Italian on every first launch. Change it at **Settings → Language / Impostazioni → Lingua**; see [App language](docs/LOCALIZATION.md) for backup and data-compatibility details.
 
+### Choose an installation method
+
+For regular iPhone use, **SideStore is the recommended option** once you have a compatible unsigned IPA. **Xcode** is the alternative for developers who want to build, run or debug the project.
+
+| | **SideStore (recommended)** | **Xcode (developers)** |
+| --- | --- | --- |
+| Best for | Installing and updating on iPhone | Building and debugging from source |
+| Updates | Import an IPA and refresh signing in SideStore | Build and reinstall from a Mac |
+| Setup | One-time pairing, local VPN and a compatible IPA | Mac, compatible Xcode and development signing |
+
+Both routes using free Apple-account signing require renewal within **seven days**. SideStore avoids opening Xcode for every refresh, but it **does not build the IPA**: this repository does not offer a prebuilt app download.
+
+### SideStore — recommended for iPhone use
+
+1. Follow the official [SideStore installation guide](https://docs.sidestore.io/docs/installation/install) to complete pairing and local VPN setup. SideStore signs and installs a compatible unsigned IPA with your Apple account.
+2. **Get an unsigned IPA.** If you are building EasyTrack yourself, use Xcode on a Mac to build a Release app and package it with the repository's `scripts/package_unsigned_ipa.sh` helper:
+
+   ```sh
+   xcodebuild -project EasyTrack.xcodeproj -scheme EasyTrack -configuration Release \
+     -destination 'generic/platform=iOS' -derivedDataPath DerivedData \
+     PRODUCT_BUNDLE_IDENTIFIER=local.easytrack.finance CODE_SIGNING_ALLOWED=NO build
+   EASYTRACK_IPA_OUTPUT=DerivedData/EasyTrack-0.2-build11-unsigned.ipa sh scripts/package_unsigned_ipa.sh
+   ```
+
+3. **Back up before updating.** Export a fresh JSON backup to Files outside the app and verify that it is available. Import the IPA in SideStore and install it **over the existing EasyTrack app without uninstalling it**, preserving the bundle identifier `local.easytrack.finance`.
+4. Refresh signing in SideStore before the free development-signing period expires (see the [SideStore FAQ](https://docs.sidestore.io/docs/faq.html)). EasyTrack itself does not require SideStore at runtime.
+
+The packaging helper validates the Release app and IPA: version/build, unsigned state, original bundle identity, ZIP integrity and exclusions for bundled financial data or signing material. It refuses to overwrite an existing IPA; use a new `EASYTRACK_IPA_OUTPUT` filename for every build, and `EASYTRACK_DERIVED_DATA` if reusing a different DerivedData path. Physical-device update and renewal checks are tracked in [issue #8](https://github.com/Natizh/EasyTrack/issues/8).
+
+### Xcode — alternative for developers
+
+The project targets **iPhone running iOS 17 or later**. Use Xcode 26 or later for the iOS 26 SwiftUI tab API used by the project. Apple lists macOS Sequoia 15.6–Tahoe 26.x for Xcode 26, and macOS Tahoe 26.6 or later for Xcode 27.2; check [Apple's compatibility table](https://developer.apple.com/xcode/system-requirements) for your chosen release.
+
+1. Clone the repository with an account that has access: `git clone https://github.com/Natizh/EasyTrack.git`.
+2. Open `EasyTrack.xcodeproj` in Xcode.
+3. For a simulator, select an installed iPhone simulator and choose **Run**. For a physical iPhone, select your device, choose your team under **Signing & Capabilities**, enable Developer Mode if prompted, then choose **Run**. A unique local bundle ID may be needed for your signing team, which creates a separate installation from the SideStore app.
+
+A free Apple Personal Team can install a development build on a personal device, but its provisioning profile expires after **seven days**. Rebuild and reinstall or re-sign the app when it expires ([Apple account guidance](https://developer.apple.com/help/account/basics/about-your-developer-account/)). Back up your ledger before replacing or deleting an installation.
+
 ### Set up payment notifications with Shortcuts
 
 EasyTrack cannot read every notification by itself. You create a **personal automation** in Apple's **Comandi Rapidi / Shortcuts** that passes one selected app's notification to EasyTrack. The available trigger fields and automatic execution can vary by iOS version and app; a captured notification is not yet a transaction.
@@ -66,31 +105,6 @@ EasyTrack cannot read every notification by itself. You create a **personal auto
 7. If nothing arrives, check the selected trigger app, Shortcuts permissions, automatic execution, exact source label and blue variable properties. If a sample arrives without an amount, check `Message → Corpo` before changing parser anchors. See the [full troubleshooting guide](docs/SHORTCUTS_SETUP.md#troubleshooting--risoluzione-dei-problemi) for missing actions, empty fields, duplicate status, SideStore refresh and locked/background behavior.
 
 Never post real bank notifications, screenshots or amounts in public issues. Real-device Shortcuts delivery is not guaranteed by simulator or parser tests.
-
-### Build with Xcode
-
-The project targets **iPhone running iOS 17 or later**. Use Xcode 26 or later for the iOS 26 SwiftUI tab API used by the project. Apple lists macOS Sequoia 15.6–Tahoe 26.x for Xcode 26, and macOS Tahoe 26.6 or later for Xcode 27.2; check [Apple's compatibility table](https://developer.apple.com/xcode/system-requirements) for your chosen release.
-
-1. Clone the repository with an account that has access: `git clone https://github.com/Natizh/EasyTrack.git`.
-2. Open `EasyTrack.xcodeproj` in Xcode.
-3. For a simulator, select an installed iPhone simulator and choose **Run**. For a physical iPhone, select your device, choose your team under **Signing & Capabilities**, enable Developer Mode if prompted, then choose **Run**. A unique local bundle ID may be needed for your signing team.
-
-A free Apple Personal Team can install a development build on a personal device, but its provisioning profile expires after **seven days**. Rebuild and reinstall or re-sign the app when it expires; a free-signing install is not permanent ([Apple account guidance](https://developer.apple.com/help/account/basics/about-your-developer-account/)). Back up your ledger before replacing or deleting an installation.
-
-### Optional SideStore path
-
-The repository includes [`scripts/package_unsigned_ipa.sh`](scripts/package_unsigned_ipa.sh) for packaging a locally built Release app as an **unsigned** IPA. Build for a generic iOS device with `-derivedDataPath DerivedData`, then run the helper:
-
-```sh
-xcodebuild -project EasyTrack.xcodeproj -scheme EasyTrack -configuration Release \
-  -destination 'generic/platform=iOS' -derivedDataPath DerivedData \
-  PRODUCT_BUNDLE_IDENTIFIER=local.easytrack.finance CODE_SIGNING_ALLOWED=NO build
-EASYTRACK_IPA_OUTPUT=DerivedData/EasyTrack-0.2-build11-unsigned.ipa sh scripts/package_unsigned_ipa.sh
-```
-
-The package helper validates the Release app and resulting IPA, including the original bundle ID, source version/build, unsigned state, and absence of bundled financial files or signing material. It refuses to overwrite an existing IPA. Set `EASYTRACK_IPA_OUTPUT` to a new path for every build, and `EASYTRACK_DERIVED_DATA` if reusing a build cache outside this checkout. Before an in-place iPhone update, make a fresh external JSON backup and verify the result on the device. Keep the existing installation; do not uninstall it to update.
-
-There is no prebuilt EasyTrack IPA or App Store release here. [SideStore](https://docs.sidestore.io/docs/installation/install) can sign and install a compatible IPA using your Apple account after its pairing and local VPN setup. Import the local IPA into SideStore and refresh it before its seven-day development signing period expires ([SideStore FAQ](https://docs.sidestore.io/docs/faq.html)). EasyTrack itself does not depend on SideStore at runtime. Physical-device installation and refresh for this project still need the validation tracked in [issue #8](https://github.com/Natizh/EasyTrack/issues/8).
 
 ## Bring an Excel history
 
