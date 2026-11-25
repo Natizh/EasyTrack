@@ -416,6 +416,42 @@ final class EasyTrackUITests: XCTestCase {
     }
 
     @MainActor
+    func testOverReimbursementShowsAdditionalEarningsWithoutExtraMovement() throws {
+        #if EASYTRACK_ACCOUNTING_AUDIT
+        let app = englishApp()
+        let description = "Fictional surplus expense \(UUID().uuidString.prefix(8))"
+        app.launch()
+        app.buttons["homeAddTransactionButton"].tap()
+        replaceText(in: app.textFields["transactionOriginalAmountField"], with: "17,00")
+        replaceText(in: app.textFields["transactionDescriptionField"], with: description)
+        let expecting = app.switches["expectsReimbursementToggle"]
+        for _ in 0..<8 where !expecting.isHittable { app.swipeUp() }
+        XCTAssertTrue(expecting.isHittable)
+        expecting.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        app.buttons["Save"].tap()
+        app.tabBars.buttons["Activity"].tap()
+        let search = app.textFields["transactionSearchField"]
+        replaceText(in: search, with: description)
+        let expense = app.staticTexts[description]
+        XCTAssertTrue(expense.waitForExistence(timeout: 8), app.debugDescription)
+        expense.tap()
+        let receive = app.buttons["receiveReimbursementButton"]
+        for _ in 0..<8 where !receive.isHittable { app.swipeUp() }
+        receive.tap()
+        let amount = app.textFields["reimbursementReceivedAmountField"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5))
+        replaceText(in: amount, with: "18,00")
+        app.buttons["recordAndLinkReimbursementButton"].tap()
+        let earnings = app.staticTexts.matching(NSPredicate(
+            format: "label CONTAINS %@", "Additional earnings")).firstMatch
+        XCTAssertTrue(earnings.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(receive.exists, "A settled plan still allows a later real receipt")
+        #else
+        throw XCTSkip("Run with the isolated accounting UI fixture")
+        #endif
+    }
+
+    @MainActor
     func testAccountsDefaultPickerHasNoDuplicateSelectionRow() throws {
         let app = englishApp()
         app.launch()

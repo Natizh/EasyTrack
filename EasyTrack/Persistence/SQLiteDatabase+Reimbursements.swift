@@ -38,7 +38,8 @@ extension SQLiteDatabase {
     func reimbursementStatuses() throws -> [ExpenseReimbursementStatus] {
         let stmt = try statement("""
             SELECT p.expense_id,p.expected_eur_minor,p.written_off_eur_minor,p.updated_at,
-                   l.reimbursement_id,l.amount_eur_minor
+                   l.reimbursement_id,l.amount_eur_minor,
+                   e.kind,e.currency,e.amount_minor,e.eur_minor
             FROM expense_reimbursement_plans p
             LEFT JOIN expense_reimbursement_links l ON l.expense_id=p.expense_id
             JOIN transactions e ON e.id=p.expense_id
@@ -46,12 +47,24 @@ extension SQLiteDatabase {
             ORDER BY p.expense_id,l.created_at,l.reimbursement_id
             """)
         defer { sqlite3_finalize(stmt) }
-        struct Mutable { var expected: Int64; var received: Int64; var writtenOff: Int64; var ids: [UUID]; var updated: Date }
+        struct Mutable {
+            var expected: Int64
+            var received: Int64
+            var writtenOff: Int64
+            var gross: Int64
+            var ids: [UUID]
+            var updated: Date
+        }
         var values: [UUID: Mutable] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let expenseID = UUID(uuidString: string(stmt, 0)) else { continue }
+            let currency = string(stmt, 7)
+            let gross = currency == "EUR" ? sqlite3_column_int64(stmt, 8) :
+                (sqlite3_column_type(stmt, 9) == SQLITE_NULL ? nil : sqlite3_column_int64(stmt, 9))
+            guard ["expense", "advanceForOthers"].contains(string(stmt, 6)),
+                  let gross, gross > 0 else { throw ReimbursementError.invalidExpectedAmount }
             var value = values[expenseID] ?? Mutable(expected: sqlite3_column_int64(stmt, 1),
-                received: 0, writtenOff: sqlite3_column_int64(stmt, 2), ids: [],
+                received: 0, writtenOff: sqlite3_column_int64(stmt, 2), gross: gross, ids: [],
                 updated: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3)))
             if let reimbursementID = UUID(uuidString: string(stmt, 4)) {
                 let (received, overflow) = value.received.addingReportingOverflow(sqlite3_column_int64(stmt, 5))
@@ -62,12 +75,17 @@ extension SQLiteDatabase {
             values[expenseID] = value
         }
         return try values.map { expenseID, value in
-            let settled = try Self.checkedAdd(value.received, value.writtenOff)
-            guard settled <= value.expected else { throw ReimbursementError.overpayment }
+            guard value.expected > 0, value.received >= 0,
+                  value.writtenOff >= 0, value.writtenOff <= value.expected else {
+                throw ReimbursementError.invalidExpectedAmount
+            }
+            let afterReceipt = value.received >= value.expected ? 0 : value.expected - value.received
+            let outstanding = value.writtenOff >= afterReceipt ? 0 : afterReceipt - value.writtenOff
             return ExpenseReimbursementStatus(expenseID: expenseID, expectedEURMinor: value.expected,
                 receivedEURMinor: value.received, writtenOffEURMinor: value.writtenOff,
-                outstandingEURMinor: value.expected - settled,
-                linkedTransactionIDs: value.ids, updatedAt: value.updated)
+                outstandingEURMinor: outstanding,
+                linkedTransactionIDs: value.ids, updatedAt: value.updated,
+                attributedPrincipalEURMinor: min(value.gross, value.received))
         }.sorted { $0.expenseID.uuidString < $1.expenseID.uuidString }
     }
 
@@ -96,14 +114,14 @@ extension SQLiteDatabase {
         let query = try statement("""
             SELECT e.id,e.kind,e.currency,e.amount_minor,e.eur_minor,
                    e.personal_expense_eur_minor,p.expected_eur_minor,p.written_off_eur_minor,
-                   COALESCE(s.received,0)
+                   COALESCE(s.received,0),e.recoverable_eur_minor
             FROM expense_reimbursement_plans p
             JOIN transactions e ON e.id=p.expense_id
             LEFT JOIN (SELECT expense_id,SUM(amount_eur_minor) received
                        FROM expense_reimbursement_links GROUP BY expense_id) s ON s.expense_id=p.expense_id
             WHERE e.deleted_at IS NULL
             """)
-        var changes: [(String, Int64)] = []
+        var changes: [(String, Int64, Int64)] = []
         var step = sqlite3_step(query)
         while step == SQLITE_ROW {
             let id = string(query, 0)
@@ -114,29 +132,36 @@ extension SQLiteDatabase {
             let expected = sqlite3_column_int64(query, 6)
             let writtenOff = sqlite3_column_int64(query, 7)
             let received = sqlite3_column_int64(query, 8)
-            let (settled, overflow) = received.addingReportingOverflow(writtenOff)
-            guard let gross, !overflow, expected > 0, expected <= gross,
-                  writtenOff >= 0, received >= 0, settled <= expected,
+            guard let gross, gross > 0, expected > 0,
+                  writtenOff >= 0, writtenOff <= expected, received >= 0,
                   kind == "expense" || kind == "advanceForOthers" else {
                 sqlite3_finalize(query)
                 throw ReimbursementError.invalidExpectedAmount
             }
-            let personal = kind == "expense" ? gross - received : writtenOff
-            if sqlite3_column_type(query, 5) == SQLITE_NULL || sqlite3_column_int64(query, 5) != personal {
-                changes.append((id, personal))
+            let principal = min(gross, received)
+            let remainingPrincipal = gross - principal
+            let personal = kind == "expense" ? remainingPrincipal : min(writtenOff, remainingPrincipal)
+            let afterReceipt = received >= expected ? 0 : expected - received
+            let outstanding = writtenOff >= afterReceipt ? 0 : afterReceipt - writtenOff
+            if sqlite3_column_type(query, 5) == SQLITE_NULL || sqlite3_column_int64(query, 5) != personal ||
+               sqlite3_column_type(query, 9) == SQLITE_NULL || sqlite3_column_int64(query, 9) != outstanding {
+                changes.append((id, personal, outstanding))
             }
             step = sqlite3_step(query)
         }
         sqlite3_finalize(query)
         guard step == SQLITE_DONE else { throw error() }
         if !changes.isEmpty {
-            let update = try statement("UPDATE transactions SET personal_expense_eur_minor=? WHERE id=?")
+            let update = try statement("""
+                UPDATE transactions SET personal_expense_eur_minor=?,recoverable_eur_minor=? WHERE id=?
+                """)
             defer { sqlite3_finalize(update) }
-            for (id, value) in changes {
+            for (id, personal, outstanding) in changes {
                 sqlite3_reset(update)
                 sqlite3_clear_bindings(update)
-                sqlite3_bind_int64(update, 1, value)
-                bind(id, at: 2, to: update)
+                sqlite3_bind_int64(update, 1, personal)
+                sqlite3_bind_int64(update, 2, outstanding)
+                bind(id, at: 3, to: update)
                 guard sqlite3_step(update) == SQLITE_DONE else { throw error() }
             }
         }
@@ -151,16 +176,8 @@ extension SQLiteDatabase {
     func save(_ input: Transaction, expectedReimbursementEURMinor: Int64?) throws -> Transaction {
         try execute("BEGIN IMMEDIATE")
         do {
-            let currentGross = try transaction(input.id).flatMap(verifiedEUR)
-            let configureFirst = expectedReimbursementEURMinor.map { expected in
-                currentGross.map { expected <= $0 } == true
-            } ?? false
-            if configureFirst, let expectedReimbursementEURMinor {
-                try configureExpectedReimbursement(expenseID: input.id,
-                    expectedEURMinor: expectedReimbursementEURMinor, manageTransaction: false)
-            }
             let saved = try save(input, manageTransaction: false)
-            if !configureFirst, let expectedReimbursementEURMinor {
+            if let expectedReimbursementEURMinor {
                 try configureExpectedReimbursement(expenseID: saved.id,
                     expectedEURMinor: expectedReimbursementEURMinor, manageTransaction: false)
             }
@@ -180,12 +197,13 @@ extension SQLiteDatabase {
                   expense.kind == .expense || expense.kind == .advanceForOthers else {
                 throw ReimbursementError.expenseRequired
             }
-            guard let gross = verifiedEUR(expense), expectedEURMinor > 0, expectedEURMinor <= gross else {
+            guard verifiedEUR(expense) != nil, expectedEURMinor > 0 else {
                 throw ReimbursementError.invalidExpectedAmount
             }
             let existing = try reimbursementStatuses().first { $0.expenseID == expenseID }
-            let settled = try Self.checkedAdd(existing?.receivedEURMinor ?? 0, existing?.writtenOffEURMinor ?? 0)
-            guard settled <= expectedEURMinor else { throw ReimbursementError.overpayment }
+            guard (existing?.writtenOffEURMinor ?? 0) <= expectedEURMinor else {
+                throw ReimbursementError.invalidExpectedAmount
+            }
             let now = Date().timeIntervalSince1970
             let stmt = try statement("""
                 INSERT INTO expense_reimbursement_plans
@@ -212,7 +230,7 @@ extension SQLiteDatabase {
                            manageTransaction: Bool = true) throws {
         if manageTransaction { try execute("BEGIN IMMEDIATE") }
         do {
-            guard let status = try reimbursementStatuses().first(where: { $0.expenseID == expenseID }),
+            guard try reimbursementStatuses().contains(where: { $0.expenseID == expenseID }),
                   let expense = try transaction(expenseID) else { throw ReimbursementError.missingPlan }
             guard let reimbursement = try transaction(reimbursementID), reimbursement.kind == .reimbursement else {
                 throw ReimbursementError.reimbursementRequired
@@ -222,7 +240,6 @@ extension SQLiteDatabase {
             }
             guard verifiedCurrency(expense), verifiedCurrency(reimbursement),
                   let amount = verifiedEUR(reimbursement) else { throw ReimbursementError.conversionRequired }
-            guard amount <= status.outstandingEURMinor else { throw ReimbursementError.overpayment }
             let stmt = try statement("""
                 INSERT INTO expense_reimbursement_links
                     (expense_id,reimbursement_id,amount_eur_minor,created_at) VALUES(?,?,?,?)
@@ -317,12 +334,14 @@ extension SQLiteDatabase {
         var item = input
         if let status = try reimbursementStatuses().first(where: { $0.expenseID == input.id }) {
             guard (input.kind == .expense || input.kind == .advanceForOthers),
-                  let gross = verifiedEUR(input), status.expectedEURMinor <= gross else {
+                  let gross = verifiedEUR(input), gross > 0 else {
                 throw ReimbursementError.invalidExpectedAmount
             }
+            let attributedPrincipal = min(gross, status.receivedEURMinor)
+            let remainingPrincipal = gross - attributedPrincipal
             item.personalExpenseEURMinor = input.kind == .expense
-                ? gross - status.receivedEURMinor
-                : status.writtenOffEURMinor
+                ? remainingPrincipal
+                : min(status.writtenOffEURMinor, remainingPrincipal)
             item.recoverableEURMinor = status.outstandingEURMinor
         }
         if let link = try reimbursementLinks().first(where: { $0.reimbursementID == input.id }) {

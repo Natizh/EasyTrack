@@ -407,7 +407,7 @@ final class SeedMapper {
             let received = integer(stmt, 4) ?? 0
             let status = text(stmt, 5) ?? ""
             guard !linkID.isEmpty, ids.insert(linkID).inserted, !expenseID.isEmpty,
-                  expected > 0, received >= 0, received <= expected,
+                  expected > 0, received >= 0,
                   ["pending", "received"].contains(status),
                   (status == "received") == (receiptID?.isEmpty == false),
                   (status == "received" ? received > 0 : received == 0) else {

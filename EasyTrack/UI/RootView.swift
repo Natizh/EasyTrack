@@ -354,9 +354,12 @@ private struct HomeView: View {
                        let rule = store.recurringRules.first(where: { $0.id == due.ruleID }) {
                         let today = LocalDay(date: .now,
                             timeZone: TimeZone(identifier: rule.timeZoneIdentifier) ?? .current)
-                        let dueStatus = due.scheduledDay < today ? "Overdue" : "Expected today"
+                        let dueStatus = AppLanguage.localized(due.scheduledDay < today ? "Overdue" : "Expected today")
+                        let dueName = rule.type == .pacInvestment
+                            ? "\(AppLanguage.localized("Planned PAC investment")) · \(rule.name)"
+                            : rule.name
                         NavigationLink { RecurringOccurrenceDetailView(occurrenceID: due.id) } label: {
-                            Label("\(dueStatus) · \(rule.name)", systemImage: "clock")
+                            Label("\(dueStatus) · \(dueName)", systemImage: "clock")
                         }
                         .font(.subheadline.weight(.medium))
                         .accessibilityIdentifier("homeRecurringDueStatus")
@@ -856,6 +859,12 @@ struct TransactionsView: View {
         return try? FinancialContributions.total(filtered, kind: kind,
             reimbursementStatuses: store.reimbursementStatuses)
     }
+    private func receiptAllocation(_ item: Transaction) -> (principal: Int64, earnings: Int64)? {
+        guard let status = store.reimbursementStatuses.first(where: { $0.linkedTransactionIDs.contains(item.id) }),
+              let expense = store.transactions.first(where: { $0.id == status.expenseID }),
+              let gross = FinancialContributions.eurValue(of: expense) else { return nil }
+        return status.allocation(for: item.id, grossEURMinor: gross, transactions: store.transactions)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -976,11 +985,15 @@ struct TransactionsView: View {
                                         .foregroundStyle(.secondary)
                                     if kind == .netExpenses, item.kind == .expense,
                                        let status = store.reimbursementStatuses.first(where: { $0.expenseID == item.id }) {
-                                        Text("Gross \(Money.format(FinancialContributions.eurValue(of: item) ?? item.amountMinor)) · Received \(Money.format(status.receivedEURMinor)) · Personal \(Money.format(value))")
+                                        Text("Gross \(Money.format(FinancialContributions.eurValue(of: item) ?? item.amountMinor)) · Reimbursed \(Money.format(status.attributedPrincipalEURMinor)) · Personal \(Money.format(value))")
                                             .font(.caption).foregroundStyle(.secondary)
-                                    } else if kind == .netExpenses, item.kind == .reimbursement,
-                                              store.reimbursementStatuses.contains(where: { $0.linkedTransactionIDs.contains(item.id) }) {
-                                        Text("Linked receipt attributed to the original expense")
+                                        if status.surplusEarningsEURMinor > 0 {
+                                            Text("Additional earnings: \(Money.format(status.surplusEarningsEURMinor))")
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    } else if item.kind == .reimbursement,
+                                              let allocation = receiptAllocation(item) {
+                                        Text("Reimbursed portion \(Money.format(allocation.principal)) · Additional earnings \(Money.format(allocation.earnings))")
                                             .font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
@@ -1324,21 +1337,28 @@ struct TransactionEditor: View {
                         .disabled(reimbursementStatus != nil)
                         .accessibilityIdentifier("expectsReimbursementToggle")
                     if expectsReimbursement {
-                        DisclosureGroup("Partial expected amount") {
+                        DisclosureGroup("Expected reimbursement amount") {
                             LabeledContent("Expected (EUR)") {
                                 TextField("0,00", text: $expectedReimbursementAmount)
                                     .keyboardType(.numbersAndPunctuation)
                                     .multilineTextAlignment(.trailing)
                                     .accessibilityIdentifier("expectedReimbursementAmountField")
                             }
+                            Text("An expected amount may exceed the expense. Only a real receipt counts as Income; any received surplus is shown as additional earnings.")
+                                .font(.footnote).foregroundStyle(.secondary)
                         }
                     }
                     if let status = reimbursementStatus {
                         LabeledContent("Status", value: AppLanguage.localized(status.title))
                         LabeledContent("Still expected", value: Money.format(status.outstandingEURMinor))
+                        LabeledContent("Received cash", value: Money.format(status.receivedEURMinor))
+                        LabeledContent("Applied to expense", value: Money.format(status.attributedPrincipalEURMinor))
+                        if status.surplusEarningsEURMinor > 0 {
+                            LabeledContent("Additional earnings", value: Money.format(status.surplusEarningsEURMinor))
+                        }
+                        Button("Rimborso ricevuto") { showingReimbursementSettlement = true }
+                            .accessibilityIdentifier("receiveReimbursementButton")
                         if status.outstandingEURMinor > 0 {
-                            Button("Rimborso ricevuto") { showingReimbursementSettlement = true }
-                                .accessibilityIdentifier("receiveReimbursementButton")
                             Button("Non riceverò il rimborso", role: .destructive) {
                                 confirmingReimbursementWriteOff = true
                             }
@@ -1528,10 +1548,9 @@ struct TransactionEditor: View {
         let expectedReimbursement: Int64?
         if kind == .expense && expectsReimbursement {
             let text = expectedReimbursementAmount.isEmpty ? amount : expectedReimbursementAmount
-            guard let eurMinor else { validation = "A verified EUR value is required for an expected reimbursement."; return }
+            guard eurMinor != nil else { validation = "A verified EUR value is required for an expected reimbursement."; return }
             switch Money.validatedPositiveAmount(text) {
-            case .success(let expected) where expected <= eurMinor: expectedReimbursement = expected
-            case .success: validation = "Expected reimbursement cannot exceed the expense."; return
+            case .success(let expected): expectedReimbursement = expected
             case .failure(let error): validation = error.message; return
             }
         } else { expectedReimbursement = nil }
@@ -1641,9 +1660,25 @@ private struct ReimbursementSettlementView: View {
     private func canLinkCurrency(_ item: Transaction) -> Bool {
         item.currency == "EUR" || (item.eurMinor != nil && item.exchangeRateEUR?.isEmpty == false)
     }
+    private var proposedAllocation: (receipt: Int64, principal: Int64, earnings: Int64)? {
+        guard let expense, let status,
+              let gross = FinancialContributions.eurValue(of: expense),
+              let receipt = Money.parseMinor(amount), receipt > 0 else { return nil }
+        let remainingPrincipal = gross - min(gross, status.attributedPrincipalEURMinor)
+        let principal = min(receipt, remainingPrincipal)
+        return (receipt, principal, receipt - principal)
+    }
 
     var body: some View {
         Form {
+            if let status, let expense, let gross = FinancialContributions.eurValue(of: expense) {
+                Section("Reimbursement breakdown") {
+                    LabeledContent("Original amount", value: Money.format(gross))
+                    LabeledContent("Received cash", value: Money.format(status.receivedEURMinor))
+                    LabeledContent("Applied to expense", value: Money.format(status.attributedPrincipalEURMinor))
+                    LabeledContent("Additional earnings", value: Money.format(status.surplusEarningsEURMinor))
+                }
+            }
             Section("Link an existing reimbursement") {
                 if candidates.isEmpty {
                     Text("No unlinked reimbursement transactions are available.")
@@ -1672,6 +1707,11 @@ private struct ReimbursementSettlementView: View {
                 LabeledContent("Amount (EUR)") {
                     TextField("0,00", text: $amount).keyboardType(.numbersAndPunctuation)
                         .multilineTextAlignment(.trailing)
+                        .accessibilityIdentifier("reimbursementReceivedAmountField")
+                }
+                if let proposedAllocation {
+                    Text("Of this receipt, \(Money.format(proposedAllocation.principal)) reimburses the expense and \(Money.format(proposedAllocation.earnings)) is additional earnings. The full \(Money.format(proposedAllocation.receipt)) counts once in Income on its receipt date.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 TextField("Description", text: $description)
                 DatePicker("Received", selection: $occurredAt)
@@ -1690,7 +1730,7 @@ private struct ReimbursementSettlementView: View {
                 .foregroundStyle(.primary)
                 .accessibilityIdentifier("reimbursementReceivingAccountPicker")
                 Button("Record and link") { createAndLink() }
-                    .disabled(expense == nil || status?.outstandingEURMinor == 0 || selectedAccount == nil)
+                    .disabled(expense == nil || status == nil || selectedAccount == nil)
                     .accessibilityIdentifier("recordAndLinkReimbursementButton")
             } header: {
                 Text("Record a new real reimbursement")
@@ -1711,7 +1751,9 @@ private struct ReimbursementSettlementView: View {
             }
         }
         .onAppear {
-            if let outstanding = status?.outstandingEURMinor { amount = Money.editString(outstanding) }
+            if let outstanding = status?.outstandingEURMinor, outstanding > 0 {
+                amount = Money.editString(outstanding)
+            }
             if accountID == nil {
                 accountID = NewReimbursementAccountPolicy.proposed(
                     expenseAccountID: expense?.accountID, accounts: store.localAccounts)?.id
