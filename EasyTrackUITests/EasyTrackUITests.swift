@@ -149,7 +149,7 @@ final class EasyTrackUITests: XCTestCase {
         XCTAssertTrue(record.isEnabled)
         record.tap()
         XCTAssertTrue(unlink.waitForExistence(timeout: 8))
-        XCTAssertFalse(receive.exists)
+        XCTAssertTrue(receive.exists, "A settled plan can receive a later surplus")
         #else
         throw XCTSkip("Run on an isolated PR #35 test bundle")
         #endif
